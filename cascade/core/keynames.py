@@ -68,3 +68,14 @@ def key_name(vk: int, scan: int = 0, extended: bool = False) -> str:
 
 def vk_from_name(name: str) -> int | None:
     return NAME_TO_VK.get(name.lower())
+
+
+def register_name(vk: int, name: str) -> None:
+    """Duzene bagli bir tusa okunur ad verir.
+
+    `^` tusu her klavye duzeninde baska bir VK'de. Hangisi oldugu ancak
+    calisma aninda (VkKeyScanW) bilinir; ogrenildikten sonra buraya
+    kaydedilir ve "Caret & 1" gibi kisayol dizgileri yazilabilir.
+    """
+    VK_NAMES[vk] = name
+    NAME_TO_VK[name.lower()] = vk

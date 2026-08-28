@@ -1,13 +1,19 @@
 """Fare olayini kisayol tablosunun anlayacagi tus koduna cevirir.
 
-AHK'de fare tuslari klavye tuslariyla ayni yerde tanimlanir:
+HENUZ BAGLI DEGIL -- `F13 & WheelUp` icin hazir duruyor.
 
-    ^XButton1::Send("^z")
-    ^WheelUp::...
+Bu senin AHK scriptinde var:
 
-Burada da oyle: WM_XBUTTONDOWN -> VK 0x05, WM_MOUSEWHEEL (+delta) ->
-takma kod VK_WHEEL_UP. Boylece `hotkey.HotkeyTable` fare ile klavyeyi
-ayirt etmek zorunda kalmiyor.
+    ~F13 & WheelUp::   Send("#{NumpadAdd}")     ; zoom
+    ~F14 & WheelUp::   Send("{Volume_Up}")      ; ses
+
+Yani tekerlek, fare yan tusu (F13/F14 -- faren onlari klavye tusu olarak
+gonderiyor) basiliyken anlam kazaniyor. Klavye modifier'i (Ctrl/Alt) ile
+fare kombosu KURULMUYOR; fare kendi arasinda kombo yapiyor.
+
+Bu dosyanin isi sadece cevirme: WM_MOUSEWHEEL (+delta) -> takma kod
+VK_WHEEL_UP. Boylece tekerlek de `hotkey.HotkeyTable` icinde normal bir
+tus gibi yazilabiliyor.
 
 Saf Python: ctypes yok, sadece sayi cevirisi. Mesaj sabitleri burada
 tekrar yaziliyor cunku core/ icinde win32 import'u yasak; degerler

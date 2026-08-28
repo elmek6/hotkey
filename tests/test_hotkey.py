@@ -1,5 +1,5 @@
 from cascade.core.hotkey import HotkeyTable, parse_hotkey
-from cascade.core.keynames import VK_WHEEL_DOWN, VK_WHEEL_UP
+from cascade.core.keynames import VK_WHEEL_DOWN, VK_WHEEL_UP, register_name
 from cascade.core.mouse import (
     WM_MBUTTONDOWN,
     WM_MOUSEMOVE,
@@ -10,6 +10,7 @@ from cascade.core.mouse import (
 )
 
 LCTRL, RCTRL, LSHIFT, LALT = 0xA2, 0xA3, 0xA0, 0xA4
+F13, F14, CARET = 0x7C, 0x7D, 0xDC
 Z, K = 0x5A, 0x4B
 XBUTTON1, MBUTTON = 0x05, 0x04
 
@@ -51,16 +52,64 @@ def test_modifiersiz_tanim_modifier_varken_tetiklenmez():
 
 
 def test_fare_tusu_da_ayni_dizgide_yazilir():
-    hotkey = parse_hotkey("^XButton1")
+    hotkey = parse_hotkey("XButton1")
     assert hotkey.vk == XBUTTON1
-    assert hotkey.matches(XBUTTON1, (LCTRL,))
+    assert hotkey.matches(XBUTTON1)
 
 
-def test_tekerlek_yonu_takma_koda_cevrilir():
-    assert parse_hotkey("^WheelUp").vk == VK_WHEEL_UP
+# ---- onek (prefix) kombosu: AHK'deki `A & B::` ----
+
+
+def test_onek_kombosu_ayristirilir():
+    """AHK: F13 & F14::  --  fare yan tuslari kendi arasinda."""
+    hotkey = parse_hotkey("F13 & F14")
+    assert hotkey.vk == F14
+    assert hotkey.prefix == F13
+    assert hotkey.text == "F13 & F14"
+
+
+def test_onek_kombosu_yalniz_onek_basiliyken_eslesir():
+    hotkey = parse_hotkey("F13 & F14")
+    assert hotkey.matches(F14, (), F13)
+    assert not hotkey.matches(F14, (), None)
+    assert not hotkey.matches(F14, (), F14)
+
+
+def test_oneksiz_tanim_onek_basiliyken_tetiklenmez():
+    """`^ & 1` calisirken sade `1` tanimi patlamamali."""
+    assert parse_hotkey("1").matches(0x31, (), None)
+    assert not parse_hotkey("1").matches(0x31, (), CARET)
+
+
+def test_calisma_aninda_ad_kaydi():
+    """`^` tusunun VK'si duzene bagli; ogrenilince adlandirilip kullanilir."""
+    register_name(CARET, "Caret")
+    hotkey = parse_hotkey("Caret & 1")
+    assert hotkey.prefix == CARET
+    assert hotkey.vk == 0x31
+    assert hotkey.text == "Caret & 1"
+
+
+def test_tekerlek_yonu_onek_kombosunda_kullanilabilir():
+    """AHK: ~F13 & WheelUp -- fare yan tusu basiliyken tekerlek."""
+    hotkey = parse_hotkey("F13 & WheelUp")
+    assert hotkey.vk == VK_WHEEL_UP
+    assert hotkey.prefix == F13
 
 
 # ---- tablo ----
+
+
+def test_onek_tuslari_listelenir():
+    """main.py bu listeye bakip hangi tusu keydown'da yutacagini biliyor."""
+    table = HotkeyTable().add("F13 & F14", "a").add("F14", "b")
+    assert table.prefixes == frozenset({F13})
+
+
+def test_onekli_tanim_oneksizden_once_denenir():
+    table = HotkeyTable().add("F14", "yalniz").add("F13 & F14", "kombo")
+    assert table.match(F14, (), F13).action == "kombo"
+    assert table.match(F14, (), None).action == "yalniz"
 
 
 def test_en_ozgul_tanim_kazanir():

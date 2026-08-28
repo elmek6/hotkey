@@ -105,6 +105,9 @@ user32.PostThreadMessageW.restype = wintypes.BOOL
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
 
+user32.VkKeyScanW.argtypes = [ctypes.c_wchar]
+user32.VkKeyScanW.restype = ctypes.c_short
+
 user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
 user32.MapVirtualKeyW.restype = wintypes.UINT
 

@@ -29,6 +29,18 @@ def scancode_for(vk: int) -> tuple[int, bool]:
     return raw & 0xFF, extended
 
 
+def vk_for_char(ch: str) -> int | None:
+    """Karakteri o anki klavye duzeninde ureten tusun VK'si.
+
+    Turkce Q'da `^` VK 0xDC'de, US duzeninde Shift+6'da. Sabit yazmak
+    yerine duzene sormak tek dogru yol. Duzende yoksa None.
+    """
+    raw = user32.VkKeyScanW(ch)
+    if raw == -1:
+        return None
+    return raw & 0xFF
+
+
 def is_down(vk: int) -> bool:
     """Tus su an fiziksel olarak basili mi. Gonderim oncesi modifier
     tekrarini onlemek icin: kullanici zaten Ctrl'yi tutuyorsa bizim Ctrl'yi

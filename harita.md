@@ -18,7 +18,7 @@ Onlardaki stack seçimi ve modül eşlemesi doğruydu; değişen şey **sıra** 
 | ✅ Faz -1 | risk sondajı — hook, SendInput, kombo, yutma, gecikme ölçüldü |
 | 🔶 Faz 0 | gönderim katmanı: scancode + Unicode + fare var; Türkçe Q/F ve AltGr eksik |
 | ✅ Faz 1 | kaskad durum makinesi — `core/cascade.py`, 18 birim testi |
-| 🔶 Faz 2 | dispatcher: caret sözdizimi (`^!k`) + fare tablosu + yutma var; `HotIf` bağlamı, süreç eşleşmesi ve JSON'dan okuma eksik |
+| 🔶 Faz 2 | dispatcher: önek kombosu (`F13 & F14`, `^ & 1`) + modifier kombosu + yutma/geri gönderme var; `HotIf` bağlamı, süreç eşleşmesi ve JSON'dan okuma eksik |
 | ✅ Faz 3 | iskelet: tek örnek kilidi, loglama, tepsi menüsü, reload/exit |
 
 Çalışan program: `main.py` → tepsiye oturur, `Files/hotkeys.json` okur,
@@ -32,7 +32,7 @@ sol/sağ modifier      : ayrı geliyor (VK 0xA0..0xA5)
 tuş yutma             : çalışıyor (CapsLock artık toggle etmiyor)
 fare düğmesi yutma    : çalışıyor (XButton2)
 kendi SendInput'umuz  : dwExtraInfo=0x0CA5CADE ile geri beslemede tanınıyor
-birim testi           : 47 test, hepsi geçiyor
+birim testi           : 61 test, hepsi geçiyor
 ```
 
 ---
@@ -109,7 +109,7 @@ kullanmamış olursun. Ayar dialogu en sona alındı; JSON dosyası aylarca yete
 | **-1** ✅ | sondaj: hook + SendInput + kombo + gecikme | — | `probes/` çalışıyor |
 | **0** 🔶 | gönderim katmanı: scancode, Unicode, AltGr, Türkçe Q/F | `key_builder`, `turkish_layout_addon` | AHK'nin `Send`/`SendText` davranışı birebir |
 | **1** ✅ | kaskad durum makinesi | `key_handler_cascade`, `key_handler_hook` | `core/cascade.py` + 18 test, Win32'siz |
-| **2** 🔶 | dispatcher: caret tablosu ✅, fare ✅, JSON tablosu, `HotIf` bağlamı, süreç eşleşmesi | `key_handler_mouse`, `hot_vectors` | 63 statik hotkey tablodan okunuyor |
+| **2** 🔶 | dispatcher: önek kombosu ✅, modifier kombosu ✅, JSON tablosu, `HotIf` bağlamı, süreç eşleşmesi | `key_handler_mouse`, `hot_vectors` | 63 statik hotkey tablodan okunuyor |
 | **3** ✅ | iskelet: mutex, logging, tray, reload/exit | `AutoHotkey.ahk`, `script_state`, `error_handler` | `pythonw main.py` arka planda oturuyor |
 | **4** | **ilk gerçek devir**: en sık kullandığın 5 kısayol | — | bir hafta günlük kullanım, geri dönüş yok |
 | 5 | pano geçmişi (metin) + slotlar + kalıcılık | `clip_hist`, `clip_slot`, `memory_slots` | |
@@ -158,6 +158,14 @@ AHK dosyalarına başka hiçbir şekilde dokunulmaz.
   short/medium/long süreleri yeniden ayarlanmalı.
 - **Hook callback'inden asla `SendInput` çağırma** — yeniden giriş ve
   kilitlenme. Gönderim yalnızca tüketici thread'de.
+- **Önek tuşu yutulmak zorunda.** AHK önek tuşunu (`F13 & F14`'teki F13)
+  hiç yutmaz, `~` ile de açıkça geçirilir. LL hook keydown anında cevap
+  vermek zorunda olduğu için Python'da önek keydown'ı yutulur; tuş tek
+  başına bırakılırsa orijinali `SendInput` ile geri gönderilir. `^` tuşunda
+  bu görünür fark yaratmaz (ölü tuş zaten sonraki tuşu bekler), ama yazı
+  tuşlarını önek yaparken akılda tutulmalı.
+- **`^` tuşunun VK'si düzene bağlı.** Türkçe Q'da 0xDC, US'de Shift+6.
+  Sabit yazma; `send.vk_for_char("^")` ile düzene sor.
 - **Pano**: `AddClipboardFormatListener` + `WM_CLIPBOARDUPDATE`, polling yok.
 - **Paketleme aylarca gerekmez.** `pythonw.exe main.py` kısayolu
   `shell:startup` içine → AHK ile aynı deneyim. Nuitka Faz 11'de.
@@ -195,13 +203,13 @@ birlikte açılır).
 | `cascade/core/combo.py` | fiziksel tuş durumu, kombo metni, basım süresi |
 | `cascade/core/builder.py` | `key_builder.ahk` portu: kaskad tanımı, `press_type` |
 | `cascade/core/cascade.py` | kaskad durum makinesi (IDLE → HELD → MENU) |
-| `cascade/core/hotkey.py` | AHK caret sözdizimi (`^!k`, `<^z`, `*^z`) + kısayol tablosu |
-| `cascade/core/mouse.py` | fare mesajı → tuş kodu; fare klavyeyle aynı tabloya girer |
+| `cascade/core/hotkey.py` | AHK sözdizimi: önek kombosu (`F13 & F14`) + modifier kombosu (`^!k`) + kısayol tablosu |
+| `cascade/core/mouse.py` | fare mesajı → tuş kodu (henüz bağlı değil, `F13 & WheelUp` için hazır) |
 | `cascade/core/state.py` | `script_state.ahk` portu: Busy, ScriptInfo, MouseState |
 | `cascade/actions.py` | eylem kimliği → gerçek iş (`send_text:`, `app.exit` …) |
 | `cascade/ui/tray.py` | tepsi simgesi + menü, Duraklat/Devam (AHK `Suspend`) |
 | `cascade/ui/tip.py` | AHK `ToolTip` karşılığı — zengin metin, emoji, renk, rozetli menü |
-| `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex |
+| `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
 | `main.py` | her şeyi bağlayan giriş noktası |
 
 ---

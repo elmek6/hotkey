@@ -1,17 +1,28 @@
-"""Kisayol dizgisi (AHK caret sozdizimi) -- ayristirma ve eslestirme.
+"""Kisayol dizgisi (AHK sozdizimi) -- ayristirma ve eslestirme.
 
-AHK'nin kisayol yazimi tek satirlik bir mini dil:
+Iki ayri sey var, AHK'de de oyle:
+
+**Modifier kombosu** -- Ctrl/Alt/Shift/Win basili tutulur:
 
     ^z          Ctrl+Z
     ^!k         Ctrl+Alt+K
-    ^+s         Ctrl+Shift+S
     <^z         yalniz SOL Ctrl
     >!e         yalniz SAG Alt (AltGr)
     *^z         yildiz: fazladan modifier basiliysa da tetikle
-    ^XButton1   Ctrl + fare yan tusu       (fare de ayni tabloda)
-    ^WheelUp    Ctrl + tekerlek yukari
 
-Ayni dizgi hem klavye hem fare icin gecerli; tek fark tusun VK'si.
+**Onek (prefix) kombosu** -- modifier OLMAYAN normal bir tus onek olur.
+AHK'deki `A & B::` yazimi; bu scriptin asil kullandigi bicim:
+
+    Caret & 1   `^` tusu basiliyken 1
+    F13 & F14   fare yan tusu basiliyken oteki yan tus
+    F13 & i     fare yan tusu basiliyken i
+
+Onek tusu basildigi anda YUTULUR, cunku kombo mu olacagi henuz belli
+degildir. Tek basina birakilirsa orijinal tus geri gonderilir (AHK'nin
+`~` isareti olmadan yaptigi sey degil -- AHK oneki hic yutmaz ve `~` ile
+gecirir; burada yutup geri gondermek zorundayiz, cunku LL hook keydown
+aninda cevap vermek zorunda).
+
 Insan tarafindan yazilan "Ctrl+Shift+S" bicimi de kabul edilir.
 
 Saf Python: Win32 import'u yok, zaman yok. Eslestirme sadece sozluk/kume
@@ -60,6 +71,7 @@ class Hotkey:
 
     vk: int
     mods: tuple[tuple[int, ...], ...] = ()
+    prefix: int | None = None
     wildcard: bool = False
     text: str = ""
 
@@ -67,9 +79,19 @@ class Hotkey:
     def allowed(self) -> frozenset[int]:
         return frozenset(vk for group in self.mods for vk in group)
 
-    def matches(self, vk: int, held: tuple[int, ...] | frozenset[int]) -> bool:
-        """`held`: o an basili olan modifier VK'lari (ComboTracker.Chord.modifiers)."""
-        if vk != self.vk:
+    def matches(
+        self,
+        vk: int,
+        held: tuple[int, ...] | frozenset[int] = (),
+        prefix: int | None = None,
+    ) -> bool:
+        """`held`: basili modifier VK'lari, `prefix`: basili onek tusu.
+
+        Ikisi de ComboTracker.Chord'dan gelir. Onek eslesmesi tam olmak
+        zorunda: onek istemeyen bir tanim, onek basiliyken tetiklenmez --
+        yoksa `Caret & 1` calisirken sade `1` tanimi da patlardi.
+        """
+        if vk != self.vk or prefix != self.prefix:
             return False
         down = frozenset(held) & MODIFIER_VKS
         for group in self.mods:
@@ -81,10 +103,24 @@ class Hotkey:
 
 
 def parse_hotkey(spec: str) -> Hotkey:
-    """"^!k" / "Ctrl+Alt+K" / "XButton1" -> Hotkey. Bilinmezse ValueError."""
+    """"^!k" / "Ctrl+Alt+K" / "Caret & 1" / "F13" -> Hotkey.
+
+    Bilinmeyen tus adinda ValueError.
+    """
     text = spec.strip()
     if not text:
         raise ValueError("bos kisayol")
+    if "&" in text:
+        head, _, tail = text.partition("&")
+        prefix = _resolve(head.strip())
+        hotkey = parse_hotkey(tail)
+        return Hotkey(
+            vk=hotkey.vk,
+            mods=hotkey.mods,
+            prefix=prefix,
+            wildcard=hotkey.wildcard,
+            text=f"{key_name(prefix)} & {hotkey.text}",
+        )
     if text[0] in MOD_SYMBOLS or text[0] in "*<>":
         return _parse_symbols(text)
     if "+" in text:
@@ -169,23 +205,39 @@ class HotkeyTable:
 
     bindings: list[Binding] = field(default_factory=list)
     _keys: set[int] = field(default_factory=set, init=False, repr=False)
+    _prefixes: set[int] = field(default_factory=set, init=False, repr=False)
 
     def add(self, spec: str, action: str, desc: str = "") -> HotkeyTable:
         hotkey = parse_hotkey(spec)
         self.bindings.append(Binding(hotkey, action, desc))
-        self.bindings.sort(key=lambda b: len(b.hotkey.mods), reverse=True)
+        # Once onekli, sonra cok modifierli tanim denenir: ozgul olan kazanir.
+        self.bindings.sort(
+            key=lambda b: (b.hotkey.prefix is not None, len(b.hotkey.mods)), reverse=True
+        )
         self._keys.add(hotkey.vk)
+        if hotkey.prefix is not None:
+            self._prefixes.add(hotkey.prefix)
         return self
 
     def owns(self, vk: int) -> bool:
         """Modifier durumuna bakmadan hizli eleme -- callback'in sicak yolu."""
         return vk in self._keys
 
-    def match(self, vk: int, held: tuple[int, ...] | frozenset[int]) -> Binding | None:
+    @property
+    def prefixes(self) -> frozenset[int]:
+        """Onek olarak kullanilan tuslar: basildiklari anda yutulmalari gerekir."""
+        return frozenset(self._prefixes)
+
+    def match(
+        self,
+        vk: int,
+        held: tuple[int, ...] | frozenset[int] = (),
+        prefix: int | None = None,
+    ) -> Binding | None:
         if vk not in self._keys:
             return None
         for binding in self.bindings:
-            if binding.hotkey.matches(vk, held):
+            if binding.hotkey.matches(vk, held, prefix):
                 return binding
         return None
 
