@@ -1,4 +1,5 @@
-from cascade.core.combo import LONG, MEDIUM, SHORT, ComboTracker, Thresholds
+from cascade.core.builder import PressType
+from cascade.core.combo import ComboTracker, Thresholds
 
 LCTRL, LSHIFT, RALT = 0xA2, 0xA0, 0xA5
 K, A, PAUSE, HOME = 0x4B, 0x41, 0x13, 0x24
@@ -47,24 +48,24 @@ def test_prefix_olarak_kullanilan_tus_birakilinca_isaretlenir():
 def test_basim_suresi_siniflandirmasi():
     c = ComboTracker(Thresholds(short_ms=200, long_ms=500))
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.100).kind == SHORT
+    assert c.key_up(A, 0.100).kind is PressType.SHORT
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.250).kind == MEDIUM
+    assert c.key_up(A, 0.250).kind is PressType.MEDIUM
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.800).kind == LONG
+    assert c.key_up(A, 0.800).kind is PressType.LONG
 
 
 def test_esik_sinirlari_ahk_ile_ayni():
     """AHK: duration <= short -> kisa, < long -> orta, digeri uzun."""
     c = ComboTracker(Thresholds(short_ms=200, long_ms=500))
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.200).kind == SHORT  # tam sinir kisa sayilir
+    assert c.key_up(A, 0.200).kind is PressType.SHORT  # tam sinir kisa sayilir
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.201).kind == MEDIUM
+    assert c.key_up(A, 0.201).kind is PressType.MEDIUM
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.499).kind == MEDIUM
+    assert c.key_up(A, 0.499).kind is PressType.MEDIUM
     c.key_down(A, 0.0)
-    assert c.key_up(A, 0.500).kind == LONG
+    assert c.key_up(A, 0.500).kind is PressType.LONG
 
 
 def test_otomatik_tekrar_isaretlenir_ve_sure_bozulmaz():

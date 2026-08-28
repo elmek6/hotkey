@@ -1,8 +1,7 @@
-"""Busy durumu -- AHK'deki script_state.ahk'nin BusyModule karsiligi.
+"""Calisma zamani durumu -- script_state.ahk'nin karsiligi.
 
-SADECE Busy aktif. script_state.ahk'nin geri kalanini (ScriptModule,
-MouseModule, ClipboardModule) da cevirmistim ama istenmemisti; silmedim,
-dosyanin altinda yorumda duruyor. Ihtiyac olunca yorumdan cikarilir.
+Aktif olanlar: Busy (BusyModule) ve ClipboardState (ClipboardModule).
+ScriptModule ve MouseModule dosyanin altinda yorumda duruyor.
 
 Cevirmediklerim: WindowModule ve IdleModule -- ikisi de Win32 cagrisi
 gerektiriyor, core'un "Win32 import'u yasak" kuralini bozarlardi.
@@ -83,6 +82,57 @@ class Busy:
             return True
 
 
+class ClipboardMode(IntEnum):
+    """AHK: State.Clipboard -- panonun o an hangi is icin dinlendigi.
+
+    AHK'de bu bayrak sarttti cunku `OnClipboardChange` proses basina TEK
+    kez kaydedilebiliyor: pano geçmisi ile hafiza slotlari ayni callback'i
+    paylasip modla ayrisiyorlardi. Python'da o kisitlama yok -- birden cok
+    dinleyici kurulabilirdi -- ama bayrak yine de dogru sey, cunku asil
+    soru "kim dinliyor" degil, "kopyalanan sey NEREYE yazilsin".
+    Tek dinleyici + mod, iki dinleyicinin ayni kopyayi iki yere yazma
+    yarisindan daha ongorulebilir.
+    """
+
+    NONE = 0
+    HISTORY = 1
+    MEM_SLOTS = 2
+
+
+class ClipboardState:
+    """AHK: State.Clipboard -- metot adlari da ayni birakildi."""
+
+    __slots__ = ("_mode",)
+
+    def __init__(self, mode: ClipboardMode = ClipboardMode.HISTORY) -> None:
+        self._mode = mode
+
+    @property
+    def mode(self) -> ClipboardMode:
+        return self._mode
+
+    def set_mode(self, mode: ClipboardMode) -> None:
+        self._mode = mode
+
+    def is_none(self) -> bool:
+        return self._mode is ClipboardMode.NONE
+
+    def is_history(self) -> bool:
+        return self._mode is ClipboardMode.HISTORY
+
+    def is_mem_slots(self) -> bool:
+        return self._mode is ClipboardMode.MEM_SLOTS
+
+    def set_none(self) -> None:
+        self._mode = ClipboardMode.NONE
+
+    def set_history(self) -> None:
+        self._mode = ClipboardMode.HISTORY
+
+    def set_mem_slots(self) -> None:
+        self._mode = ClipboardMode.MEM_SLOTS
+
+
 # ======================================================================
 # ASAGIDAKILER DEVRE DISI -- istenmedi, gerekince yorumdan cikar.
 # script_state.ahk'nin Script / Mouse / Clipboard modulleri.
@@ -135,14 +185,6 @@ class Busy:
 #         return self._wheel_count % 2 == 0
 #
 #
-# class ClipboardMode(IntEnum):
-#     """AHK: State.Clipboard"""
-#
-#     NONE = 0
-#     HISTORY = 1
-#     MEM_SLOTS = 2
-#
-#
 # @dataclass
 # class AppState:
 #     """AHK'deki `global State` nesnesinin karsiligi."""
@@ -151,7 +193,7 @@ class Busy:
 #     script: ScriptInfo = field(init=False)
 #     busy: Busy = field(default_factory=Busy)
 #     mouse: MouseState = field(default_factory=MouseState)
-#     clipboard: ClipboardMode = ClipboardMode.NONE
+#     clipboard: ClipboardState = field(default_factory=ClipboardState)
 #     key_counts: dict[str, int] = field(default_factory=dict)
 #
 #     def __post_init__(self) -> None:

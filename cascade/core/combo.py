@@ -16,12 +16,6 @@ from dataclasses import dataclass, field
 from cascade.core.builder import PressType, press_type
 from cascade.core.keynames import MODIFIER_VKS, key_name
 
-SHORT = "kisa"
-MEDIUM = "orta"
-LONG = "uzun"
-
-_NAMES = {PressType.SHORT: SHORT, PressType.MEDIUM: MEDIUM, PressType.LONG: LONG}
-
 
 @dataclass(frozen=True, slots=True)
 class Thresholds:
@@ -34,8 +28,8 @@ class Thresholds:
     short_ms: float = 350.0
     long_ms: float | None = 500.0
 
-    def classify(self, ms: float) -> str:
-        return _NAMES[press_type(ms, self.short_ms, self.long_ms)]
+    def classify(self, ms: float) -> PressType:
+        return press_type(ms, self.short_ms, self.long_ms)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +57,7 @@ class Press:
 
     vk: int
     ms: float
-    kind: str
+    kind: PressType
     was_prefix: bool
 
     @property

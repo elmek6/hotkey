@@ -149,7 +149,7 @@ def main() -> int:
                 if press is None:
                     continue
                 note = "  (prefix olarak kullanildi)" if press.was_prefix else ""
-                print(f"         {press.text:<26} {press.ms:6.0f} ms -> {press.kind}{note}")
+                print(f"         {press.text:<26} {press.ms:6.0f} ms -> {press.kind.label}{note}")
     except KeyboardInterrupt:
         print("\nCtrl+C.")
     finally:

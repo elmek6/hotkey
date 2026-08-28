@@ -103,7 +103,10 @@ def main() -> int:
                 note = ""
                 if press.was_prefix:
                     note = "  (prefix olarak kullanildi -> kendi eylemi calismaz)"
-                print(f"       {press.text:<26} {press.ms:6.0f} ms -> {press.kind} basim{note}")
+                print(
+                    f"       {press.text:<26} {press.ms:6.0f} ms"
+                    f" -> {press.kind.label} basim{note}"
+                )
 
             if event.down and is_quit(event.vk):
                 print("\ncikis istendi.")

@@ -8,7 +8,10 @@ Deneme icin bagli tuslar (build_hotkeys):
     F13 / F14        farenin yan tuslari -- ipucu gosterir
     F13 & F14        onek kombosu: F13 basiliyken F14
     ^ & 1            `^` basiliyken 1 -> `^` yutulur, pano yapistirilir
-    ScrollLock       kaskad menusu (demo_cascade)
+    ScrollLock       kaskad menusu (demo_cascade); 2 -> pano gecmisi
+
+Pano kopyalandigi anda gecmise dusuyor (ui/clipboard.py + core/clip_history.py).
+Liste bellekte; diske yazma Faz 5.
 
 Calistir:  baslat.vbs          cift tiklama, konsol yok, normal kullanim
            hata-ayikla.cmd    konsol acik kalir, hatalari gorursun
@@ -18,6 +21,7 @@ Calistir:  baslat.vbs          cift tiklama, konsol yok, normal kullanim
 from __future__ import annotations
 
 import contextlib
+import html
 import os
 import queue
 import subprocess
@@ -30,10 +34,12 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from cascade.actions import ActionRunner, beep
 from cascade.core.builder import CascadeDef, KeyBuilder, PressType
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
+from cascade.core.clip_history import ClipHistory
 from cascade.core.combo import ComboTracker
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name, register_name
-from cascade.core.state import Busy
+from cascade.core.state import Busy, ClipboardState
+from cascade.ui.clipboard import ClipboardWatcher
 from cascade.ui.monitor import EventMonitor
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
@@ -55,6 +61,7 @@ def demo_cascade() -> CascadeDef:
         .main_key(PressType.MEDIUM, "beep")
         .set_exit_on_press_type(PressType.SHORT)
         .combo("1", "\U0001f4dd Ornek metin yaz", "send_text:cascade calisiyor ")
+        .combo("2", "\U0001f4cb Pano gecmisi", "clip.show")
         .combo("9", "\U0001f501 Yeniden baslat", "app.restart")
         .combo("0", "\U0001f6d1 Cikis", "app.exit")
         .named("ScrollLock")
@@ -100,6 +107,10 @@ def build_hotkeys() -> HotkeyTable:
     return table
 
 
+def _shorten(text: str, limit: int = 60) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 class Cascade:
     def __init__(self, app: QApplication) -> None:
         self.app = app
@@ -109,6 +120,14 @@ class Cascade:
 
         definition = demo_cascade()
         self.machine = CascadeMachine({definition.key: definition}, Busy())
+
+        # Pano. Durum (hangi mod) ile liste (ne saklandi) ayri duruyor;
+        # dinleme tek yerde, ui/clipboard.py icinde. AHK'de de boyleydi.
+        self.clip_state = ClipboardState()
+        self.clip_history = ClipHistory()
+        self.clip_watcher = ClipboardWatcher()
+        self.clip_watcher.text_copied.connect(self._on_clip_text)
+        self.clip_watcher.other_copied.connect(self._on_clip_other)
 
         # Kaskad disi kisayollar. tracker basili tuslari bilir (hangi modifier,
         # hangi onek); tablo "bu kombo bize mi ait" sorusunu cevaplar.
@@ -129,6 +148,7 @@ class Cascade:
         self.runner.register("notify", lambda text: self.tray.notify("cascade", text))
         self.runner.register("app.restart", lambda _: self.restart())
         self.runner.register("app.exit", lambda _: self.quit())
+        self.runner.register("clip.show", lambda _: self.show_clip_history())
 
         self.tray = Tray(
             VERSION,
@@ -232,6 +252,54 @@ class Cascade:
         # Hicbir sey olmadi: yuttugumuz tusu geri ver, kullanici `^` yazabilsin.
         return was_ours, [Run(f"send_key:{key_name(event.vk)}", key=event.vk)]
 
+    # ---- pano (ana thread) ----
+
+    def _on_clip_text(self, text: str) -> None:
+        """AHK: processClipboard'in gecmise ekleyen kismi.
+
+        Mod kontrolu AHK'deki `if (!State.Clipboard.isHistory()) return`
+        ile ayni yerde: dinleyici her zaman dinler, kaydi durum belirler.
+        """
+        if not self.clip_state.is_history():
+            return
+        entry = self.clip_history.add(text, time.time())
+        if entry is None:
+            return  # bos, cok buyuk ya da zaten en ustteki kayit
+        self.tip.show_html(
+            f"📋 <b>{len(self.clip_history)}.</b> "
+            f"{html.escape(_shorten(entry.preview))}",
+            1200,
+        )
+
+    def _on_clip_other(self) -> None:
+        """Metin olmayan icerik. Gorsel pano Faz 7; simdilik AHK'deki gibi
+        sadece 'gordum' demek yeterli."""
+        self.tip.show_html("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
+
+    def show_clip_history(self) -> None:
+        entries = self.clip_history.entries[:9]
+        if not entries:
+            self.tip.show_html("📋 <b>pano gecmisi bos</b>", 1500)
+            return
+        items = tuple(
+            (
+                str(index),
+                html.escape(_shorten(entry.preview))
+                + (
+                    f" <span style='color:#8b949e;'>x{entry.count}</span>"
+                    if entry.count > 1
+                    else ""
+                ),
+            )
+            for index, entry in enumerate(entries, start=1)
+        )
+        self.tip.show_menu(
+            f"📋 Pano gecmisi ({len(self.clip_history)})",
+            items,
+            footer="",
+            ms=4000,
+        )
+
     # ---- ana thread ----
 
     def _drain(self) -> None:
@@ -334,6 +402,7 @@ class Cascade:
     def _shutdown(self) -> None:
         self._drain_timer.stop()
         self._tick_timer.stop()
+        self.clip_watcher.stop()
         self.machine.reset()
         self.hook.stop()
         self.tip.hide()
@@ -363,75 +432,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-# ======================================================================
-# ASAGIDAKILER DEVRE DISI -- istenmedi, gerekince yorumdan cikar.
-#   * loglama (cascade/logs.py)
-#   * Files/hotkeys.json ayar dosyasindan kisayol okuma
-#   * Durum penceresi (surum, calisma suresi, tus sayaci)
-# ======================================================================
-#
-# import logging
-# import orjson
-# from cascade import logs, paths
-# from cascade.core.builder import def_from_dict
-# from cascade.core.state import AppState
-#
-# DEFAULT_HOTKEYS = {
-#     "cascades": [
-#         {
-#             "name": "ScrollLock",
-#             "key": "ScrollLock",
-#             "short_ms": 350,
-#             "long_ms": None,
-#             "exit_on_press_type": 1,
-#             "main": {"1": "tip:ScrollLock kisa basim", "2": "beep"},
-#             "combos": [
-#                 {"key": "1", "desc": "Ornek metin yaz", "action": "send_text:cascade "},
-#                 {"key": "9", "desc": "Yeniden baslat", "action": "app.restart"},
-#                 {"key": "0", "desc": "Cikis", "action": "app.exit"},
-#             ],
-#         }
-#     ],
-#     "hotkeys": [
-#         {"key": "F13", "desc": "ipucu goster", "action": "tip:F13"},
-#         {"key": "Caret & 1", "desc": "panoyu yapistir", "action": "send_key:^v"},
-#     ],
-# }
-#
-#
-# def load_definitions() -> dict[int, CascadeDef]:
-#     """Files/hotkeys.json okur; yoksa varsayilani yazar."""
-#     paths.ensure_files_dir()
-#     if not paths.HOTKEYS.exists():
-#         paths.HOTKEYS.write_bytes(orjson.dumps(DEFAULT_HOTKEYS, option=orjson.OPT_INDENT_2))
-#     data = orjson.loads(paths.HOTKEYS.read_bytes())
-#     definitions: dict[int, CascadeDef] = {}
-#     for entry in data.get("cascades", []):
-#         try:
-#             definition = def_from_dict(entry)
-#         except (KeyError, ValueError):
-#             logging.getLogger("cascade").exception("kisayol tanimi okunamadi: %r", entry)
-#             continue
-#         definitions[definition.key] = definition
-#     return definitions
-#
-#
-# def reload_hotkeys(self) -> None:
-#     definitions = load_definitions()
-#     self.machine.set_definitions(definitions)
-#     self.tray.notify("cascade", f"{len(definitions)} kisayol yeniden yuklendi")
-#
-#
-# def show_status(self) -> None:
-#     keys = "\n".join(f"    {n:<12} {c}" for n, c in self.state.top_keys(8))
-#     QMessageBox.information(
-#         None,
-#         f"cascade {VERSION}",
-#         f"Surum          : {VERSION}\n"
-#         f"Calisma suresi : {self.state.script.uptime_text()}\n"
-#         f"Hook callback  : en uzun {self.hook.max_callback_ms:.3f} ms (sinir 300)\n"
-#         f"Dusen olay     : {self.hook.dropped}\n\n"
-#         f"En cok basilan tuslar:\n{keys or '    henuz yok'}",
-#     )

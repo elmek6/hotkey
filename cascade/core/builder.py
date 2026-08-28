@@ -24,12 +24,29 @@ from cascade.core.keynames import key_name, vk_from_name
 
 
 class PressType(IntEnum):
-    """AHK: 1 kisa, 2 orta, 3 uzun, 4 cift tiklama."""
+    """AHK: 1 kisa, 2 orta, 3 uzun, 4 cift tiklama.
+
+    Sayilar AHK ile ayni cunku JSON'a bu sekilde yaziliyor. Ekrana yazarken
+    `label` kullanilir -- basim turu hicbir yerde string olarak dolasmaz,
+    karsilastirma her zaman enum uzerinden yapilir.
+    """
 
     SHORT = 1
     MEDIUM = 2
     LONG = 3
     DOUBLE = 4
+
+    @property
+    def label(self) -> str:
+        return _LABELS[self]
+
+
+_LABELS = {
+    PressType.SHORT: "kisa",
+    PressType.MEDIUM: "orta",
+    PressType.LONG: "uzun",
+    PressType.DOUBLE: "cift",
+}
 
 
 def press_type(duration_ms: float, short_ms: float, long_ms: float | None) -> PressType:
