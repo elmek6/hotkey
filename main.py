@@ -5,13 +5,15 @@ eylemleri kuyruga atar. Butun is ana thread'de, Qt zamanlayicisinda yapilir.
 Callback icinden SendInput cagrilmaz -- yeniden giris ve kilitlenme olur.
 
 Deneme icin bagli tuslar (build_hotkeys):
-    F13 / F14        farenin yan tuslari -- ipucu gosterir
+    F13              acilir menu (ui/menu.py) -- icinden filtreli liste acilir
+    F14              ipucu
     F13 & F14        onek kombosu: F13 basiliyken F14
-    ^ & 1            `^` basiliyken 1 -> `^` yutulur, pano yapistirilir
-    ScrollLock       kaskad menusu (demo_cascade); 2 -> pano gecmisi
+    ^ & 1 .. 9       `^` basiliyken rakam -> pano gecmisinin o kaydini yapistirir
+    ScrollLock       kaskad menusu (demo_cascade); 2 -> filtreli liste
 
 Pano kopyalandigi anda gecmise dusuyor (ui/clipboard.py + core/clip_history.py).
-Liste bellekte; diske yazma Faz 5.
+Gorunur yuzu iki tane: kisa ipucu (tip) ve filtreli liste penceresi
+(ui/array_filter.py -- arama + onizleme). Liste bellekte; diske yazma Faz 5.
 
 Calistir:  baslat.vbs          cift tiklama, konsol yok, normal kullanim
            hata-ayikla.cmd    konsol acik kalir, hatalari gorursun
@@ -36,10 +38,13 @@ from cascade.core.builder import CascadeDef, KeyBuilder, PressType
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from cascade.core.clip_history import ClipHistory
 from cascade.core.combo import ComboTracker
+from cascade.core.filter import FilterItem
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name, register_name
 from cascade.core.state import Busy, ClipboardState
+from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clipboard import ClipboardWatcher
+from cascade.ui.menu import PopupMenu
 from cascade.ui.monitor import EventMonitor
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
@@ -61,12 +66,28 @@ def demo_cascade() -> CascadeDef:
         .main_key(PressType.MEDIUM, "beep")
         .set_exit_on_press_type(PressType.SHORT)
         .combo("1", "\U0001f4dd Ornek metin yaz", "send_text:cascade calisiyor ")
-        .combo("2", "\U0001f4cb Pano gecmisi", "clip.show")
+        .combo("2", "\U0001f4cb Pano gecmisi", "clip.filter")
         .combo("9", "\U0001f501 Yeniden baslat", "app.restart")
         .combo("0", "\U0001f6d1 Cikis", "app.exit")
         .named("ScrollLock")
         .build()
     )
+
+
+F13_MENU = (
+    ("\U0001f4cb Pano gecmisi...", "clip.filter"),
+    ("\U0001f5c2\ufe0f Windows pano gecmisi", "send_key:#v"),
+    None,
+    ("\U0001f5bc\ufe0f Ekran alintisi", "send_key:#+s"),
+    None,
+    ("\U0001f440 Olay izleyici...", "app.monitor"),
+    ("\u23f8\ufe0f Duraklat / Devam", "app.pause"),
+    None,
+    ("\U0001f501 Yeniden baslat", "app.restart"),
+    ("\U0001f6d1 Cikis", "app.exit"),
+)
+"""AHK: showF13menu(). Oge basina bir kod satiri degil, tek veri tablosu --
+ileride JSON'a tasinacak yer burasi."""
 
 
 def build_hotkeys() -> HotkeyTable:
@@ -82,12 +103,7 @@ def build_hotkeys() -> HotkeyTable:
     """
     table = HotkeyTable()
 
-    table.add(
-        "F13",
-        "tip_html:<b>F13</b> \U0001f5b1️ fare yan tusu"
-        "<br><span style='color:#8b949e;'>basili tutup F14'e bas</span>",
-        "ipucu goster",
-    )
+    table.add("F13", "menu.f13", "acilir menu")
     table.add(
         "F14",
         "tip_html:<b>F14</b> \U0001f5b1️ fare yan tusu",
@@ -99,10 +115,18 @@ def build_hotkeys() -> HotkeyTable:
         "fare tuslari kendi arasinda",
     )
 
+    # `^` basiliyken rakam: pano gecmisinin o sirasindaki kaydi yapistirir.
+    # 1 en yeni kopya, 2 bir onceki... AHK'deki `clip_slot` mantiginin
+    # gecmis listesi uzerinde calisan hali.
     caret = send.vk_for_char("^")
     if caret is not None:
         register_name(caret, "Caret")
-        table.add("Caret & 1", "send_key:^v", "panoyu yapistir")
+        for index in range(1, 10):
+            table.add(
+                f"Caret & {index}",
+                f"clip.paste:{index}",
+                "pano gecmisi 1-9" if index == 1 else "",
+            )
 
     return table
 
@@ -129,6 +153,14 @@ class Cascade:
         self.clip_watcher.text_copied.connect(self._on_clip_text)
         self.clip_watcher.other_copied.connect(self._on_clip_other)
 
+        # Filtreli liste ve acilir menu. Liste penceresi acikken kisayollar
+        # susar (_ui_open): arama kutusuna yazarken `Caret & 1` tetiklenmesin.
+        self.filter_window = ArrayFilter()
+        self.filter_window.chosen.connect(self.paste_text)
+        self.filter_window.closed.connect(lambda: setattr(self, "_ui_open", False))
+        self.menu = PopupMenu(self.runner.run)
+        self._ui_open = False
+
         # Kaskad disi kisayollar. tracker basili tuslari bilir (hangi modifier,
         # hangi onek); tablo "bu kombo bize mi ait" sorusunu cevaplar.
         self.tracker = ComboTracker()
@@ -149,6 +181,11 @@ class Cascade:
         self.runner.register("app.restart", lambda _: self.restart())
         self.runner.register("app.exit", lambda _: self.quit())
         self.runner.register("clip.show", lambda _: self.show_clip_history())
+        self.runner.register("clip.filter", lambda _: self.show_clip_filter())
+        self.runner.register("clip.paste", self.paste_history)
+        self.runner.register("menu.f13", lambda _: self.show_f13_menu())
+        self.runner.register("app.monitor", lambda _: self.show_monitor())
+        self.runner.register("app.pause", lambda _: self.toggle_pause())
 
         self.tray = Tray(
             VERSION,
@@ -181,7 +218,7 @@ class Cascade:
 
     def _key_filter(self, event: KeyEvent) -> bool:
         """Hook thread'inde calisir. O(1): karar ver, kuyruga at, don."""
-        if event.ours or self.paused:
+        if event.ours or self.paused or self._ui_open:
             return False
 
         if event.down:
@@ -275,6 +312,62 @@ class Cascade:
         """Metin olmayan icerik. Gorsel pano Faz 7; simdilik AHK'deki gibi
         sadece 'gordum' demek yeterli."""
         self.tip.show_html("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
+
+    def paste_text(self, text: str) -> None:
+        """AHK: ArrayFilter.sendText -- panoya yaz, kisa bekle, Ctrl+V.
+
+        Bekleme sus payi degil: panoya yazmak asenkron bitiyor ve hedef
+        uygulama Ctrl+V'yi ayni anda alirsa eski icerigi yapistiriyor.
+        AHK'de de Sleep(50) vardi. Kendi yazdigimiz metin gecmise ikinci kez
+        girmiyor -- ClipboardWatcher.set_text bunu biliyor.
+        """
+        if not text:
+            return
+        self.clip_watcher.set_text(text)
+        QTimer.singleShot(60, lambda: self.runner.run("send_key:^v"))
+
+    def paste_history(self, argument: str) -> None:
+        """`^ & 1` -> gecmisin 1. kaydi. 1 tabanli, AHK ile ayni."""
+        try:
+            index = int(argument)
+        except ValueError:
+            return
+        entry = self.clip_history.get(index)
+        if entry is None:
+            self.tip.show_html(
+                f"\U0001f4cb <b>{index}.</b> "
+                "<span style='color:#8b949e;'>kayit yok</span>",
+                1200,
+            )
+            return
+        self.tip.show_html(
+            f"\U0001f4cb <b>{index}.</b> {html.escape(_shorten(entry.preview, 40))}",
+            1200,
+        )
+        self.paste_text(entry.text)
+
+    def show_clip_filter(self) -> None:
+        """Pano gecmisini filtreli listede acar -- array_filter.ahk'nin
+        pano icin kullanildigi yer. Liste veriye cevrilir; pencere panoyu
+        bilmez, sadece FilterItem gosterir."""
+        entries = self.clip_history.entries
+        if not entries:
+            self.tip.show_html("\U0001f4cb <b>pano gecmisi bos</b>", 1500)
+            return
+        items = tuple(
+            FilterItem(
+                name=f"{index}" + (f" x{entry.count}" if entry.count > 1 else ""),
+                content=entry.text,
+                key=index,
+            )
+            for index, entry in enumerate(entries, start=1)
+        )
+        self._ui_open = True
+        self.filter_window.show_items(items, "Pano gecmisi")  # sayiyi pencere ekler
+
+    def show_f13_menu(self) -> None:
+        """AHK: showF13menu()"""
+        self.menu.show(F13_MENU, title=f"cascade {VERSION}", default="clip.filter")
 
     def show_clip_history(self) -> None:
         entries = self.clip_history.entries[:9]
@@ -403,6 +496,7 @@ class Cascade:
         self._drain_timer.stop()
         self._tick_timer.stop()
         self.clip_watcher.stop()
+        self.filter_window.close()
         self.machine.reset()
         self.hook.stop()
         self.tip.hide()
