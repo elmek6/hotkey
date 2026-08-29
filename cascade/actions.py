@@ -41,6 +41,7 @@ class ActionRunner:
     def __init__(self) -> None:
         self._commands: dict[str, Callable[[str], None]] = {}
         self.register("send_key", self._send_key)
+        self.register("send_keys", self._send_keys)
         self.register("send_text", send.type_text)
         self.register("beep", lambda _: beep(800, 60))
 
@@ -57,6 +58,17 @@ class ActionRunner:
             handler(argument)
         except Exception:
             log.exception("eylem hatasi: %s", action)
+
+    def _send_keys(self, argument: str) -> None:
+        """send_keys:^a ^c Enter -- bosluklarla ayrilmis dizi.
+
+        AHK `Send("^a^c{Enter}")` diyebiliyordu cunku kendi mini dili vardi.
+        Burada tek tus gonderen yol zaten var; dizi onu tekrarlamak. Ayrac
+        bosluk: `^a^c` yazimi ayristirilamaz, `^` hem modifier hem de
+        Turkce klavyede bir tus.
+        """
+        for part in argument.split():
+            self._send_key(part)
 
     @staticmethod
     def _send_key(argument: str) -> None:

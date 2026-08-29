@@ -4,12 +4,16 @@ Mimari kural: hook callback'i (ayri thread) yalnizca yut/birak karari verir ve
 eylemleri kuyruga atar. Butun is ana thread'de, Qt zamanlayicisinda yapilir.
 Callback icinden SendInput cagrilmaz -- yeniden giris ve kilitlenme olur.
 
-Deneme icin bagli tuslar (build_hotkeys):
-    F13              acilir menu (ui/menu.py) -- icinden filtreli liste acilir
-    F14              ipucu
-    F13 & F14        onek kombosu: F13 basiliyken F14
-    ^ & 1 .. 9       `^` basiliyken rakam -> pano gecmisinin o kaydini yapistirir
-    ScrollLock       kaskad menusu (demo_cascade); 2 -> filtreli liste
+Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
+
+    F13              kisa: acilir menu     basili tut: pano hizli menusu
+    ^ (Caret)        kisa: `^` yazilir     basili tut: pano hizli menusu
+    F13 & F14        onek kombosu -- onek YUTULUR
+    ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
+    ~F13 & WheelUp   basili tutup tekerlek
+    Pause & End      cikis        Pause & c   busy kilidini acar
+    ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
+    ScrollLock       kaskad menusu (demo_cascade)
 
 Pano kopyalandigi anda gecmise dusuyor (ui/clipboard.py + core/clip_history.py).
 Gorunur yuzu iki tane: kisa ipucu (tip) ve filtreli liste penceresi
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import html
+import logging
 import os
 import queue
 import subprocess
@@ -33,6 +38,7 @@ import time
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from cascade import logs, paths
 from cascade.actions import ActionRunner, beep
 from cascade.core.builder import CascadeDef, KeyBuilder, PressType
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
@@ -41,6 +47,8 @@ from cascade.core.combo import ComboTracker
 from cascade.core.filter import FilterItem
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name, register_name
+from cascade.core.mouse import mouse_key
+from cascade.core.prefix import Outcome, PrefixTracker
 from cascade.core.state import Busy, ClipboardState
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clipboard import ClipboardWatcher
@@ -49,8 +57,10 @@ from cascade.ui.monitor import EventMonitor
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
 from cascade.win32 import send
-from cascade.win32.hook import HookThread, KeyEvent
+from cascade.win32.hook import HookThread, KeyEvent, MouseEvent
 from cascade.win32.instance import SingleInstance
+
+log = logging.getLogger("cascade.main")
 
 VERSION = "0.1.0"
 
@@ -74,20 +84,54 @@ def demo_cascade() -> CascadeDef:
     )
 
 
+# AHK: showF14menu() icindeki subMenuKey. F14'un kendisi sende baska is
+# icin duruyor, ozel tuslar F13 menusune tasindi.
+SPECIAL_KEYS_MENU = (
+    ("\u23ce Enter", "send_key:Enter"),
+    ("\u232b Backspace", "send_key:Backspace"),
+    ("\u2326 Delete", "send_key:Delete"),
+    ("\u238b Esc", "send_key:Escape"),
+    None,
+    ("Hepsini sec + kes", "send_keys:^a ^x"),
+    ("Hepsini sec + kopyala", "send_keys:^a ^c"),
+    ("Bicimsiz yapistir", "send_key:^+v"),
+)
+
+# AHK: showF14menu() icindeki subMenuSet.
+SYSTEM_MENU = (
+    ("\U0001f440 Olay izleyici...", "app.monitor"),
+    ("\u23f8\ufe0f Duraklat / Devam", "app.pause"),
+    ("\U0001f513 Busy kilidini ac", "busy.free"),
+    None,
+    ("\U0001f4c4 Son hatalar...", "errors.show"),
+    ("\U0001f4cb Son hatayi kopyala", "errors.copy"),
+    None,
+    ("\U0001f501 Yeniden baslat", "app.restart"),
+    ("\U0001f6d1 Cikis", "app.exit"),
+)
+
 F13_MENU = (
     ("\U0001f4cb Pano gecmisi...", "clip.filter"),
     ("\U0001f5c2\ufe0f Windows pano gecmisi", "send_key:#v"),
     None,
     ("\U0001f5bc\ufe0f Ekran alintisi", "send_key:#+s"),
+    ("\U0001f4f7 Pencere goruntusu", "send_key:!PrintScreen"),
+    ("\U0001f524 OCR ile metin sec", "send_key:#+t"),
     None,
-    ("\U0001f440 Olay izleyici...", "app.monitor"),
-    ("\u23f8\ufe0f Duraklat / Devam", "app.pause"),
-    None,
-    ("\U0001f501 Yeniden baslat", "app.restart"),
-    ("\U0001f6d1 Cikis", "app.exit"),
+    ("\u2328\ufe0f Ozel tuslar", SPECIAL_KEYS_MENU),
+    ("\u2699\ufe0f Sistem", SYSTEM_MENU),
 )
-"""AHK: showF13menu(). Oge basina bir kod satiri degil, tek veri tablosu --
-ileride JSON'a tasinacak yer burasi."""
+"""AHK: showF13menu() + showF14menu(). Oge basina bir kod satiri degil, tek
+veri tablosu -- ileride JSON'a tasinacak yer burasi. AHK'nin OCR / buyutec /
+makro kaydedici ogeleri henuz port edilmedigi icin yok; Windows'un kendi
+kisayoluyla yapilabilenler (ekran alintisi, OCR) duruyor."""
+
+# ---- OnStart / OnExit -- AHK: LoadSettings() ve ExitSettings() ----
+# Simdilik ikisi de neredeyse bos. Yer tutuyorlar cunku Faz 5'te pano
+# gecmisinin diskten okunmasi ve yazilmasi tam olarak buraya girecek;
+# baslangicta yazmak, sonradan cagri yerlerini aramaktan ucuz.
+START_ACTIONS: tuple[str, ...] = ()
+EXIT_ACTIONS: tuple[str, ...] = ()
 
 
 def build_hotkeys() -> HotkeyTable:
@@ -103,7 +147,11 @@ def build_hotkeys() -> HotkeyTable:
     """
     table = HotkeyTable()
 
-    table.add("F13", "menu.f13", "acilir menu")
+    # --- F13: kisa basim menu, basili tutma pano hizli menusu ---
+    # AHK handleF13: pt1 showF13menu, pt2 showQuickHistoryMenu. Kisa basim
+    # tablodan, basili tutma prefix tanimindan geliyor.
+    table.add("F13", "menu.f13", "kisa: menu")
+    table.prefix("F13", hold_action="menu.clip", desc="basili tut: pano menusu")
     table.add(
         "F14",
         "tip_html:<b>F14</b> \U0001f5b1️ fare yan tusu",
@@ -115,12 +163,39 @@ def build_hotkeys() -> HotkeyTable:
         "fare tuslari kendi arasinda",
     )
 
+    # --- tekerlek kombolari. AHK'de bu satirlar `~F13 & WheelUp::` diye
+    # yazili; burada `~` YOK ve olmamali. AHK'de tilde gerekiyordu cunku
+    # orada onek tusu tamamen bloklanir; bizde onek zaten birakilinca kendi
+    # eylemini calistiriyor, ustune bir de F13'u uygulamaya gecirmenin
+    # anlami yok. `~` bizde per-tus: bir satirda yazarsan o tus HIC
+    # yutulmaz. ---
+    table.add("F13 & WheelUp", "send_key:#NumpadAdd", "buyut")
+    table.add("F13 & WheelDown", "send_key:#NumpadSub", "kucult")
+    table.add("F14 & WheelUp", "send_key:Volume_Up", "ses +")
+    table.add("F14 & WheelDown", "send_key:Volume_Down", "ses -")
+
+    # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
+    # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---
+    table.add("~LButton & F16", "send_key:^v", "tikla + yapistir")
+    table.add("~LButton & F19", "send_keys:^a ^v Enter", "hepsini sec + yapistir")
+    table.add("~LButton & F20", "send_keys:^a ^c", "hepsini kopyala")
+
+    # F16 tek basina: AHK handleF16 kisa basim `^z`.
+    table.add("F16", "send_key:^z", "geri al")
+
+    # --- Pause kombolari. AHK'de bunlar scriptin acil cikis yolu. ---
+    table.add("Pause & End", "app.exit", "cikis")
+    table.add("Pause & c", "busy.free", "busy kilidini ac")
+
     # `^` basiliyken rakam: pano gecmisinin o sirasindaki kaydi yapistirir.
     # 1 en yeni kopya, 2 bir onceki... AHK'deki `clip_slot` mantiginin
     # gecmis listesi uzerinde calisan hali.
     caret = send.vk_for_char("^")
     if caret is not None:
         register_name(caret, "Caret")
+        # AHK cascadeCaret: kisa basim `^` yazar (yuttugumuz tusu geri
+        # gondererek), basili tutma menu acar, rakamlar slot yukler.
+        table.prefix("Caret", hold_action="menu.clip", desc="basili tut: pano menusu")
         for index in range(1, 10):
             table.add(
                 f"Caret & {index}",
@@ -165,14 +240,21 @@ class Cascade:
         # hangi onek); tablo "bu kombo bize mi ait" sorusunu cevaplar.
         self.tracker = ComboTracker()
         self.hotkeys = build_hotkeys()
+        # Onek tuslari ayri bir durum makinesinde: yutma, basili tutma esigi
+        # ve "kombo yapildi mi" bilgisi orada (core/prefix.py).
+        self.prefixes = PrefixTracker(self.hotkeys.prefix_defs)
         self.paused = False
+        self._exited = False
         self._hk_swallowed: set[int] = set()  # yuttugumuz keydown'in keyup'i
-        self._prefix_used: dict[int, bool] = {}  # onek tusu komboya donustu mu
 
         self.events: queue.Queue = queue.Queue(maxsize=4096)
         self.actions: queue.Queue = queue.Queue(maxsize=4096)
         self.seen: queue.Queue = queue.Queue(maxsize=4096)  # (olay, yutuldu mu) -> izleyici
-        self.hook = HookThread(self.events, key_filter=self._key_filter)
+        self.hook = HookThread(
+            self.events,
+            key_filter=self._key_filter,
+            mouse_filter=self._mouse_filter,
+        )
 
         # tip: imlecin yaninda 2 sn gorunup kaybolur.  notify: kalici tepsi balonu.
         self.runner.register("tip", lambda text: self.tip.show_text(text, 2000))
@@ -186,6 +268,10 @@ class Cascade:
         self.runner.register("menu.f13", lambda _: self.show_f13_menu())
         self.runner.register("app.monitor", lambda _: self.show_monitor())
         self.runner.register("app.pause", lambda _: self.toggle_pause())
+        self.runner.register("menu.clip", lambda _: self.show_clip_menu())
+        self.runner.register("busy.free", lambda _: self.free_busy())
+        self.runner.register("errors.show", lambda _: self.show_errors())
+        self.runner.register("errors.copy", lambda _: self.copy_last_error())
 
         self.tray = Tray(
             VERSION,
@@ -197,14 +283,9 @@ class Cascade:
         self.tray.show()
 
         self.hook.start()
-        # AHK'deki baslangic TrayTip'i. Tepsi balonu KULLANILMIYOR: Windows onu
-        # bildirim merkezinde tutuyor, kalici oluyor. Ipucu kendi kapanir.
-        self.tip.show_menu(
-            f"cascade {VERSION} basladi",
-            (("ScrollLock", "kaskad menusu \U0001f5c2️"), *self.hotkeys.tips),
-            footer="tepsi menusunden duraklatilir",
-            ms=3000,
-        )
+        # Oturum kapanmasi / gorev sonlandirma da OnExit'i calistirsin.
+        app.aboutToQuit.connect(self.on_exit)
+        self.on_start()
 
         self._drain_timer = QTimer(app)
         self._drain_timer.timeout.connect(self._drain)
@@ -221,15 +302,9 @@ class Cascade:
         if event.ours or self.paused or self._ui_open:
             return False
 
-        if event.down:
-            chord = self.tracker.key_down(event.vk, event.t)
-        else:
-            self.tracker.key_up(event.vk, event.t)
-            chord = None
-
         swallow, actions = self.machine.feed_key(event.vk, event.down, event.t)
         if not swallow:
-            swallow, extra = self._hotkey_key(event, chord)
+            swallow, extra = self._dispatch(event.vk, event.down, event.t)
             actions += extra
 
         for action in actions:
@@ -239,55 +314,88 @@ class Cascade:
             self.seen.put_nowait((event, swallow))
         return swallow
 
-    def _hotkey_key(self, event: KeyEvent, chord) -> tuple[bool, list]:
+    def _mouse_filter(self, event: MouseEvent) -> bool:
+        """Fare de ayni yoldan gecer: dugme bir tus koduna cevrilir ve ayni
+        tabloya sorulur. Boylece `~LButton & F16` yazimi calisiyor -- fare
+        ile klavye tek bir kombo evreninde.
+
+        Tekerlegin birakma olayi yok: basili kalmis gorunmesin diye
+        ComboTracker'a basim ve birakma ard arda veriliyor. Verilmezse
+        WheelUp sonsuza kadar "basili" sayilir ve sonraki tuslara onek olur.
+        """
+        if event.ours or self.paused or self._ui_open:
+            return False
+        key = mouse_key(event.message, event.data)
+        if key is None:
+            return False
+        vk, down = key
+        swallow, actions = self._dispatch(vk, down, event.t, momentary=vk > 0xFF)
+        for action in actions:
+            with contextlib.suppress(queue.Full):
+                self.actions.put_nowait(action)
+        return swallow
+
+    def _dispatch(
+        self, vk: int, down: bool, t: float, momentary: bool = False
+    ) -> tuple[bool, list]:
+        """Klavye ve farenin ortak yolu: kombo takibi + kisayol tablosu."""
+        if down:
+            chord = self.tracker.key_down(vk, t)
+            if momentary:  # tekerlek: basili kalmaz
+                self.tracker.key_up(vk, t)
+        else:
+            self.tracker.key_up(vk, t)
+            chord = None
+        return self._hotkey_key(vk, down, t, chord)
+
+    def _hotkey_key(self, vk: int, down: bool, t: float, chord) -> tuple[bool, list]:
         """Kaskadin ilgilenmedigi tus: kisayol tablosuna bakilir.
 
-        Onek tusu (F13, `^`) basildigi anda yutulur, cunku komboya donusup
-        donusmeyecegi o an bilinmiyor -- LL hook keydown'da cevap vermek
-        zorunda, AHK gibi bekleyemeyiz. Karar birakildiginda veriliyor:
-
-          kombo yapildi   -> hicbir sey, kombo eylemi zaten calisti
-          kendi tanimi var-> o eylem calisir (F13 -> ipucu)
-          ikisi de yok    -> orijinal tus geri gonderilir (`^` yazilir)
+        Onek tusu (F13, `^`) basildigi anda karar verilmek zorunda -- LL hook
+        keydown'da cevap veriyor, AHK gibi bekleyemez. Yutup yutmamayi
+        PrefixTracker soyler (`~` ile tanimlananlar yutulmaz); ne olacagi
+        birakildiginda ya da esik gecince belli olur.
         """
-        if not event.down:
-            return self._hotkey_up(event)
+        if not down:
+            return self._hotkey_up(vk, t)
 
         if chord is None:  # modifier'in kendisi: dokunma
             return False, []
 
-        # Onek tusu: kendi tanimi olsa bile karar birakmaya ertelenir, cunku
-        # F13'un tek basina mi yoksa F13 & F14 mi oldugu daha belli degil.
-        if event.vk in self.hotkeys.prefixes and chord.prefix is None:
-            self._prefix_used.setdefault(event.vk, False)
-            self._hk_swallowed.add(event.vk)
-            return True, []
+        # Onek tusu, uzerinde baska onek yokken: kararı ertele.
+        if self.prefixes.is_prefix(vk) and chord.prefix is None:
+            swallow = self.prefixes.key_down(vk, t)
+            if swallow:
+                self._hk_swallowed.add(vk)
+            return swallow, []
 
-        binding = self.hotkeys.match(event.vk, chord.modifiers, chord.prefix)
+        binding = self.hotkeys.match(vk, chord.modifiers, chord.prefix)
         if binding is None:
             return False, []
         if chord.prefix is not None:
-            self._prefix_used[chord.prefix] = True
-        self._hk_swallowed.add(event.vk)
+            self.prefixes.combo_used(chord.prefix)
+        if vk <= 0xFF:  # tekerlegin birakma olayi yok, listede birakmayalim
+            self._hk_swallowed.add(vk)
         if chord.repeat:  # basili tutmada eylem tekrarlanmaz, yutma surer
             return True, []
-        return True, [Run(binding.action, key=event.vk, desc=binding.desc)]
+        return True, [Run(binding.action, key=vk, desc=binding.desc)]
 
-    def _hotkey_up(self, event: KeyEvent) -> tuple[bool, list]:
-        was_ours = event.vk in self._hk_swallowed
-        self._hk_swallowed.discard(event.vk)
-        if event.vk not in self._prefix_used:
+    def _hotkey_up(self, vk: int, t: float) -> tuple[bool, list]:
+        was_ours = vk in self._hk_swallowed
+        self._hk_swallowed.discard(vk)
+        if not self.prefixes.is_prefix(vk):
             return was_ours, []
 
-        used = self._prefix_used.pop(event.vk)
-        if used:
-            return was_ours, []
+        if self.prefixes.key_up(vk, t) is Outcome.NOTHING:
+            return was_ours, []  # kombo yapildi ya da basili tutma calisti
 
-        binding = self.hotkeys.match(event.vk)  # oneki n kendi tanimi var mi
+        binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi
         if binding is not None:
-            return was_ours, [Run(binding.action, key=event.vk, desc=binding.desc)]
-        # Hicbir sey olmadi: yuttugumuz tusu geri ver, kullanici `^` yazabilsin.
-        return was_ours, [Run(f"send_key:{key_name(event.vk)}", key=event.vk)]
+            return was_ours, [Run(binding.action, key=vk, desc=binding.desc)]
+        if was_ours:
+            # Hicbir sey olmadi: yuttugumuz tusu geri ver, `^` yazilabilsin.
+            return was_ours, [Run(f"send_key:{key_name(vk)}", key=vk)]
+        return was_ours, []
 
     # ---- pano (ana thread) ----
 
@@ -365,6 +473,58 @@ class Cascade:
         self._ui_open = True
         self.filter_window.show_items(items, "Pano gecmisi")  # sayiyi pencere ekler
 
+    def show_clip_menu(self) -> None:
+        """Pano gecmisinin hizli menusu -- AHK showQuickHistoryMenu.
+
+        Filtreli listeden farki: arama yok, tek tiklamada yapistirir.
+        Onek tusunu basili tutunca acilan sey bu.
+        """
+        entries = self.clip_history.entries[:12]
+        if not entries:
+            self.tip.show_html("\U0001f4cb <b>pano gecmisi bos</b>", 1500)
+            return
+        spec = tuple(
+            (f"{index}  {_shorten(entry.preview, 48)}", f"clip.paste:{index}")
+            for index, entry in enumerate(entries, start=1)
+        )
+        self.menu.show(
+            (*spec, None, ("\U0001f50d Ara...", "clip.filter")),
+            title=f"\U0001f4cb Pano ({len(self.clip_history)})",
+        )
+
+    def free_busy(self) -> None:
+        """AHK: `Pause & c:: State.Busy.setFree()`.
+
+        Bir kaskad yarida kalirsa Busy kilitli kalir ve hicbir kisayol
+        calismaz. Bu, o durumdan cikis yolu -- AHK'de de acil frendi.
+        """
+        self.machine.reset()
+        self.prefixes.reset()
+        self.tracker.reset()
+        self._hk_swallowed.clear()
+        self.tip.show_html("\U0001f513 <b>busy kilidi acildi</b>", 1200)
+
+    def show_errors(self) -> None:
+        """AHK: getStatsArray / getRecentErrors."""
+        QMessageBox.information(
+            None,
+            f"cascade {VERSION} - son hatalar",
+            f"Hook callback  : en uzun {self.hook.max_callback_ms:.3f} ms (sinir 300)\n"
+            f"Dusen olay     : {self.hook.dropped}\n"
+            f"Pano kaydi     : {len(self.clip_history)}\n"
+            f"Log dosyasi    : {paths.LOG}\n\n"
+            f"{logs.recent_text(15)}",
+        )
+
+    def copy_last_error(self) -> None:
+        """AHK: App.ErrHandler.copyLastError()"""
+        last = logs.errors.last
+        if last is None:
+            self.tip.show_html("\u2705 <b>hata yok</b>", 1200)
+            return
+        self.clip_watcher.set_text(last.line)
+        self.tip.show_html("\U0001f4cb <b>son hata panoya kopyalandi</b>", 1500)
+
     def show_f13_menu(self) -> None:
         """AHK: showF13menu()"""
         self.menu.show(F13_MENU, title=f"cascade {VERSION}", default="clip.filter")
@@ -419,8 +579,15 @@ class Cascade:
     def _tick(self) -> None:
         if self.paused:
             return
-        for action in self.machine.tick(time.perf_counter()):
+        now = time.perf_counter()
+        for action in self.machine.tick(now):
             self._apply(action)
+        # Onek tuslarinin basili-tutma esigi. Hook thread'inde yapilamaz:
+        # tus BASILI dururken hicbir olay gelmiyor, esigi yoklayan bir
+        # zamanlayici gerekiyor. AHK bunu bloke eden dongude yapiyordu.
+        for vk, action in self.prefixes.tick(now):
+            log.debug("basili tutma: %s -> %s", key_name(vk), action)
+            self.runner.run(action)
 
     def _apply(self, action) -> None:
         if isinstance(action, Run):
@@ -448,8 +615,8 @@ class Cascade:
         self.paused = not self.paused
         self.machine.reset()
         self.tracker.reset()
+        self.prefixes.reset()
         self._hk_swallowed.clear()
-        self._prefix_used.clear()
         self.tray.set_paused(self.paused)
         if self.paused:
             self.tip.show_html(
@@ -459,6 +626,38 @@ class Cascade:
             )
         else:
             self.tip.show_html("▶️ <b>devam</b>", 1200)
+
+    def on_start(self) -> None:
+        """AHK: LoadSettings() -- OnExit'in karsiti.
+
+        Faz 5'te pano gecmisinin diskten okunmasi buraya girecek.
+        """
+        log.info("cascade %s basladi", VERSION)
+        for action in START_ACTIONS:
+            self.runner.run(action)
+        # AHK'deki baslangic TrayTip'i. Tepsi balonu KULLANILMIYOR: Windows
+        # onu bildirim merkezinde tutuyor, kalici oluyor. Ipucu kendi kapanir.
+        self.tip.show_menu(
+            f"cascade {VERSION} basladi",
+            (("ScrollLock", "kaskad menusu \U0001f5c2\ufe0f"), *self.hotkeys.tips),
+            footer="tepsi menusunden duraklatilir",
+            ms=3000,
+        )
+
+    def on_exit(self) -> None:
+        """AHK: ExitSettings() -- OnExit ile kayitli.
+
+        Faz 5'te pano gecmisinin diske yazilmasi buraya girecek. Iki yerden
+        cagriliyor (kendi quit'imiz ve Qt'nin aboutToQuit'i, yani oturum
+        kapanmasi), o yuzden bir kez calismasi garantiye alinmis.
+        """
+        if self._exited:
+            return
+        self._exited = True
+        for action in EXIT_ACTIONS:
+            self.runner.run(action)
+        log.info("cascade kapaniyor (%d pano kaydi)", len(self.clip_history))
+        self._shutdown()
 
     def restart(self) -> None:
         """AHK: Pause+Home -> reloadScript()
@@ -484,15 +683,17 @@ class Cascade:
             # gorunuyordu, cunku hata kimseye ulasmiyordu.
             QMessageBox.critical(None, "cascade", f"Yeniden baslatilamadi: {exc}")
             return
-        self._shutdown()
+        self.on_exit()
         self.app.quit()
 
     def quit(self) -> None:
-        """AHK: Pause+End -> ExitApp()"""
-        self._shutdown()
+        """AHK: Pause & End -> ExitApp()"""
+        self.on_exit()
         self.app.quit()
 
     def _shutdown(self) -> None:
+        """Yalniz on_exit'ten cagrilir; sirasi onemli: once zamanlayicilar,
+        sonra hook, en son pencereler."""
         self._drain_timer.stop()
         self._tick_timer.stop()
         self.clip_watcher.stop()
@@ -505,6 +706,8 @@ class Cascade:
 
 
 def main() -> int:
+    logs.setup()
+    logs.install_qt_handler()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("cascade")

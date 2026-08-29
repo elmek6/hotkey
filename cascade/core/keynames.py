@@ -49,6 +49,14 @@ VK_NAMES[VK_WHEEL_DOWN] = "WheelDown"
 VK_NAMES[VK_WHEEL_LEFT] = "WheelLeft"
 VK_NAMES[VK_WHEEL_RIGHT] = "WheelRight"
 
+# Medya tuslari -- AHK'de Volume_Up / Volume_Down / Volume_Mute adlariyla.
+VK_NAMES[0xAD] = "Volume_Mute"
+VK_NAMES[0xAE] = "Volume_Down"
+VK_NAMES[0xAF] = "Volume_Up"
+VK_NAMES[0xB0] = "Media_Next"
+VK_NAMES[0xB1] = "Media_Prev"
+VK_NAMES[0xB3] = "Media_Play_Pause"
+
 MODIFIER_VKS = frozenset({0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C})
 
 MOUSE_VKS = frozenset(

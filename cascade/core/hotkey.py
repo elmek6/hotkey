@@ -13,9 +13,10 @@ Iki ayri sey var, AHK'de de oyle:
 **Onek (prefix) kombosu** -- modifier OLMAYAN normal bir tus onek olur.
 AHK'deki `A & B::` yazimi; bu scriptin asil kullandigi bicim:
 
-    Caret & 1   `^` tusu basiliyken 1
-    F13 & F14   fare yan tusu basiliyken oteki yan tus
-    F13 & i     fare yan tusu basiliyken i
+    Caret & 1    `^` tusu basiliyken 1
+    F13 & F14    fare yan tusu basiliyken oteki yan tus
+    ~F13 & i     tilde: onek YUTULMAZ, alttaki uygulamaya da gider
+    ~LButton & F16   sol tik basiliyken F16 -- tilde sart, yoksa tiklayamazsin
 
 Onek tusu basildigi anda YUTULUR, cunku kombo mu olacagi henuz belli
 degildir. Tek basina birakilirsa orijinal tus geri gonderilir (AHK'nin
@@ -37,6 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from cascade.core.keynames import MODIFIER_VKS, key_name, vk_from_name
+from cascade.core.prefix import DEFAULT_HOLD_MS, PrefixDef
 
 # Sembol -> (kanonik ad, (sol VK, sag VK))
 MOD_SYMBOLS: dict[str, tuple[str, tuple[int, int]]] = {
@@ -72,6 +74,7 @@ class Hotkey:
     vk: int
     mods: tuple[tuple[int, ...], ...] = ()
     prefix: int | None = None
+    passthrough: bool = False  # AHK `~`: onek yutulmaz
     wildcard: bool = False
     text: str = ""
 
@@ -112,14 +115,17 @@ def parse_hotkey(spec: str) -> Hotkey:
         raise ValueError("bos kisayol")
     if "&" in text:
         head, _, tail = text.partition("&")
-        prefix = _resolve(head.strip())
+        head = head.strip()
+        passthrough = head.startswith("~")  # AHK: ~LButton & F16
+        prefix = _resolve(head.lstrip("~").strip())
         hotkey = parse_hotkey(tail)
         return Hotkey(
             vk=hotkey.vk,
             mods=hotkey.mods,
             prefix=prefix,
+            passthrough=passthrough,
             wildcard=hotkey.wildcard,
-            text=f"{key_name(prefix)} & {hotkey.text}",
+            text=f"{'~' if passthrough else ''}{key_name(prefix)} & {hotkey.text}",
         )
     if text[0] in MOD_SYMBOLS or text[0] in "*<>":
         return _parse_symbols(text)
@@ -205,7 +211,9 @@ class HotkeyTable:
 
     bindings: list[Binding] = field(default_factory=list)
     _keys: set[int] = field(default_factory=set, init=False, repr=False)
-    _prefixes: set[int] = field(default_factory=set, init=False, repr=False)
+    _prefix_defs: dict[int, PrefixDef] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def add(self, spec: str, action: str, desc: str = "") -> HotkeyTable:
         hotkey = parse_hotkey(spec)
@@ -216,8 +224,56 @@ class HotkeyTable:
         )
         self._keys.add(hotkey.vk)
         if hotkey.prefix is not None:
-            self._prefixes.add(hotkey.prefix)
+            self._touch_prefix(hotkey.prefix, passthrough=hotkey.passthrough)
         return self
+
+    def prefix(
+        self,
+        spec: str,
+        *,
+        passthrough: bool = False,
+        hold_action: str = "",
+        hold_ms: float = DEFAULT_HOLD_MS,
+        desc: str = "",
+    ) -> HotkeyTable:
+        """Onek tusuna basili-tutma davranisi ekler.
+
+        AHK'de bu KeyBuilder'in `mainKey(pt)` switch'iydi: `^` kisa basinca
+        kendini yazar, basili tutunca menu acar. Kisa basim eylemi normal
+        tablo satiri (`table.add("Caret", ...)`); burasi yalniz basili tutma.
+        Kombo tanimi olmayan bir tus da onek yapilabilir -- boylece sadece
+        "basili tut" davranisi olan tuslar da yazilabiliyor.
+        """
+        vk = _resolve(spec.lstrip("~").strip())
+        self._touch_prefix(
+            vk,
+            passthrough=passthrough or spec.strip().startswith("~"),
+            hold_action=hold_action,
+            hold_ms=hold_ms,
+            desc=desc,
+        )
+        return self
+
+    def _touch_prefix(
+        self,
+        vk: int,
+        *,
+        passthrough: bool = False,
+        hold_action: str = "",
+        hold_ms: float = DEFAULT_HOLD_MS,
+        desc: str = "",
+    ) -> None:
+        """Onek tanimini olustur/birlestir. Tanim birden cok satirdan parca
+        parca gelir: `~F13 & i` gecirgenligi, `.prefix("F13", hold_action=...)`
+        basili-tutmayi soyler; ikisi de ayni tanima yazilir."""
+        old = self._prefix_defs.get(vk)
+        self._prefix_defs[vk] = PrefixDef(
+            vk=vk,
+            passthrough=passthrough or (old.passthrough if old else False),
+            hold_action=hold_action or (old.hold_action if old else ""),
+            hold_ms=hold_ms if hold_action else (old.hold_ms if old else hold_ms),
+            desc=desc or (old.desc if old else ""),
+        )
 
     def owns(self, vk: int) -> bool:
         """Modifier durumuna bakmadan hizli eleme -- callback'in sicak yolu."""
@@ -225,8 +281,13 @@ class HotkeyTable:
 
     @property
     def prefixes(self) -> frozenset[int]:
-        """Onek olarak kullanilan tuslar: basildiklari anda yutulmalari gerekir."""
-        return frozenset(self._prefixes)
+        """Onek olarak kullanilan tuslar."""
+        return frozenset(self._prefix_defs)
+
+    @property
+    def prefix_defs(self) -> dict[int, PrefixDef]:
+        """PrefixTracker'a verilecek tanimlar."""
+        return dict(self._prefix_defs)
 
     def match(
         self,

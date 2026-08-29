@@ -7,8 +7,10 @@ QMenu kendi kaydiriyor, ikon yerine emoji yaziyoruz, varsayilan oge
 `setDefaultAction`.
 
 Tanim veri olarak veriliyor: (etiket, eylem kimligi) ciftleri, `None`
-ayrac. Boylece menu icerigi main.py'de tek bir listede durur ve ileride
-JSON'a tasinabilir -- AHK'de her oge bir kod satiriydi.
+ayrac. Eylem kimligi yerine ic ice bir demet verilirse ALT MENU olur --
+AHK'deki `menuF14.Add("Special keys", subMenuKey)`. Boylece menu icerigi
+main.py'de tek bir listede durur ve ileride JSON'a tasinabilir; AHK'de her
+oge bir kod satiriydi.
 
 Tip (ui/tip.py) ile farki: bu menu odagi ALIR. Kasitli -- ok tuslari,
 harfe basip secme ve fare tiklamasi Windows'un menu davranisidir, kullanici
@@ -24,7 +26,8 @@ from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import QMenu
 
 # (etiket, eylem kimligi) -- None ayrac demek.
-MenuSpec = tuple[tuple[str, str] | None, ...]
+# Eylem kimligi yerine demet gelirse o oge bir alt menudur.
+MenuSpec = tuple["tuple[str, str | tuple] | None", ...]
 
 
 class PopupMenu:
@@ -43,20 +46,26 @@ class PopupMenu:
             menu.addAction(header)
             menu.addSeparator()
 
-        for entry in spec:
-            if entry is None:
-                menu.addSeparator()
-                continue
-            label, action_id = entry
-            action = QAction(label, menu)
-            action.triggered.connect(
-                lambda _checked=False, a=action_id: self._on_action(a)
-            )
-            menu.addAction(action)
-            if action_id == default:
-                menu.setDefaultAction(action)
-
+        self._fill(menu, spec, default)
         self._menu = menu
         # popup(), exec()'in aksine olay dongusunu bloke etmez: hook'tan gelen
         # olaylari isleyen QTimer'lar donmeye devam eder.
         menu.popup(QCursor.pos())
+
+    def _fill(self, menu: QMenu, spec: MenuSpec, default: str = "") -> None:
+        for entry in spec:
+            if entry is None:
+                menu.addSeparator()
+                continue
+            label, target = entry
+            if isinstance(target, tuple):  # alt menu
+                submenu = menu.addMenu(label)
+                self._fill(submenu, target)
+                continue
+            action = QAction(label, menu)
+            action.triggered.connect(
+                lambda _checked=False, a=target: self._on_action(a)
+            )
+            menu.addAction(action)
+            if target == default:
+                menu.setDefaultAction(action)
