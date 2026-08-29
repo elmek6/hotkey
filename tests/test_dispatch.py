@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import main
 from cascade.core.combo import ComboTracker
+from cascade.core.gesture import GestureTracker
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import VK_WHEEL_UP, register_name
 from cascade.core.prefix import PrefixTracker
@@ -32,6 +33,9 @@ def make_dispatcher() -> SimpleNamespace:
         tracker=ComboTracker(),
         hotkeys=table,
         prefixes=PrefixTracker(table.prefix_defs),
+        # Bos jest izleyicisi: `has()` her tusa False der, yani jest yolu
+        # kapalı. Jestin kendi testleri tests/test_gesture.py icinde.
+        gestures=GestureTracker(),
         _hk_swallowed=set(),
     )
     box._hotkey_up = lambda vk, t: main.Cascade._hotkey_up(box, vk, t)

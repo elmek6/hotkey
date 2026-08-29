@@ -97,5 +97,22 @@ class ClipHistory:
         del self._items[self.max_items :]
         return entry
 
+    def load(self, entries: list[ClipEntry] | tuple[ClipEntry, ...]) -> int:
+        """Diskten okunan kayitlari yerlestirir (store.ClipStore cagirir).
+
+        Mevcut listenin USTUNE degil, YERINE: acilista bir kez cagriliyor.
+        Ayni metin iki kez gelirse ilki kalir -- dosyada olmamasi gereken
+        bir durum ama okunan dosyaya guvenmiyoruz.
+        """
+        seen: set[str] = set()
+        items: list[ClipEntry] = []
+        for entry in entries:
+            if entry.text in seen:
+                continue
+            seen.add(entry.text)
+            items.append(entry)
+        self._items = items[: self.max_items]
+        return len(self._items)
+
     def clear(self) -> None:
         self._items.clear()

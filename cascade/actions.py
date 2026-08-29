@@ -84,6 +84,11 @@ class ActionRunner:
         except ValueError:
             log.warning("cozulemeyen tus dizgisi: %s", argument)
             return
+        if not hotkey.mods and hotkey.vk in send.MOUSE_VK_NAMES:
+            # `send_key:RButton` -- yuttugumuz sag tusu geri vermek icin.
+            # Scancode yolu fare dugmesi uretmez.
+            send.tap_vk(hotkey.vk)
+            return
         modifiers = [
             group[0] for group in hotkey.mods if not any(send.is_down(vk) for vk in group)
         ]

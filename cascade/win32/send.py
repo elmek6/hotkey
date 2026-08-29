@@ -11,6 +11,7 @@ kuyruga yazar; gonderim tuketici thread'de yapilir.
 from __future__ import annotations
 
 import ctypes
+from ctypes import wintypes
 
 from cascade.win32 import consts as C
 from cascade.win32.structs import INPUT, KEYBDINPUT, MOUSEINPUT, user32
@@ -130,18 +131,53 @@ def _mouse_input(flags: int, dx: int = 0, dy: int = 0, data: int = 0) -> INPUT:
     return item
 
 
+#: VK -> click() adi. `send_key:RButton` gibi bir eylem geldiginde
+#: scancode yoluna degil fare yoluna gitmesi icin.
+MOUSE_VK_NAMES = {0x01: "left", 0x02: "right", 0x04: "middle", 0x05: "x1", 0x06: "x2"}
+
+
+def tap_vk(vk: int) -> bool:
+    """Tusu gonderir. Fare dugmesiyse tiklama olarak, degilse scancode.
+
+    `True` doner: fare yoluyla gonderildi. Onek olarak yuttugumuz sag tusu
+    geri vermek icin gerekiyor -- klavye scancode'u sag tik uretmez.
+    """
+    name = MOUSE_VK_NAMES.get(vk)
+    if name is None:
+        tap(vk)
+        return False
+    click(name)
+    return True
+
+
 def click(button: str = "left") -> None:
     down, up = {
         "left": (C.MOUSEEVENTF_LEFTDOWN, C.MOUSEEVENTF_LEFTUP),
         "right": (C.MOUSEEVENTF_RIGHTDOWN, C.MOUSEEVENTF_RIGHTUP),
         "middle": (C.MOUSEEVENTF_MIDDLEDOWN, C.MOUSEEVENTF_MIDDLEUP),
+        "x1": (C.MOUSEEVENTF_XDOWN, C.MOUSEEVENTF_XUP),
+        "x2": (C.MOUSEEVENTF_XDOWN, C.MOUSEEVENTF_XUP),
     }[button]
-    _send([_mouse_input(down), _mouse_input(up)])
+    # XButton'da hangi dugme oldugu mouseData'da: 1 = XButton1, 2 = XButton2.
+    data = {"x1": 1, "x2": 2}.get(button, 0)
+    _send([_mouse_input(down, data=data), _mouse_input(up, data=data)])
 
 
 def wheel(delta: int = 120, horizontal: bool = False) -> None:
     flag = C.MOUSEEVENTF_HWHEEL if horizontal else C.MOUSEEVENTF_WHEEL
     _send([_mouse_input(flag, data=delta)])
+
+
+def cursor_pos() -> tuple[int, int]:
+    """Imlecin ekran koordinati. Jest capasini atmak icin gerekiyor: onek
+    tusu KLAVYEDEN gelince elimizde fare konumu olmuyor.
+
+    Hook callback'inden cagriliyor; tek bir okuma, mikrosaniye mertebesinde.
+    """
+    point = wintypes.POINT()
+    if not user32.GetCursorPos(ctypes.byref(point)):
+        return (0, 0)
+    return (point.x, point.y)
 
 
 def move_relative(dx: int, dy: int) -> None:

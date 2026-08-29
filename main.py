@@ -10,6 +10,9 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     ^ (Caret)        kisa: `^` yazilir     basili tut: pano hizli menusu
     F13 & F14        onek kombosu -- onek YUTULUR
     ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
+    F19 & LButton    onek klavyede, kombo tusu FARE dugmesi
+    RButton & Wheel  sag tus basiliyken tekerlek -> ses; sag tik yutulur
+    F13 + fare yonu  jest (core/gesture.py): 4 ana yon, kademe sayar
     ~F13 & WheelUp   basili tutup tekerlek
     Pause & End      cikis        Pause & c   busy kilidini acar
     ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
@@ -17,7 +20,8 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
 
 Pano kopyalandigi anda gecmise dusuyor (ui/clipboard.py + core/clip_history.py).
 Gorunur yuzu iki tane: kisa ipucu (tip) ve filtreli liste penceresi
-(ui/array_filter.py -- arama + onizleme). Liste bellekte; diske yazma Faz 5.
+(ui/array_filter.py -- arama + onizleme). Acilista diskten okunuyor,
+kapanista yaziliyor (store.py -- bozuk dosya yedeklenip sifirdan baslanir).
 
 Calistir:  baslat.vbs          cift tiklama, konsol yok, normal kullanim
            hata-ayikla.cmd    konsol acik kalir, hatalari gorursun
@@ -45,11 +49,13 @@ from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from cascade.core.clip_history import ClipHistory
 from cascade.core.combo import ComboTracker
 from cascade.core.filter import FilterItem
+from cascade.core.gesture import Direction, GestureTracker
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name, register_name
-from cascade.core.mouse import mouse_key
+from cascade.core.mouse import WM_MOUSEMOVE, mouse_key
 from cascade.core.prefix import Outcome, PrefixTracker
 from cascade.core.state import Busy, ClipboardState
+from cascade.store import ClipStore
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clipboard import ClipboardWatcher
 from cascade.ui.menu import PopupMenu
@@ -63,6 +69,8 @@ from cascade.win32.instance import SingleInstance
 log = logging.getLogger("cascade.main")
 
 VERSION = "0.1.0"
+
+KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
 
 # restart() cocuk surece bunu gecer: eski ornek kilidi birakana kadar bekle.
 RESTART_FLAG = "--restart"
@@ -183,6 +191,21 @@ def build_hotkeys() -> HotkeyTable:
     # F16 tek basina: AHK handleF16 kisa basim `^z`.
     table.add("F16", "send_key:^z", "geri al")
 
+    # --- onek KLAVYEDE, kombo tusu FARE dugmesi. Yukaridakinin tersi
+    # yonu: orada fare oneke, burada kombo tusuna dusuyor. Ikisi de ayni
+    # tablodan geciyor cunku fare dugmesi de bir VK. F19/F20 yutuluyor
+    # (`~` yok): tek baslarina bir isleri yok. ---
+    table.add("F19 & LButton", "send_keys:^a ^c", "hepsini kopyala")
+    table.add("F20 & LButton", "send_keys:^a ^v", "hepsini sec + yapistir")
+    table.add("F19 & RButton", "send_key:^+v", "bicimsiz yapistir")
+
+    # --- Sag tus basiliyken tekerlek -> ses. Sag tus YUTULUYOR (`~` yok):
+    # tekerlek cevrilirken baglam menusu acilmasin. Tek basina birakilinca
+    # tusun kendisi geri gonderiliyor (actions -> send.tap_vk), yani normal
+    # sag tik calismaya devam ediyor -- sadece ~150 ms gecikiyor. ---
+    table.add("RButton & WheelUp", "send_key:Volume_Up", "ses +")
+    table.add("RButton & WheelDown", "send_key:Volume_Down", "ses -")
+
     # --- Pause kombolari. AHK'de bunlar scriptin acil cikis yolu. ---
     table.add("Pause & End", "app.exit", "cikis")
     table.add("Pause & c", "busy.free", "busy kilidini ac")
@@ -206,6 +229,22 @@ def build_hotkeys() -> HotkeyTable:
     return table
 
 
+def build_gestures() -> GestureTracker:
+    """AHK: hgsRight.Register(...) -- ama sekil tanima degil, yon + kademe.
+
+    F13 basili tutulup fare bir yone surulunce her `step_px` piksel bir
+    adim uretir; adim sayisi eylemin kac kez calisacagidir (ses kac kademe
+    artacak). Jest tetiklendiginde F13'un kendi isi iptal olur: ne menu
+    acilir ne baska kombo beklenir.
+    """
+    tracker = GestureTracker(step_px=60.0)
+    tracker.register(KEY_F13, Direction.UP, "send_key:Volume_Up", "ses +")
+    tracker.register(KEY_F13, Direction.DOWN, "send_key:Volume_Down", "ses -")
+    tracker.register(KEY_F13, Direction.LEFT, "send_key:Media_Prev", "onceki parca")
+    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Media_Next", "sonraki parca")
+    return tracker
+
+
 def _shorten(text: str, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -224,6 +263,7 @@ class Cascade:
         # dinleme tek yerde, ui/clipboard.py icinde. AHK'de de boyleydi.
         self.clip_state = ClipboardState()
         self.clip_history = ClipHistory()
+        self.clip_store = ClipStore()
         self.clip_watcher = ClipboardWatcher()
         self.clip_watcher.text_copied.connect(self._on_clip_text)
         self.clip_watcher.other_copied.connect(self._on_clip_other)
@@ -243,6 +283,9 @@ class Cascade:
         # Onek tuslari ayri bir durum makinesinde: yutma, basili tutma esigi
         # ve "kombo yapildi mi" bilgisi orada (core/prefix.py).
         self.prefixes = PrefixTracker(self.hotkeys.prefix_defs)
+        # Jestler ayri bir izleyicide: fare hareketi sadece jest tanimli bir
+        # onek basiliyken isleniyor, geri kalan zamanda hicbir sey yapmiyor.
+        self.gestures = build_gestures()
         self.paused = False
         self._exited = False
         self._hk_swallowed: set[int] = set()  # yuttugumuz keydown'in keyup'i
@@ -254,6 +297,9 @@ class Cascade:
             self.events,
             key_filter=self._key_filter,
             mouse_filter=self._mouse_filter,
+            # Jest icin sart. Hareket olayi sik gelir (saniyede yuzlerce),
+            # o yuzden _mouse_filter'in ilk satiri erken cikis.
+            watch_mouse_move=True,
         )
 
         # tip: imlecin yaninda 2 sn gorunup kaybolur.  notify: kalici tepsi balonu.
@@ -325,6 +371,20 @@ class Cascade:
         """
         if event.ours or self.paused or self._ui_open:
             return False
+
+        if event.message == WM_MOUSEMOVE:
+            # Sicak yol: jest izlenmiyorsa tek bir bayrak kontrolu.
+            if not self.gestures.watching:
+                return False
+            for gesture in self.gestures.move(event.x, event.y):
+                self.prefixes.combo_used(gesture.prefix)
+                for _ in range(gesture.steps):
+                    with contextlib.suppress(queue.Full):
+                        self.actions.put_nowait(
+                            Run(gesture.action, key=gesture.prefix, desc=gesture.desc)
+                        )
+            return False  # hareketi asla yutmuyoruz: imlec donar
+
         key = mouse_key(event.message, event.data)
         if key is None:
             return False
@@ -367,6 +427,10 @@ class Cascade:
             swallow = self.prefixes.key_down(vk, t)
             if swallow:
                 self._hk_swallowed.add(vk)
+            # Jest capasi tam burada atiliyor: onek basildigi an imlec nerede.
+            if self.gestures.has(vk):
+                x, y = send.cursor_pos()
+                self.gestures.start(vk, x, y)
             return swallow, []
 
         binding = self.hotkeys.match(vk, chord.modifiers, chord.prefix)
@@ -384,6 +448,12 @@ class Cascade:
         was_ours = vk in self._hk_swallowed
         self._hk_swallowed.discard(vk)
         if not self.prefixes.is_prefix(vk):
+            return was_ours, []
+
+        # Jest yapildiysa tusun isi bitti: ne menu, ne tap eylemi, ne de
+        # tusun geri gonderilmesi. Istenen davranis buydu.
+        if self.gestures.stop(vk):
+            self.prefixes.key_up(vk, t)
             return was_ours, []
 
         if self.prefixes.key_up(vk, t) is Outcome.NOTHING:
@@ -501,6 +571,7 @@ class Cascade:
         self.machine.reset()
         self.prefixes.reset()
         self.tracker.reset()
+        self.gestures.reset()
         self._hk_swallowed.clear()
         self.tip.show_html("\U0001f513 <b>busy kilidi acildi</b>", 1200)
 
@@ -635,14 +706,11 @@ class Cascade:
         log.info("cascade %s basladi", VERSION)
         for action in START_ACTIONS:
             self.runner.run(action)
-        # AHK'deki baslangic TrayTip'i. Tepsi balonu KULLANILMIYOR: Windows
-        # onu bildirim merkezinde tutuyor, kalici oluyor. Ipucu kendi kapanir.
-        self.tip.show_menu(
-            f"cascade {VERSION} basladi",
-            (("ScrollLock", "kaskad menusu \U0001f5c2\ufe0f"), *self.hotkeys.tips),
-            footer="tepsi menusunden duraklatilir",
-            ms=3000,
-        )
+        # Baslangicta ipucu GOSTERILMIYOR: her acilista "hangi tuslar bagli"
+        # listesini okumak istemiyorsun, tepsi simgesi zaten calistigini
+        # soyluyor. Ayni liste tepsi menusunden ve F13 menusunden ulasilir.
+        count = self.clip_history.load(self.clip_store.load_entries())
+        log.info("%d pano kaydi diskten okundu (%s)", count, self.clip_store.path)
 
     def on_exit(self) -> None:
         """AHK: ExitSettings() -- OnExit ile kayitli.
@@ -656,7 +724,14 @@ class Cascade:
         self._exited = True
         for action in EXIT_ACTIONS:
             self.runner.run(action)
-        log.info("cascade kapaniyor (%d pano kaydi)", len(self.clip_history))
+        # AHK: ExitSettings -> _save(). Yazma basarisizsa (veri kaybi
+        # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.
+        saved = self.clip_store.save_entries(self.clip_history.entries)
+        log.info(
+            "cascade kapaniyor (%d pano kaydi, diske yazildi: %s)",
+            len(self.clip_history),
+            "evet" if saved else "HAYIR",
+        )
         self._shutdown()
 
     def restart(self) -> None:
