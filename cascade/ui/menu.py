@@ -51,6 +51,26 @@ class PopupMenu:
         # popup(), exec()'in aksine olay dongusunu bloke etmez: hook'tan gelen
         # olaylari isleyen QTimer'lar donmeye devam eder.
         menu.popup(QCursor.pos())
+        # Odagi ZORLA almak gerekiyor: tepsi uygulamasinin aktif penceresi
+        # olmadigi icin acilan menu klavye yakalamasini kendiliginden
+        # almiyordu ve Esc / ok tuslari ona ulasmiyordu. Menu kapaninca
+        # odak eski pencereye kendiliginden doner.
+        menu.setFocus()
+        menu.activateWindow()
+        menu.raise_()
+
+    @property
+    def open(self) -> bool:
+        return self._menu is not None and self._menu.isVisible()
+
+    def close(self) -> None:
+        """Disaridan kapatma -- hook Esc'i gorunce cagiriyor.
+
+        Klavye yakalamasi bize gelmediginde Esc menuye ulasmiyor; hook zaten
+        her tusu goruyor, kapatmayi oradan tetiklemek en guvenlisi.
+        """
+        if self._menu is not None:
+            self._menu.close()
 
     def _fill(self, menu: QMenu, spec: MenuSpec, default: str = "") -> None:
         for entry in spec:

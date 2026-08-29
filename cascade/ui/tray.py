@@ -90,7 +90,9 @@ class Tray(QSystemTrayIcon):
 
         self._menu = menu  # GC'ye yem olmasin
         self.setContextMenu(menu)
-        self.activated.connect(lambda reason: self._on_activated(reason, on_monitor))
+        # Cift tiklama duraklat/devam. AHK'de tepsi simgesine cift tiklamak
+        # scripti askiya aliyordu; en sik istenen sey o, izleyici degil.
+        self.activated.connect(lambda reason: self._on_activated(reason, on_toggle_pause))
 
     @staticmethod
     def _add(menu: QMenu, text: str, slot: Callable[[], None]) -> QAction:
@@ -100,9 +102,9 @@ class Tray(QSystemTrayIcon):
         return action
 
     @staticmethod
-    def _on_activated(reason, on_monitor: Callable[[], None]) -> None:
+    def _on_activated(reason, on_double_click: Callable[[], None]) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            on_monitor()
+            on_double_click()
 
     def set_paused(self, paused: bool) -> None:
         """Menu kutucugu + simge + arac ipucu tek yerden guncellenir."""

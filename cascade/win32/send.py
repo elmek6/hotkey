@@ -150,16 +150,20 @@ def tap_vk(vk: int) -> bool:
     return True
 
 
+_BUTTON_FLAGS = {
+    "left": (C.MOUSEEVENTF_LEFTDOWN, C.MOUSEEVENTF_LEFTUP),
+    "right": (C.MOUSEEVENTF_RIGHTDOWN, C.MOUSEEVENTF_RIGHTUP),
+    "middle": (C.MOUSEEVENTF_MIDDLEDOWN, C.MOUSEEVENTF_MIDDLEUP),
+    "x1": (C.MOUSEEVENTF_XDOWN, C.MOUSEEVENTF_XUP),
+    "x2": (C.MOUSEEVENTF_XDOWN, C.MOUSEEVENTF_XUP),
+}
+# XButton'da hangi dugme oldugu mouseData'da tasiniyor.
+_BUTTON_DATA = {"x1": 1, "x2": 2}
+
+
 def click(button: str = "left") -> None:
-    down, up = {
-        "left": (C.MOUSEEVENTF_LEFTDOWN, C.MOUSEEVENTF_LEFTUP),
-        "right": (C.MOUSEEVENTF_RIGHTDOWN, C.MOUSEEVENTF_RIGHTUP),
-        "middle": (C.MOUSEEVENTF_MIDDLEDOWN, C.MOUSEEVENTF_MIDDLEUP),
-        "x1": (C.MOUSEEVENTF_XDOWN, C.MOUSEEVENTF_XUP),
-        "x2": (C.MOUSEEVENTF_XDOWN, C.MOUSEEVENTF_XUP),
-    }[button]
-    # XButton'da hangi dugme oldugu mouseData'da: 1 = XButton1, 2 = XButton2.
-    data = {"x1": 1, "x2": 2}.get(button, 0)
+    down, up = _BUTTON_FLAGS[button]
+    data = _BUTTON_DATA.get(button, 0)
     _send([_mouse_input(down, data=data), _mouse_input(up, data=data)])
 
 
@@ -178,6 +182,32 @@ def cursor_pos() -> tuple[int, int]:
     if not user32.GetCursorPos(ctypes.byref(point)):
         return (0, 0)
     return (point.x, point.y)
+
+
+def set_cursor_pos(x: int, y: int) -> None:
+    """Imleci zorla oraya koyar. Jest sirasinda imleci dondurmak icin.
+
+    Hareket olayini yutmak cogu durumda imleci zaten dondurur, ama surucusu
+    kendi konumunu yazan fareler (bazi oyun fareleri, uzak masaustu) buna
+    uymuyor. Bu ikinci kemer: yutma tutmazsa imlec yine yerine cekilir.
+    """
+    user32.SetCursorPos(int(x), int(y))
+
+
+def button_down(vk: int) -> None:
+    """Fare dugmesini basili birakir -- birakma AYRI cagrilir.
+
+    Sag tus jesti icin: tusu once yutup bekletiyoruz, kullanici fareyi
+    surumeye baslayinca "aslinda bu bir surukleme" deyip gercek basimi
+    o anda enjekte ediyoruz. tap_vk bunu yapamaz, o bas-birak gonderir.
+    """
+    flag, _ = _BUTTON_FLAGS[MOUSE_VK_NAMES[vk]]
+    _send([_mouse_input(flag, data=_BUTTON_DATA.get(MOUSE_VK_NAMES[vk], 0))])
+
+
+def button_up(vk: int) -> None:
+    _, flag = _BUTTON_FLAGS[MOUSE_VK_NAMES[vk]]
+    _send([_mouse_input(flag, data=_BUTTON_DATA.get(MOUSE_VK_NAMES[vk], 0))])
 
 
 def move_relative(dx: int, dy: int) -> None:

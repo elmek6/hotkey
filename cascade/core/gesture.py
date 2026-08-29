@@ -9,9 +9,15 @@ callback'in icinden cagrilacak kadar hizli.
 
 Nasil calisir:
 
-    onek tusu basilir            -> imlecin o anki yeri capa olur
+    onek tusu basilir            -> sayaclar sifirlanir, imlec DONDURULUR
     fare `step_px` kadar gider   -> baskin eksen KILITLENIR (up/down/left/right)
     her `step_px` kadar daha     -> bir adim daha uretilir
+
+Girdi mutlak konum degil **delta**: jest sirasinda imleci yerinde tuttugumuz
+icin (main.py hareket olayini yutuyor) mutlak konum akmaz, her olay yalniz o
+darbenin ne kadar ittigini soyler. AHK de jest sirasinda imleci sabitliyordu;
+sebebi hem yanlislikla bir seye tiklanmasin hem de jest bittiginde imlec
+baslangictaki yerinde kalsin.
 
 Eksen neden kilitleniyor: kilitlemezsen hafif capraz bir hareket sirayla
 "up" ve "left" uretir, ses hem acilip hem kisilir. AHK'de bunun karsiligi
@@ -63,6 +69,29 @@ class GestureDef:
 
 
 @dataclass(frozen=True, slots=True)
+class Status:
+    """Jestin o anki hali -- ekrana yazilan geri bildirim."""
+
+    direction: Direction | None
+    distance: float
+    steps: int
+    desc: str = ""
+
+    @property
+    def text(self) -> str:
+        if self.direction is None:
+            return f"jest bekliyor  {self.distance:.0f} px"
+        arrow = {
+            Direction.UP: "\u2191",
+            Direction.DOWN: "\u2193",
+            Direction.LEFT: "\u2190",
+            Direction.RIGHT: "\u2192",
+        }[self.direction]
+        label = f"{arrow} {self.direction.label}  {self.distance:.0f} px  {self.steps} kademe"
+        return f"{label}  --  {self.desc}" if self.desc else label
+
+
+@dataclass(frozen=True, slots=True)
 class GestureEvent:
     """Uretilen jest. `steps` o darbede kac kademe ilerlendigi."""
 
@@ -93,12 +122,19 @@ def _advance(direction: Direction, dx: float, dy: float) -> float:
 
 @dataclass
 class _Active:
-    """Basili duran bir onek tusunun jest durumu."""
+    """Basili duran bir onek tusunun jest durumu.
 
-    x: float
-    y: float
+    `dx`/`dy` HENUZ ADIMA DONUSMEMIS mesafe: adim uretildikce tuketilir,
+    kalani bir sonraki adima sayilir. Boylece yavas hareket de adim uretir.
+    `total` geri bildirim icin: kilitli yonde toplam ne kadar gidildi.
+    """
+
+    dx: float = 0.0
+    dy: float = 0.0
     direction: Direction | None = None
     fired: bool = False
+    total: float = 0.0
+    steps: int = 0
 
 
 @dataclass
@@ -126,6 +162,11 @@ class GestureTracker:
         return any(key[0] == prefix for key in self.defs)
 
     @property
+    def active(self) -> tuple[int, ...]:
+        """Su an jest izlenen onek tuslari -- geri bildirim icin."""
+        return tuple(self._active)
+
+    @property
     def watching(self) -> bool:
         """Su an jest izlenen bir tus basili mi. Fare hareketi bu bayrak
         kapaliyken hic islenmez."""
@@ -133,46 +174,48 @@ class GestureTracker:
 
     # ---- besleme ----
 
-    def start(self, prefix: int, x: float, y: float) -> None:
-        """Onek tusu basildi: imlecin yeri capa olur. AHK: Start()."""
+    def start(self, prefix: int) -> None:
+        """Onek tusu basildi: sayaclar sifirlanir. AHK: Start()."""
         if self.has(prefix):
-            self._active[prefix] = _Active(x=x, y=y)
+            self._active[prefix] = _Active()
 
-    def move(self, x: float, y: float) -> list[GestureEvent]:
-        """Fare kimildadi. Basili her onek icin uretilen adimlari doner."""
+    def move(self, dx: float, dy: float) -> list[GestureEvent]:
+        """Fare kimildadi (delta). Uretilen adimlari doner."""
         if not self._active:
             return []
         events: list[GestureEvent] = []
         for prefix, state in self._active.items():
-            dx = x - state.x
-            dy = y - state.y
+            state.dx += dx
+            state.dy += dy
 
             if state.direction is None:
-                if max(abs(dx), abs(dy)) < self.step_px:
+                if max(abs(state.dx), abs(state.dy)) < self.step_px:
                     continue
-                candidate = _direction(dx, dy)
+                candidate = _direction(state.dx, state.dy)
                 if (prefix, candidate) not in self.defs:
                     continue  # bu yon icin tanim yok: kilitleme, beklemeye devam
                 state.direction = candidate
 
-            moved = _advance(state.direction, dx, dy)
+            moved = _advance(state.direction, state.dx, state.dy)
             steps = int(moved // self.step_px)
             if steps <= 0:
-                continue  # geri gidis ya da esigin altinda: capa yerinde kalir
+                continue  # geri gidis ya da esigin altinda: birikim durur
 
             definition = self.defs[(prefix, state.direction)]
             state.fired = True
-            # Capayi tuketilen kadar ileri tasi: kalan mesafe bir sonraki
-            # adima sayilsin, yoksa yavas hareket hic adim uretmezdi.
+            # Tuketileni birikimden dus: kalan mesafe bir sonraki adima
+            # sayilsin, yoksa yavas hareket hic adim uretmezdi.
             consumed = steps * self.step_px
             if state.direction is Direction.RIGHT:
-                state.x += consumed
+                state.dx -= consumed
             elif state.direction is Direction.LEFT:
-                state.x -= consumed
+                state.dx += consumed
             elif state.direction is Direction.DOWN:
-                state.y += consumed
+                state.dy -= consumed
             else:
-                state.y -= consumed
+                state.dy += consumed
+            state.total += consumed
+            state.steps += steps
 
             events.append(
                 GestureEvent(
@@ -184,6 +227,22 @@ class GestureTracker:
                 )
             )
         return events
+
+    def status(self, prefix: int) -> Status | None:
+        """Geri bildirim icin: hangi yon, ne kadar gidildi, kac kademe.
+
+        AHK jest sirasinda bunu ekrana yaziyordu; kullanicinin "ne kadar
+        daha itmem lazim" sorusunun cevabi. Kilitlenmeden once yon None,
+        mesafe o ana kadarki en buyuk sapma.
+        """
+        state = self._active.get(prefix)
+        if state is None:
+            return None
+        if state.direction is None:
+            return Status(None, max(abs(state.dx), abs(state.dy)), 0, "")
+        pending = max(_advance(state.direction, state.dx, state.dy), 0.0)
+        definition = self.defs[(prefix, state.direction)]
+        return Status(state.direction, state.total + pending, state.steps, definition.desc)
 
     def stop(self, prefix: int) -> bool:
         """Onek birakildi. Jest tetiklendiyse True -- cagiran o zaman ne menu

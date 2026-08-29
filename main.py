@@ -51,7 +51,7 @@ from cascade.core.combo import ComboTracker
 from cascade.core.filter import FilterItem
 from cascade.core.gesture import Direction, GestureTracker
 from cascade.core.hotkey import HotkeyTable
-from cascade.core.keynames import key_name, register_name
+from cascade.core.keynames import key_name, register_name, vk_from_name
 from cascade.core.mouse import WM_MOUSEMOVE, mouse_key
 from cascade.core.prefix import Outcome, PrefixTracker
 from cascade.core.state import Busy, ClipboardState
@@ -71,6 +71,11 @@ log = logging.getLogger("cascade.main")
 VERSION = "0.1.0"
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
+VK_ESCAPE = 0x1B
+
+# Fare onegi basiliyken bu kadar piksel oynarsa "surukleme" sayilir.
+# Altinda kalan hareket titremedir; sag tik yaparken imlec bir iki piksel oynar.
+DRAG_PX = 6
 
 # restart() cocuk surece bunu gecer: eski ornek kilidi birakana kadar bekle.
 RESTART_FLAG = "--restart"
@@ -142,6 +147,105 @@ START_ACTIONS: tuple[str, ...] = ()
 EXIT_ACTIONS: tuple[str, ...] = ()
 
 
+def build_cascades() -> dict[int, CascadeDef]:
+    """F15..F20 -- AHK key_handler_mouse.ahk'deki handleF15..handleF20.
+
+    Bunlar kisayol degil KASKAD: kisa/orta/uzun basim ayri eylem, ustune
+    basili tutulurken baska tusa basilinca kombo. Tam olarak
+    CascadeMachine'in isi, o yuzden HotkeyTable'a degil oraya giriyorlar.
+    Onceki surumde bunlari elimden uydurmustum; asagisi AHK'deki tablonun
+    kendisi.
+
+    Port edilmemis eylemler `--` ile isaretli ve calismiyor; menude de oyle
+    gorunurler ki neyin hazir olmadigi belli olsun:
+        MemSlots (memory_slots.ahk)  ClipSlot (clip_slot.ahk)
+        Magnifier (magnifier.ahk)    smartPaste
+    """
+    defs: list[CascadeDef] = [
+        # handleF15: kisa ^y (yinele), orta Escape
+        KeyBuilder("F15", short=350)
+        .main_key(PressType.SHORT, "send_key:^y")
+        .main_key(PressType.MEDIUM, "send_key:Escape")
+        .show_menu(False)
+        .named("F15")
+        .build(),
+        # handleF16: kisa ^z (geri al), orta Enter
+        KeyBuilder("F16", short=350)
+        .main_key(PressType.SHORT, "send_key:^z")
+        .main_key(PressType.MEDIUM, "send_key:Enter")
+        .show_menu(False)
+        .named("F16")
+        .build(),
+        # handleF17: kisa Alt+Sag, orta Delete, uzun End
+        KeyBuilder("F17", short=350, long=800)
+        .main_key(PressType.SHORT, "send_key:!Right")
+        .main_key(PressType.MEDIUM, "send_key:Delete")
+        .main_key(PressType.LONG, "send_key:End")
+        # AHK: .combo("F18", "panic", Magnifier.reset + WinMinimize)
+        # Buyutec port edilmedi; pencereyi kucultme kismi calisiyor.
+        .combo("F18", "panic (pencereyi kucult)", "send_key:#Down")
+        .show_menu(False)
+        .named("F17")
+        .build(),
+        # handleF18: kisa Alt+Sol, orta Backspace, uzun Home
+        KeyBuilder("F18", short=350, long=800)
+        .main_key(PressType.SHORT, "send_key:!Left")
+        .main_key(PressType.MEDIUM, "send_key:Backspace")
+        .main_key(PressType.LONG, "send_key:Home")
+        .combo("F17", "panic (pencereyi kucult)", "send_key:#Down")
+        .combo("LButton", "VSCode: satiri sil", "send_key:^+k")
+        .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
+        .show_menu(False)
+        .named("F18")
+        .build(),
+        # handleF19: kisa ^v, orta ^a^v, uzun -- MemSlots (port edilmedi)
+        KeyBuilder("F19", short=300, long=800)
+        .main_key(PressType.SHORT, "send_key:^v")
+        .main_key(PressType.MEDIUM, "send_keys:^a ^v")
+        # .main_key(PressType.LONG, "memslots.start")  -- memory_slots.ahk yok
+        .combo("F20", "Hepsini sec + yapistir", "send_keys:^a ^v")
+        .combo("LButton", "Tikla + yapistir", "click_then:^v")
+        .combo("MButton", "3x tikla + yapistir", "click3_then:^v")
+        .show_menu(False)
+        .named("F19")
+        .build(),
+        # handleF20: kisa ^c, orta ^x, uzun -- MemSlots (port edilmedi)
+        KeyBuilder("F20", short=300, long=800)
+        .main_key(PressType.SHORT, "send_key:^c")
+        .main_key(PressType.MEDIUM, "send_key:^x")
+        # .main_key(PressType.LONG, "memslots.start")  -- memory_slots.ahk yok
+        .combo("F19", "Hepsini sec + kopyala", "send_keys:^a ^c")
+        .combo("LButton", "Tikla + kopyala", "click_then:^c")
+        .combo("MButton", "3x tikla + kopyala", "click3_then:^c")
+        .show_menu(False)
+        .named("F20")
+        .build(),
+    ]
+    return {definition.key: definition for definition in defs}
+
+
+# AHK: sysCommands() -- `´` tusu (SC00D / VK 0xDD). Kaskad menusu olarak
+# degil acilir menu olarak veriliyor: icerigi uzun ve fare ile de secilecek.
+# Port edilmemis olanlarin basinda `--` var, tiklanabilirler ama uyari verir.
+SYS_COMMANDS_MENU = (
+    ("1  Yeniden baslat", "app.restart"),
+    ("2  Durum ve hatalar", "errors.show"),
+    ("3  -- Profil yoneticisi", "yok:app_shorts.ahk"),
+    ("4  Olay izleyici", "app.monitor"),
+    ("5  -- Bellek gozleri", "yok:memory_slots.ahk"),
+    ("6  -- Makro kaydedici", "yok:macro_recorder.ahk"),
+    None,
+    ("7  F13 menusu", "menu.f13"),
+    ("8  Pano gecmisi...", "clip.filter"),
+    ("9  Duraklat / Devam", "app.pause"),
+    ("0  Cikis", "app.exit"),
+    None,
+    ("r  -- Repository", "yok:repository.ahk"),
+    ("i  -- Incognito", "yok:incognito.ahk"),
+    ("a  Tepsi balonu denemesi", "notify:Mesaj icerigi"),
+)
+
+
 def build_hotkeys() -> HotkeyTable:
     """Denemek icin istenen tuslar. AHK'deki statik `::` satirlarinin karsiligi.
 
@@ -188,23 +292,22 @@ def build_hotkeys() -> HotkeyTable:
     table.add("~LButton & F19", "send_keys:^a ^v Enter", "hepsini sec + yapistir")
     table.add("~LButton & F20", "send_keys:^a ^c", "hepsini kopyala")
 
-    # F16 tek basina: AHK handleF16 kisa basim `^z`.
-    table.add("F16", "send_key:^z", "geri al")
+    # F15..F20 BURADA DEGIL: onlar kaskad (kisa/orta/uzun basim + kombo),
+    # build_cascades() icinde. AHK'de de `F19::` satiri handleF19()'a
+    # gidiyor ve orada bir KeyBuilder kuruluyor.
 
-    # --- onek KLAVYEDE, kombo tusu FARE dugmesi. Yukaridakinin tersi
-    # yonu: orada fare oneke, burada kombo tusuna dusuyor. Ikisi de ayni
-    # tablodan geciyor cunku fare dugmesi de bir VK. F19/F20 yutuluyor
-    # (`~` yok): tek baslarina bir isleri yok. ---
-    table.add("F19 & LButton", "send_keys:^a ^c", "hepsini kopyala")
-    table.add("F20 & LButton", "send_keys:^a ^v", "hepsini sec + yapistir")
-    table.add("F19 & RButton", "send_key:^+v", "bicimsiz yapistir")
-
-    # --- Sag tus basiliyken tekerlek -> ses. Sag tus YUTULUYOR (`~` yok):
-    # tekerlek cevrilirken baglam menusu acilmasin. Tek basina birakilinca
-    # tusun kendisi geri gonderiliyor (actions -> send.tap_vk), yani normal
-    # sag tik calismaya devam ediyor -- sadece ~150 ms gecikiyor. ---
+    # --- Sag tus basiliyken tekerlek -> ses. Sag tus once yutuluyor ki
+    # tekerlek cevrilirken baglam menusu acilmasin; ama SADECE tekerlek
+    # cevrilirse tuketiliyor. Fare surulurse "bu bir surukleme" deyip
+    # gercek basim o anda enjekte ediliyor, tek basina birakilirsa normal
+    # sag tik gonderiliyor. Sira main._hotkey_up / _mouse_filter icinde. ---
     table.add("RButton & WheelUp", "send_key:Volume_Up", "ses +")
     table.add("RButton & WheelDown", "send_key:Volume_Down", "ses -")
+
+    # --- `´` (SC00D, VK 0xDD): AHK sysCommands(). Kaskad degil menu. ---
+    backtick = send.vk_for_char("\u00b4") or 0xDD
+    register_name(backtick, "Backtick")
+    table.add("Backtick", "menu.sys", "sistem menusu")
 
     # --- Pause kombolari. AHK'de bunlar scriptin acil cikis yolu. ---
     table.add("Pause & End", "app.exit", "cikis")
@@ -245,6 +348,14 @@ def build_gestures() -> GestureTracker:
     return tracker
 
 
+def press_button(name: str) -> None:
+    """`button_down:RButton` -- dugmeyi basili birakir, birakmayi gercek
+    fare yapar. Surukleme anlasildiginda cagriliyor."""
+    vk = vk_from_name(name)
+    if vk is not None:
+        send.button_down(vk)
+
+
 def _shorten(text: str, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -257,7 +368,8 @@ class Cascade:
         self.runner = ActionRunner()
 
         definition = demo_cascade()
-        self.machine = CascadeMachine({definition.key: definition}, Busy())
+        definitions = {definition.key: definition, **build_cascades()}
+        self.machine = CascadeMachine(definitions, Busy())
 
         # Pano. Durum (hangi mod) ile liste (ne saklandi) ayri duruyor;
         # dinleme tek yerde, ui/clipboard.py icinde. AHK'de de boyleydi.
@@ -289,6 +401,14 @@ class Cascade:
         self.paused = False
         self._exited = False
         self._hk_swallowed: set[int] = set()  # yuttugumuz keydown'in keyup'i
+        # Jest sirasinda imlecin tutulacagi nokta ve son geri bildirim ani.
+        self._freeze_at: tuple[int, int] | None = None
+        self._prefix_at: tuple[int, int] | None = None
+        self._tip_t = 0.0
+        # Yutup beklettigimiz fare onegi surukleme oldugu anlasilinca gercek
+        # basimi enjekte ediliyor; bu kume onlari tutuyor ki birakma olayi
+        # da uygulamaya gecsin.
+        self._passed_through: set[int] = set()
 
         self.events: queue.Queue = queue.Queue(maxsize=4096)
         self.actions: queue.Queue = queue.Queue(maxsize=4096)
@@ -312,6 +432,13 @@ class Cascade:
         self.runner.register("clip.filter", lambda _: self.show_clip_filter())
         self.runner.register("clip.paste", self.paste_history)
         self.runner.register("menu.f13", lambda _: self.show_f13_menu())
+        self.runner.register("menu.sys", lambda _: self.show_sys_menu())
+        self.runner.register("menu.close", lambda _: self.menu.close())
+        # Surukleme anlasilinca gecikmeli enjekte edilen gercek fare basimi.
+        self.runner.register("button_down", press_button)
+        self.runner.register("yok", self.not_ported)
+        self.runner.register("click_then", self.click_then)
+        self.runner.register("click3_then", lambda keys: self.click_then(keys, times=3))
         self.runner.register("app.monitor", lambda _: self.show_monitor())
         self.runner.register("app.pause", lambda _: self.toggle_pause())
         self.runner.register("menu.clip", lambda _: self.show_clip_menu())
@@ -348,6 +475,14 @@ class Cascade:
         if event.ours or self.paused or self._ui_open:
             return False
 
+        # Acik menuyu Esc kapatsin. Menu klavye yakalamasini her zaman
+        # alamiyor (tepsi uygulamasinin aktif penceresi yok), ama hook
+        # her tusu goruyor -- en guvenli yer burasi.
+        if event.down and event.vk == VK_ESCAPE and self.menu.open:
+            with contextlib.suppress(queue.Full):
+                self.actions.put_nowait(Run("menu.close"))
+            return True
+
         swallow, actions = self.machine.feed_key(event.vk, event.down, event.t)
         if not swallow:
             swallow, extra = self._dispatch(event.vk, event.down, event.t)
@@ -375,25 +510,101 @@ class Cascade:
         if event.message == WM_MOUSEMOVE:
             # Sicak yol: jest izlenmiyorsa tek bir bayrak kontrolu.
             if not self.gestures.watching:
+                self._drag_check(event)
                 return False
-            for gesture in self.gestures.move(event.x, event.y):
+            return self._gesture_move(event)
+
+        key = mouse_key(event.message, event.data)
+        if key is None:
+            return False
+        vk, down = key
+
+        # Gercek basimini gecirdigimiz onek (surukleme): birakmasi da gecsin.
+        if not down and vk in self._passed_through:
+            self._passed_through.discard(vk)
+            self._prefix_at = None
+            self.prefixes.key_up(vk, event.t)
+            self.tracker.key_up(vk, event.t)
+            return False
+
+        # AHK handleF19'daki `.combo("LButton", ...)` icin: fare dugmesi
+        # kaskad makinesine de gidiyor, yoksa F19 basiliyken sol tik
+        # gorunmezdi.
+        swallow, actions = self.machine.feed_key(vk, down, event.t)
+        if not swallow:
+            swallow, extra = self._dispatch(vk, down, event.t, momentary=vk > 0xFF)
+            actions += extra
+        for action in actions:
+            with contextlib.suppress(queue.Full):
+                self.actions.put_nowait(action)
+        return swallow
+
+    def _gesture_move(self, event: MouseEvent) -> bool:
+        """Jest sirasindaki fare hareketi. Hook thread'i.
+
+        Imlec DONDURULUYOR: hareket olayi yutuluyor ve imlec baslangictaki
+        noktaya geri konuyor. AHK'de de jest sirasinda imlec sabitti --
+        yanlislikla bir seye tiklanmasin ve jest bitince imlec yerinde
+        kalsin diye. Yutuldugu icin mutlak konum akmaz; delta, dondurma
+        noktasina gore olculur.
+        """
+        anchor = self._freeze_at
+        if anchor is None:
+            return False
+        dx = event.x - anchor[0]
+        dy = event.y - anchor[1]
+        # Kendi SetCursorPos'umuzun urettigi olay: delta sifir, isleme.
+        if dx or dy:
+            for gesture in self.gestures.move(dx, dy):
                 self.prefixes.combo_used(gesture.prefix)
                 for _ in range(gesture.steps):
                     with contextlib.suppress(queue.Full):
                         self.actions.put_nowait(
                             Run(gesture.action, key=gesture.prefix, desc=gesture.desc)
                         )
-            return False  # hareketi asla yutmuyoruz: imlec donar
+            self._gesture_tip(event.t)
+        # Yutmak cogu farede imleci zaten dondurur; surucusu kendi konumunu
+        # yazanlar icin ikinci kemer. Cagri hook thread'inde ama SendInput
+        # degil, yeniden girisli degil.
+        send.set_cursor_pos(*anchor)
+        return True
 
-        key = mouse_key(event.message, event.data)
-        if key is None:
-            return False
-        vk, down = key
-        swallow, actions = self._dispatch(vk, down, event.t, momentary=vk > 0xFF)
-        for action in actions:
+    def _gesture_tip(self, t: float) -> None:
+        """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
+
+        Kisilmis: hareket olayi saniyede yuzlerce geliyor, ipucunu o hizda
+        yeniden cizmek gereksiz. 60 ms'de bir yeter.
+        """
+        if (t - self._tip_t) < 0.06:
+            return
+        self._tip_t = t
+        for prefix in self.gestures.active:
+            status = self.gestures.status(prefix)
+            if status is None:
+                continue
             with contextlib.suppress(queue.Full):
-                self.actions.put_nowait(action)
-        return swallow
+                self.actions.put_nowait(Run(f"tip:{status.text}", key=prefix))
+
+    def _drag_check(self, event: MouseEvent) -> None:
+        """Yutup beklettigimiz bir fare onegi varken fare suruldu mu?
+
+        Sag tus icin: basimi yutuyoruz ki tekerlek cevrilince baglam menusu
+        acilmasin. Ama kullanici sag tusu basili tutup fareyi suruyorsa bu
+        bir SURUKLEME -- beklemeyi burada bitirip gercek basimi enjekte
+        ediyoruz, o andan sonra her sey uygulamaya geciyor. Istenen sira
+        buydu: tuketme YALNIZCA tekerlek cevrildiginde.
+        """
+        origin = self._prefix_at
+        if origin is not None and max(abs(event.x - origin[0]), abs(event.y - origin[1])) < DRAG_PX:
+            return  # titreme: sag tik yaparken imlec bir iki piksel oynar
+        for vk in self.prefixes.held:
+            if vk not in send.MOUSE_VK_NAMES or vk in self._passed_through:
+                continue
+            self._passed_through.add(vk)
+            self._hk_swallowed.discard(vk)
+            self.prefixes.combo_used(vk)  # birakilinca tap eylemi calismasin
+            with contextlib.suppress(queue.Full):
+                self.actions.put_nowait(Run(f"button_down:{key_name(vk)}", key=vk))
 
     def _dispatch(
         self, vk: int, down: bool, t: float, momentary: bool = False
@@ -427,10 +638,15 @@ class Cascade:
             swallow = self.prefixes.key_down(vk, t)
             if swallow:
                 self._hk_swallowed.add(vk)
-            # Jest capasi tam burada atiliyor: onek basildigi an imlec nerede.
+            # Jest baslar: sayaclar sifirlanir ve imlecin donacagi nokta
+            # not edilir. Hareket olaylari bundan sonra yutulur.
             if self.gestures.has(vk):
-                x, y = send.cursor_pos()
-                self.gestures.start(vk, x, y)
+                self.gestures.start(vk)
+                self._freeze_at = send.cursor_pos()
+            elif vk in send.MOUSE_VK_NAMES:
+                # Fare onegi: surukleme mi tekerlek mi, imlecin nereden
+                # kalktigina bakarak anlayacagiz.
+                self._prefix_at = send.cursor_pos()
             return swallow, []
 
         binding = self.hotkeys.match(vk, chord.modifiers, chord.prefix)
@@ -454,10 +670,17 @@ class Cascade:
         # tusun geri gonderilmesi. Istenen davranis buydu.
         if self.gestures.stop(vk):
             self.prefixes.key_up(vk, t)
+            if not self.gestures.watching:
+                self._freeze_at = None
             return was_ours, []
 
         if self.prefixes.key_up(vk, t) is Outcome.NOTHING:
             return was_ours, []  # kombo yapildi ya da basili tutma calisti
+
+        if not self.gestures.watching:
+            self._freeze_at = None
+        if vk in send.MOUSE_VK_NAMES:
+            self._prefix_at = None
 
         binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi
         if binding is not None:
@@ -572,6 +795,9 @@ class Cascade:
         self.prefixes.reset()
         self.tracker.reset()
         self.gestures.reset()
+        self._freeze_at = None
+        self._prefix_at = None
+        self._passed_through.clear()
         self._hk_swallowed.clear()
         self.tip.show_html("\U0001f513 <b>busy kilidi acildi</b>", 1200)
 
@@ -595,6 +821,28 @@ class Cascade:
             return
         self.clip_watcher.set_text(last.line)
         self.tip.show_html("\U0001f4cb <b>son hata panoya kopyalandi</b>", 1500)
+
+    def show_sys_menu(self) -> None:
+        """AHK: sysCommands() -- `´` tusunun menusu."""
+        self.menu.show(SYS_COMMANDS_MENU, title=f"\u2699\ufe0f cascade {VERSION}")
+
+    def not_ported(self, module: str) -> None:
+        """Menude `--` ile isaretli ogeler buraya duser."""
+        self.tip.show_html(
+            f"\U0001f6a7 <b>henuz port edilmedi</b><br>"
+            f"<span style='color:#8b949e;'>{html.escape(module)}</span>",
+            2000,
+        )
+
+    def click_then(self, keys: str, times: int = 1) -> None:
+        """AHK: `(Click("Left", 3), Send("^c"))` -- once tikla, sonra gonder.
+
+        Tiklama ile gonderim arasinda kisa bir bosluk var: uc hizli tik
+        secim yapiyor ve secimin olusmasi hedef uygulamada zaman aliyor.
+        """
+        for _ in range(times):
+            send.click("left")
+        QTimer.singleShot(80, lambda: self.runner.run(f"send_key:{keys}"))
 
     def show_f13_menu(self) -> None:
         """AHK: showF13menu()"""
@@ -743,6 +991,12 @@ class Cascade:
         Yeni ornek --restart ile aciliyor: tek ornek kilidini eskisi
         birakana kadar bekliyor.
         """
+        # SIRA ONEMLI: once kendi kapanisimiz (pano diske yazilir, hook
+        # sokulur, kilit birakilmaya hazir olur), SONRA cocuk surec. Ters
+        # sirada cocuk dosyayi biz yazmadan okuyor ve o oturumun kopyalari
+        # kayboluyordu -- "reload calismiyor" bunun yuzundendi.
+        self.on_exit()
+
         script = os.path.abspath(__file__)
         try:
             subprocess.Popen(
@@ -757,8 +1011,9 @@ class Cascade:
             # Sessizce cikmaktansa soyle: eskiden "yeniden baslat" cikis gibi
             # gorunuyordu, cunku hata kimseye ulasmiyordu.
             QMessageBox.critical(None, "cascade", f"Yeniden baslatilamadi: {exc}")
+            self.app.quit()
             return
-        self.on_exit()
+        log.info("yeniden baslatiliyor")
         self.app.quit()
 
     def quit(self) -> None:
