@@ -62,7 +62,6 @@ class Press:
 
     @property
     def text(self) -> str:
-
         return key_name(self.vk)
 
 
