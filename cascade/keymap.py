@@ -249,11 +249,15 @@ def build_hotkeys() -> HotkeyTable:
     # tablodan, basili tutma prefix tanimindan geliyor.
     table.add("F13", "menu.f13", "kisa: menu")
     table.prefix("F13", hold_action="menu.clip", desc="basili tut: pano menusu")
-    table.add(
-        "F14",
-        "tip_html:<b>F14</b> \U0001f5b1️ fare yan tusu",
-        "ipucu goster",
-    )
+    # F14 secim tusu: basinca ekrandan alan secilir, secim uzerinde menu
+    # (kopyala / sakla / OCR) acilir -- ui/snip.py.
+    table.add("F14", "select.start", "ekran alani sec")
+
+    # --- F13 & F15..F20: slots.json'daki slotlardan yapistir. AHK
+    # handleF14'un slot kombolari (F14 secim tusu olunca F13'e tasindi).
+    # Siralama AHK ile ayni ters duzende: en yakin tus F20 = Slot 1.
+    for offset, fkey in enumerate(("F20", "F19", "F18", "F17", "F16", "F15")):
+        table.add(f"F13 & {fkey}", f"slot.paste:{offset + 1}", f"slot {offset + 1}")
     # AHK key_handler_mouse.ahk: handleF13 `.combo("F14", "Magnifier", ...)`
     # ve handleF14 `.combo("F13", ...)`. Orada ikisi de toggle'di; burada
     # yon ayrildi -- hangi tusa ONCE bastigin kademeyi belirliyor.

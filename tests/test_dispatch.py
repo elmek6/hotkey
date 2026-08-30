@@ -184,6 +184,71 @@ def test_kombo_yapilinca_basili_tutma_calismaz():
     assert box.tick(0.6) == []
 
 
+# ---- onek + kaskad tusu cakismasi ----
+
+
+def make_dispatcher_with_cascade() -> Dispatcher:
+    """F15 hem kaskad tusu hem de `F13 & F15` kombosunun yancisi."""
+    from cascade.core.builder import KeyBuilder, PressType
+
+    f15_def = (
+        KeyBuilder("F15", short=350)
+        .main_key(PressType.SHORT, "send_key:^y")
+        .show_menu(False)
+        .build()
+    )
+    table = (
+        HotkeyTable()
+        .add("F13", "tip:F13", "ipucu")
+        .add("F13 & F15", "slot.paste:6", "slot 6")
+    )
+    return Dispatcher(
+        machine=CascadeMachine({f15_def.key: f15_def}),
+        hotkeys=table,
+        gestures=GestureTracker(),
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+
+
+class _Key:
+    """key_filter'in okudugu alanlar -- gercek KeyEvent kurmaya gerek yok."""
+
+    def __init__(self, vk: int, down: bool, t: float) -> None:
+        self.vk, self.down, self.t = vk, down, t
+        self.ours = False
+
+
+def test_onek_basiliyken_kaskad_tusu_tablo_kombosu_olur():
+    """`F13 & F15`: once tablo denenir, F15 kendi kaskadini baslatmaz."""
+    box = make_dispatcher_with_cascade()
+    F15 = 0x7E
+    assert box.key_filter(_Key(F13, True, 0.0)) is True
+    assert box.key_filter(_Key(F15, True, 0.05)) is True
+    fired = [a.action for a in _drain(box.actions)]
+    assert fired == ["slot.paste:6"]
+    # Makine hic devreye girmedi: F15 birakilinca kaskad eylemi de yok.
+    assert box.key_filter(_Key(F15, False, 0.10)) is True
+    assert [a.action for a in _drain(box.actions)] == []
+
+
+def test_onek_yokken_kaskad_tusu_normal_calisir():
+    box = make_dispatcher_with_cascade()
+    F15 = 0x7E
+    assert box.key_filter(_Key(F15, True, 0.0)) is True  # makine yuttu
+    box.key_filter(_Key(F15, False, 0.1))
+    fired = [a.action for a in _drain(box.actions)]
+    assert "send_key:^y" in fired  # kisa basim eylemi makineden geldi
+
+
+def _drain(q: queue.Queue) -> list:
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    return items
+
+
 # ---- tekerlek ----
 
 

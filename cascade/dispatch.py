@@ -24,7 +24,7 @@ import contextlib
 import queue
 from collections.abc import Callable
 
-from cascade.core.cascade import CascadeMachine, Run
+from cascade.core.cascade import CascadeMachine, Phase, Run
 from cascade.core.combo import ComboTracker
 from cascade.core.gesture import GestureTracker
 from cascade.core.hotkey import HotkeyTable
@@ -98,10 +98,20 @@ class Dispatcher:
             self._put(Run("menu.close"))
             return True
 
-        swallow, actions = self.machine.feed_key(event.vk, event.down, event.t)
-        if not swallow:
-            swallow, extra = self._dispatch(event.vk, event.down, event.t)
-            actions += extra
+        # Onek basiliyken kisayol tablosu kaskaddan ONCE denenir: `F13 & F15`
+        # yazilabilsin diye. F15 ayni zamanda kaskad tusu; once makineye
+        # sorulsa F13'u gormeden kendi kaskadini baslatirdi. Makine mesgulken
+        # (HELD/MENU) sira degismez -- kaskad kombolari makinenin isi.
+        if self.prefixes.held and self.machine.phase == Phase.IDLE:
+            swallow, actions = self._dispatch(event.vk, event.down, event.t)
+            if not swallow:
+                swallow, extra = self.machine.feed_key(event.vk, event.down, event.t)
+                actions += extra
+        else:
+            swallow, actions = self.machine.feed_key(event.vk, event.down, event.t)
+            if not swallow:
+                swallow, extra = self._dispatch(event.vk, event.down, event.t)
+                actions += extra
 
         for action in actions:
             self._put(action)

@@ -26,9 +26,12 @@ import os
 import queue
 import subprocess
 import sys
+import threading
 import time
+from datetime import datetime
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from cascade import keymap, logs, paths
@@ -45,9 +48,11 @@ from cascade.ui.clipboard import ClipboardWatcher
 from cascade.ui.mem_slots import MemSlots
 from cascade.ui.menu import PopupMenu
 from cascade.ui.monitor import EventMonitor
+from cascade.ui.ocr_view import OcrView
+from cascade.ui.snip import SnipOverlay
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
-from cascade.win32 import send
+from cascade.win32 import ocr, send
 from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
 from cascade.win32.magnifier import Magnifier
@@ -76,6 +81,14 @@ def press_button(name: str) -> None:
 
 def _shorten(text: str, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+class _OcrBridge(QObject):
+    """OCR ayri thread'de kosuyor (bloklayici, bkz. win32/ocr.py); sonuc
+    Qt sinyaliyle ana thread'e doner -- baska thread'den arayuze dokunulmaz."""
+
+    finished = Signal(str, str)  # mod ("ocr" / "ocr_adv"), metin
+    failed = Signal(str)
 
 
 def _child_env() -> dict[str, str]:
@@ -157,6 +170,17 @@ class Cascade:
         self.mem_slots.fkeys_toggled.connect(self._on_memslot_fkeys)
         self.mem_slots.closed.connect(self._on_memslots_closed)
 
+        # F14 secim araci (ui/snip.py) + OCR koprusu. Secim acikken
+        # kisayollar susar (ui_open) -- fare secime, Esc iptale gitsin.
+        self.snip = SnipOverlay()
+        self.snip.done.connect(self._on_snip_done)
+        self.snip.closed.connect(lambda: setattr(self.dispatcher, "ui_open", False))
+        self.ocr_view = OcrView()
+        self.ocr_view.copy_text.connect(self._copy_to_history)
+        self._ocr_bridge = _OcrBridge()
+        self._ocr_bridge.finished.connect(self._on_ocr_done)
+        self._ocr_bridge.failed.connect(self._on_ocr_failed)
+
         self.paused = False
         self._exited = False
 
@@ -217,6 +241,10 @@ class Cascade:
             "memslots.save_slot", lambda n: self.mem_slots.save_slot(int(n))
         )
         self.runner.register("memslots.paste", lambda _: self.mem_slots.smart_paste())
+        # F13 & F15..F20 -- slots.json'daki slotlardan yapistirma.
+        self.runner.register("slot.paste", self.paste_slot)
+        # F14 -- ekran alani secimi (kopyala / sakla / OCR).
+        self.runner.register("select.start", lambda _: self.show_snip())
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
         self.runner.register("magnifier.zoom", self.zoom)
         self.runner.register("magnifier.toggle", lambda _: self.magnifier.toggle())
@@ -372,6 +400,89 @@ class Cascade:
             footer="",
             ms=4000,
         )
+
+    def paste_slot(self, argument: str) -> None:
+        """`F13 & F20` -> slots.json varsayilan grubunun 1. slotu. 1 tabanli.
+
+        Slotlar her basimda diskten taze okunur: dosya kucuk ve AHK tarafi
+        ya da elle duzenleme ayni dosyayi degistirmis olabilir.
+        """
+        try:
+            index = int(argument)
+        except ValueError:
+            return
+        self.slot_store.load()
+        group = self.slot_store.slots(self.slot_store.default_group)
+        if not 1 <= index <= len(group):
+            return
+        slot = group[index - 1]
+        if not slot.content:
+            self.tip.show_html(f"⚠️ <b>{html.escape(slot.name)}</b> bos", 1200)
+            return
+        self.tip.show_html(
+            f"\U0001f4e5 <b>{html.escape(slot.name)}</b> "
+            f"{html.escape(_shorten(slot.content, 40))}",
+            1200,
+        )
+        self.paste_text(slot.content)
+
+    # ---- F14 secim araci ----
+
+    def show_snip(self) -> None:
+        """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir."""
+        self.dispatcher.ui_open = True
+        self.snip.start()
+
+    def _copy_to_history(self, text: str) -> None:
+        """Panoya oyle yaz ki pano dinleyicisi NORMAL kopya sansin: metin
+        gecmise de girer (clip_watcher.set_text kendi yazdigimizi gecmis
+        disi tutar, burada tam tersi isteniyor)."""
+        if text:
+            QGuiApplication.clipboard().setText(text)
+
+    def _on_snip_done(self, action: str, image: QImage) -> None:
+        """Secim bitti: eylem kimligi ui/snip.py ACTIONS tablosundan gelir."""
+        if action == "copy":
+            QGuiApplication.clipboard().setImage(image)
+            self.tip.show_html(
+                f"\U0001f4cb <b>goruntu panoda</b> {image.width()}x{image.height()}", 1500
+            )
+        elif action == "save":
+            paths.CAPTURES.mkdir(parents=True, exist_ok=True)
+            target = paths.CAPTURES / f"alinti-{datetime.now():%Y%m%d-%H%M%S}.png"
+            if image.save(str(target), "PNG"):
+                self.tip.show_html(f"\U0001f4be <b>{target.name}</b>", 1800)
+            else:
+                self.tip.show_html("⚠️ <b>goruntu kaydedilemedi</b>", 1800)
+        elif action in ("ocr", "ocr_adv"):
+            if not ocr.available():
+                self.tip.show_html("⚠️ <b>OCR paketi kurulu degil</b> (winrt)", 2000)
+                return
+            self.tip.show_html("\U0001f524 <b>okunuyor...</b>", 800)
+            threading.Thread(
+                target=self._ocr_work, args=(action, image), name="cascade-ocr", daemon=True
+            ).start()
+
+    def _ocr_work(self, mode: str, image: QImage) -> None:
+        """OCR thread'i: motoru bekler, sonucu sinyalle ana thread'e verir."""
+        try:
+            self._ocr_bridge.finished.emit(mode, ocr.recognize(image))
+        except Exception as exc:  # motor yok / dil paketi eksik
+            log.exception("OCR basarisiz")
+            self._ocr_bridge.failed.emit(str(exc))
+
+    def _on_ocr_done(self, mode: str, text: str) -> None:
+        if not text:
+            self.tip.show_html("\U0001f524 <b>metin bulunamadi</b>", 1500)
+            return
+        if mode == "ocr":
+            # Basit OCR: metin dogrudan panoya (ve oradan gecmise) gider.
+            self._copy_to_history(text)
+            return
+        self.ocr_view.show_text(text)  # OCR+: pencerede goster, oradan kopyala
+
+    def _on_ocr_failed(self, message: str) -> None:
+        self.tip.show_html(f"⚠️ <b>OCR hatasi</b><br>{html.escape(_shorten(message, 80))}", 2500)
 
     # ---- hafiza slotlari ----
 
@@ -610,8 +721,12 @@ class Cascade:
           sokulur), SONRA kilidi BIRAK, en son cocuk surec. Ters sirada
           cocuk dosyayi biz yazmadan okur ya da mutex'i bekleyip saniyelerce
           gec acilir.
-        * DETACHED + NEW_PROCESS_GROUP: konsoldan/VSCode'dan baslatildiginda
-          ebeveynle birlikte olmesin.
+        * pythonw + NO_WINDOW: konsollu python.exe ile baslatilan ayrik
+          cocuk kendine YENI bir konsol penceresi aciyordu ve o pencereyi
+          kapatmak programi olduruyordu. pythonw hic konsol edinmez;
+          bulunamazsa CREATE_NO_WINDOW konsolu gizli tutar.
+        * NEW_PROCESS_GROUP: konsoldan/VSCode'dan baslatildiginda ebeveynin
+          Ctrl+C / kapanis sinyalleri cocuga gitmesin.
         * BREAKAWAY_FROM_JOB: debugpy (VSCode F5) programi oldurmeli-job'a
           koyuyor; bayraksiz cocuk, debugger kapaninca aninda olduruluyordu
           -- "yeniden baslat deyince cikti" bunun yuzundendi.
@@ -623,12 +738,17 @@ class Cascade:
         if self.lock is not None:
             self.lock.release()
 
+        executable = sys.executable
+        pythonw = os.path.join(os.path.dirname(executable), "pythonw.exe")
+        if os.path.exists(pythonw):
+            executable = pythonw
+
         script = os.path.join(paths.ROOT, "main.py")
-        base_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        base_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
         try:
             try:
                 subprocess.Popen(
-                    [sys.executable, script, RESTART_FLAG],
+                    [executable, script, RESTART_FLAG],
                     cwd=str(paths.ROOT),
                     close_fds=True,
                     env=_child_env(),
@@ -638,7 +758,7 @@ class Cascade:
                 # Job breakaway'e izin vermiyorsa (debugpy veriyor, ama
                 # baska bir sarmalayici vermeyebilir) bayraksiz dene.
                 subprocess.Popen(
-                    [sys.executable, script, RESTART_FLAG],
+                    [executable, script, RESTART_FLAG],
                     cwd=str(paths.ROOT),
                     close_fds=True,
                     env=_child_env(),
@@ -665,6 +785,8 @@ class Cascade:
         self._tick_timer.stop()
         self.clip_watcher.stop()
         self.filter_window.close()
+        self.snip.close()
+        self.ocr_view.close()
         self.mem_slots.close()
         self.machine.reset()
         self.hook.stop()

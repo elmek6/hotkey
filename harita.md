@@ -6,8 +6,12 @@ Kaynak: AHK projesinin kopyası `_AutoHotKey/` içinde — `AutoHotkey.ahk` +
 Hedef: aynı davranış, CPython 3.13 + ctypes/Win32 + PySide6.
 
 Bilinçli olarak TAŞINMAYACAK modüller: türkçe klavye eklentisi, görsel pano
-(clip_image_*), OCR (OCR.ahk + screen_ocr), incognito (+ trace_store),
-repository, app_shorts (profiller), macro_recorder.
+(clip_image_*), incognito (+ trace_store), repository, app_shorts
+(profiller), macro_recorder. OCR modülleri de atlanmıştı ama F14 seçim
+aracıyla geri geldi: Windows.Media.Ocr (pywinrt) üzerinden, AHK'nin 1800
+satırlık elle COM tesisatı olmadan (`win32/ocr.py`).
+
+Eksik aktarılan özelliklerin tam listesi: `eksikler.md`.
 
 ---
 
@@ -23,7 +27,7 @@ repository, app_shorts (profiller), macro_recorder.
 | ✅ Faz 4 | günlük kullanımda: F13-F20, Caret, tekerlek/jest komboları |
 | ✅ Faz 5 | pano geçmişi + slotlar + kalıcılık (`clipboards.bin`, `slots.json` — AHK ile aynı biçim) |
 | 🔶 Faz 6 | GUI: filtreli liste, F13/sistem menüleri, tip, olay izleyici, hafıza slotları; slot grup yönetimi ve slot hızlı menüleri eksik |
-| 🔶 Faz 9'dan öne alındı | büyüteç (`win32/magnifier.py`) |
+| 🔶 Faz 9'dan öne alındı | büyüteç (`win32/magnifier.py`); F14 seçim aracı: alan seç → kopyala / sakla / OCR / OCR+ (`ui/snip.py` + `win32/ocr.py`) |
 
 Çalışan program: `main.py` → tepsiye oturur; tuş haritası `cascade/keymap.py`
 içinde kod/veri olarak durur (JSON'a taşıma ileride, `def_from_dict` hazır).
@@ -237,6 +241,9 @@ birlikte açılır).
 | `cascade/ui/menu.py` | imleç yanında açılır menü (`menus.ahk`in Qt hali) |
 | `cascade/ui/clipboard.py` | pano dinleyicisi (gecikmeli + tazelik kontrollü) |
 | `cascade/win32/magnifier.py` | Windows büyüteci (`magnifier.ahk`) |
+| `cascade/ui/snip.py` | F14 ekran alanı seçimi: tutamaçlı çerçeve + işlem çubuğu |
+| `cascade/win32/ocr.py` | Windows OCR (`OCR.ahk`in pywinrt ile ~60 satırı) |
+| `cascade/ui/ocr_view.py` | Gelişmiş OCR sonuç penceresi |
 | `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
 | `main.py` | yalnız giriş noktası: kilit + Qt + Cascade kurulumu |
 

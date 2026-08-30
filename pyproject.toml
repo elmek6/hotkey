@@ -12,6 +12,15 @@ dependencies = [
     "pyside6>=6.11.2",
     "pywin32>=312",
     "watchdog>=6.0.0",
+    # Windows OCR (F14 secimi). Not: pip ile kuruldu; uv.lock henuz
+    # icermiyor -- bir sonraki `uv sync/add` kilidi gunceller.
+    "winrt-runtime>=3.2",
+    "winrt-windows.foundation>=3.2",
+    "winrt-windows.foundation.collections>=3.2",
+    "winrt-windows.globalization>=3.2",
+    "winrt-windows.graphics.imaging>=3.2",
+    "winrt-windows.media.ocr>=3.2",
+    "winrt-windows.storage.streams>=3.2",
 ]
 
 [dependency-groups]
