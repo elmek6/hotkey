@@ -26,7 +26,7 @@ AHK'de zor olup Qt'de bedava gelen uc sey -- bilerek AHK'yi taklit etmedik:
   Qt'de `rowAt(0)` ayni seyi soyluyor.
 
 Secim `chosen` sinyaliyle disari verilir; panoya yazma ve yapistirma isi
-cagirana ait (main.py) -- bu pencere pano nedir bilmez, sadece liste
+cagirana ait (app.py) -- bu pencere pano nedir bilmez, sadece liste
 gosterir. AHK'de `sendText` sinifin icindeydi ve dolayisiyla pencere yalniz
 pano icin kullanilabiliyordu.
 """
@@ -260,7 +260,7 @@ class ArrayFilter(QWidget):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
-        """Kapanisi main.py'ye bildir: pencere acikken kisayollar susmali,
+        """Kapanisi app.py'ye bildir: pencere acikken kisayollar susmali,
         yoksa arama kutusuna yazarken `Caret & 1` tetiklenirdi."""
         super().closeEvent(event)
         self.closed.emit()

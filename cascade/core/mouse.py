@@ -1,8 +1,6 @@
 """Fare olayini kisayol tablosunun anlayacagi tus koduna cevirir.
 
-HENUZ BAGLI DEGIL -- `F13 & WheelUp` icin hazir duruyor.
-
-Bu senin AHK scriptinde var:
+dispatch.py mouse_filter icinde kullaniliyor. Bu senin AHK scriptinde var:
 
     ~F13 & WheelUp::   Send("#{NumpadAdd}")     ; zoom
     ~F14 & WheelUp::   Send("{Volume_Up}")      ; ses

@@ -232,7 +232,7 @@ class ClipStore:
         path = self.path
         self.loaded_count = 0
         if not path.exists():
-            return self._migrate_json()
+            return []
         try:
             raw = path.read_bytes()
         except OSError:
@@ -275,44 +275,6 @@ class ClipStore:
             )
             backup_file(path, "bozuk", copy=True)
 
-        self.loaded_count = len(entries)
-        return entries
-
-    def _migrate_json(self) -> list[ClipEntry]:
-        """Eski `clip_history.json` varsa bir kereligine oradan okur.
-
-        Bu program bir sure JSON yaziyordu; ikili bicime gecerken o
-        oturumlarin gecmisi kaybolmasin. Eski dosya SILINMIYOR, yalniz
-        okunuyor -- ilk kapanista yeni bicime yazilir ve bir daha buraya
-        girilmez (`clipboards.bin` artik var).
-        """
-        legacy = self._directory / "clip_history.json"
-        if not legacy.exists():
-            return []
-        try:
-            data = orjson.loads(legacy.read_bytes())
-            rows = data.get("entries") or []
-        except (OSError, orjson.JSONDecodeError, AttributeError):
-            log.exception("%s okunamadi (eski bicim)", legacy.name)
-            return []
-
-        entries: list[ClipEntry] = []
-        for row in rows:
-            if not isinstance(row, dict) or not isinstance(row.get("text"), str):
-                continue
-            if not row["text"]:
-                continue
-            last = float(row.get("last_ts") or 0.0)
-            entries.append(
-                ClipEntry(
-                    text=row["text"],
-                    first_ts=float(row.get("first_ts") or last),
-                    last_ts=last,
-                    count=max(1, int(row.get("count") or 1)),
-                )
-            )
-        if entries:
-            log.info("%s: %d kayit eski JSON biciminden alindi", self.filename, len(entries))
         self.loaded_count = len(entries)
         return entries
 

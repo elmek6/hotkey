@@ -20,7 +20,7 @@ AHK'den AYRILAN iki yer, ikisi de mimari yuzunden:
 1. **Basim turleri.** AHK `detectPressType` ile BLOKE EDEREK kisa/uzun/cift
    basimi ayiriyordu. Bizde bloke eden dongu yok; kisa/orta/uzun zaten
    CascadeMachine'de var ve F1..F10 oraya calisma aninda ekleniyor
-   (main.py `memslots_defs`). Cift basim yerine UZUN basim kullaniliyor:
+   (keymap.py `memslots_defs`). Cift basim yerine UZUN basim kullaniliyor:
 
         kisa  -> slotu yapistir      orta -> gecmisi yapistir
         uzun  -> panoyu o slota kaydet
@@ -42,7 +42,7 @@ TODO(AHK): memory_slots.ahk `OleDragSource.attachListView` -- satiri
     Qt'nin surukleme modeli tamamen ayri, birebir tasinamaz.
 TODO(AHK): memory_slots.ahk `smartPaste(middlePressed)` -- `Insert` tusu ve
     ORTA FARE TUSU ile akilli yapistirma. Eylem hazir (`smart_paste`,
-    main.py `memslots.paste`) ama bir tusa BAGLI DEGIL: Insert'i ya da orta
+    app.py `memslots.paste`) ama bir tusa BAGLI DEGIL: Insert'i ya da orta
     tusu sistem genelinde yutmak pencere kapaliyken de sonuc dogururdu.
     Baglanacaksa yalniz pencere acikken gecerli bir kisayol gerekiyor.
 TODO(AHK): memory_slots.ahk `middlePasteCheck` kutusu -- yukaridaki orta
@@ -218,7 +218,7 @@ class MemSlots(QWidget):
         self.activateWindow()
 
     def on_clip(self, text: str) -> None:
-        """Pano degisti (mod MEM_SLOTS iken main.py buraya verir).
+        """Pano degisti (mod MEM_SLOTS iken app.py buraya verir).
 
         AHK: clipboardWatcher + _autoFillSlot. `^c` ile biz istediysek
         bekleyen slota, degilse ilk bos slota yazilir.
@@ -237,7 +237,7 @@ class MemSlots(QWidget):
         self._write_slot(index, text)
         self.select_slot(index)
 
-    # ---- F1..F10 eylemleri (main.py cagirir) ----
+    # ---- F1..F10 eylemleri (app.py cagirir) ----
 
     def paste_slot(self, index: int) -> None:
         """Kisa basim. AHK: pasteFromSlot."""
@@ -409,7 +409,7 @@ class MemSlots(QWidget):
 
     def closeEvent(self, event) -> None:
         """AHK: _destroy -- F tuslari birakilir, pano modu geri alinir
-        (modu main.py `closed` sinyalinde geri aliyor)."""
+        (modu app.py `closed` sinyalinde geri aliyor)."""
         if self.fkeys.isChecked():
             self.fkeys.setChecked(False)  # fkeys_toggled(False) yayar
         super().closeEvent(event)

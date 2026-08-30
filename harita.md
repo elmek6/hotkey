@@ -1,28 +1,32 @@
 # cascade — AHK'den Python'a geçiş haritası
 
-Kaynak: `C:\Users\0\Documents\AutoHotKey` — `AutoHotkey.ahk` + `Lib/` 30 modül,
-**14.004 satır**. Ayrıca `test/` altında 4.400 satır deneme kodu (taşınmayacak).
+Kaynak: AHK projesinin kopyası `_AutoHotKey/` içinde — `AutoHotkey.ahk` +
+`Lib/` 30 modül, **~14.000 satır**.
 
 Hedef: aynı davranış, CPython 3.13 + ctypes/Win32 + PySide6.
 
-Bu dosya `sonuc.md` ve `python-gecis-yol-haritasi.md`'nin yerine geçer.
-Onlardaki stack seçimi ve modül eşlemesi doğruydu; değişen şey **sıra** ve
-**kaskadın nasıl yazılacağı**.
+Bilinçli olarak TAŞINMAYACAK modüller: türkçe klavye eklentisi, görsel pano
+(clip_image_*), OCR (OCR.ahk + screen_ocr), incognito (+ trace_store),
+repository, app_shorts (profiller), macro_recorder.
 
 ---
 
-## Durum
+## Durum (2026-08-30)
 
 | | |
 |---|---|
 | ✅ Faz -1 | risk sondajı — hook, SendInput, kombo, yutma, gecikme ölçüldü |
-| 🔶 Faz 0 | gönderim katmanı: scancode + Unicode + fare var; Türkçe Q/F ve AltGr eksik |
-| ✅ Faz 1 | kaskad durum makinesi — `core/cascade.py`, 18 birim testi |
-| 🔶 Faz 2 | dispatcher: önek kombosu (`F13 & F14`, `^ & 1`) + modifier kombosu + yutma/geri gönderme var; `HotIf` bağlamı, süreç eşleşmesi ve JSON'dan okuma eksik |
-| ✅ Faz 3 | iskelet: tek örnek kilidi, loglama, tepsi menüsü, reload/exit |
+| 🔶 Faz 0 | gönderim katmanı: scancode + Unicode + fare var; AltGr özel işlemesi eksik |
+| ✅ Faz 1 | kaskad durum makinesi — `core/cascade.py` |
+| 🔶 Faz 2 | dispatcher (`dispatch.py`): önek kombosu (`F13 & F14`, `^ & 1`), modifier kombosu, `~` geçirgenlik, jest, sürükleme ayrımı; `HotIf` bağlamı, süreç eşleşmesi ve JSON'dan okuma eksik |
+| ✅ Faz 3 | iskelet: tek örnek kilidi, loglama, tepsi, reload/exit |
+| ✅ Faz 4 | günlük kullanımda: F13-F20, Caret, tekerlek/jest komboları |
+| ✅ Faz 5 | pano geçmişi + slotlar + kalıcılık (`clipboards.bin`, `slots.json` — AHK ile aynı biçim) |
+| 🔶 Faz 6 | GUI: filtreli liste, F13/sistem menüleri, tip, olay izleyici, hafıza slotları; slot grup yönetimi ve slot hızlı menüleri eksik |
+| 🔶 Faz 9'dan öne alındı | büyüteç (`win32/magnifier.py`) |
 
-Çalışan program: `main.py` → tepsiye oturur, `Files/hotkeys.json` okur,
-tepsi menüsünde **Durum / Kısayolları yeniden yükle / Yeniden başlat / Çıkış**.
+Çalışan program: `main.py` → tepsiye oturur; tuş haritası `cascade/keymap.py`
+içinde kod/veri olarak durur (JSON'a taşıma ileride, `def_from_dict` hazır).
 
 Ölçülen değerler (bu makinede, 2026-08-28):
 
@@ -32,7 +36,7 @@ sol/sağ modifier      : ayrı geliyor (VK 0xA0..0xA5)
 tuş yutma             : çalışıyor (CapsLock artık toggle etmiyor)
 fare düğmesi yutma    : çalışıyor (XButton2)
 kendi SendInput'umuz  : dwExtraInfo=0x0CA5CADE ile geri beslemede tanınıyor
-birim testi           : 61 test, hepsi geçiyor
+birim testi           : 151 test, hepsi geçiyor (2026-08-30)
 ```
 
 ---
@@ -111,13 +115,13 @@ kullanmamış olursun. Ayar dialogu en sona alındı; JSON dosyası aylarca yete
 | **1** ✅ | kaskad durum makinesi | `key_handler_cascade`, `key_handler_hook` | `core/cascade.py` + 18 test, Win32'siz |
 | **2** 🔶 | dispatcher: önek kombosu ✅, modifier kombosu ✅, JSON tablosu, `HotIf` bağlamı, süreç eşleşmesi | `key_handler_mouse`, `hot_vectors` | 63 statik hotkey tablodan okunuyor |
 | **3** ✅ | iskelet: mutex, logging, tray, reload/exit | `AutoHotkey.ahk`, `script_state`, `error_handler` | `pythonw main.py` arka planda oturuyor |
-| **4** | **ilk gerçek devir**: en sık kullandığın 5 kısayol | — | bir hafta günlük kullanım, geri dönüş yok |
-| 5 | pano geçmişi (metin) + slotlar + kalıcılık | `clip_hist`, `clip_slot`, `memory_slots` | |
-| 6 | GUI: geçmiş listesi, menüler, filtre | `menus`, `array_filter` | |
-| 7 | görsel pano + sürükleme | `clip_image_*`, `gdip_mini`, `ole_drag_source` | |
-| 8 | makro kaydedici/oynatıcı | `macro_recorder` | |
-| 9 | ekran yakalama + OCR (`winsdk`) | `screen_ocr`, `OCR.ahk`, `magnifier` | |
-| 10 | profiller, repository, incognito, trace | `app_shorts`, `repository`, `incognito`, `trace_store` | |
+| **4** ✅ | **ilk gerçek devir**: en sık kullandığın 5 kısayol | — | bir hafta günlük kullanım, geri dönüş yok |
+| 5 ✅ | pano geçmişi (metin) + slotlar + kalıcılık | `clip_hist`, `clip_slot`, `memory_slots` | |
+| 6 🔶 | GUI: geçmiş listesi, menüler, filtre (slot grupları eksik) | `menus`, `array_filter` | |
+| ~~7~~ | görsel pano + sürükleme — **bilinçli atlandı** | `clip_image_*`, `gdip_mini`, `ole_drag_source` | |
+| ~~8~~ | makro kaydedici/oynatıcı — **bilinçli atlandı** | `macro_recorder` | |
+| 9 🔶 | ekran yakalama + OCR **bilinçli atlandı**; büyüteç ✅ | `screen_ocr`, `OCR.ahk`, `magnifier` | |
+| ~~10~~ | profiller, repository, incognito, trace — **bilinçli atlandı** | `app_shorts`, `repository`, `incognito`, `trace_store` | |
 | 11 | ayar dialogu (pydantic → Qt), autostart, paketleme | `settings`, `settings_dialog` | |
 
 **Faz 4 haritanın kalbi.** Oraya varmadan yazılan her satır spekülatif.
@@ -146,6 +150,11 @@ AHK dosyalarına başka hiçbir şekilde dokunulmaz.
   `_on_mouse` içine breakpoint koyarsan tüm sistemin girdisi donar, 300 ms
   sonra Windows hook'u düşürür. Sondajları **Ctrl+F5** ile çalıştır.
   Breakpoint `core/` içine konur, orası hook thread'inde değil.
+- **VSCode F5 altında yeniden başlatma (çözüldü, dokunma).** debugpy programı
+  KILL_ON_JOB_CLOSE bayraklı bir job'a koyar: debugger kapanınca job'daki her
+  süreç ölür — restart'ın başlattığı çocuk dahil. Çözüm üç parça ve üçü de
+  gerekli: `CREATE_BREAKAWAY_FROM_JOB` (app.py restart), temiz çocuk ortamı
+  (`_child_env`) ve `launch.json`'daki `"subProcess": false`.
 - **Yükseltilmiş pencereler.** Mevcut AHK scripti `#RequireAdmin`
   kullanmıyor, Python de kullanmayacak. Yönetici olarak açılmış pencerelerde
   (Görev Yöneticisi, regedit) ne hook görür ne SendInput geçer — davranış
@@ -182,12 +191,19 @@ uv.lock            ← pubspec.lock        kilitlenmiş sürümler (git'e girer)
 .venv/             ← .dart_tool/ + build/  indirilen paketler (git'e girmez)
 
 cascade/           ← lib/                asıl kaynak
+  keymap.py        SCRIPT katmanı: tuş tabloları, menüler ← AutoHotkey.ahk
+  dispatch.py      tuşların çalışma mantığı: yutma/önek/jest ← key_handler_*.ahk
+  app.py           kurulum + yaşam döngüsü + pano/slot/büyüteç bağlantıları
   core/            saf Python. Win32 import'u YASAK. Test edilebilir her şey burada.
   win32/           ctypes sarmalayıcıları. İşletim sistemine dokunan tek yer.
-  ui/              PySide6 (Faz 6)
+  ui/              PySide6 pencereleri
 probes/            elle çalıştırılan donanım sondajları
 tests/             ← test/               pytest
 ```
+
+Kural: donanımla (hook, SendInput, pano, registry) konuşan TEK yer
+`win32/`; olay akışının tek kapısı `dispatch.py`. Diğer modüller tuşa
+doğrudan dokunmaz, `keymap.py` tablolarıyla kayıt olur.
 
 Çift tıklanabilir başlatıcılar: `baslat.cmd` (konsollu, hata görmek için),
 `baslat.vbs` (sessiz — kısayolunu `shell:startup` içine koyunca Windows ile
@@ -205,12 +221,24 @@ birlikte açılır).
 | `cascade/core/cascade.py` | kaskad durum makinesi (IDLE → HELD → MENU) |
 | `cascade/core/hotkey.py` | AHK sözdizimi: önek kombosu (`F13 & F14`) + modifier kombosu (`^!k`) + kısayol tablosu |
 | `cascade/core/mouse.py` | fare mesajı → tuş kodu (henüz bağlı değil, `F13 & WheelUp` için hazır) |
-| `cascade/core/state.py` | `script_state.ahk` portu: Busy, ScriptInfo, MouseState |
+| `cascade/core/state.py` | `script_state.ahk` portu: Busy, ClipboardState |
+| `cascade/core/prefix.py` | önek tuşu durum makinesi (`A & B::` yazımının arkası) |
+| `cascade/core/gesture.py` | eksen kilitli jest sayacı (`hot_vectors.ahk`in gereken kadarı) |
+| `cascade/core/clip_history.py` | pano geçmişi listesi (`clip_hist.ahk` bellek tarafı) |
+| `cascade/store.py` | disk: `clipboards.bin` + `slots.json` — AHK ile aynı biçim |
 | `cascade/actions.py` | eylem kimliği → gerçek iş (`send_text:`, `app.exit` …) |
+| `cascade/keymap.py` | tuş tabloları + menü içerikleri (script/soft code) |
+| `cascade/dispatch.py` | yut/bırak kararları, olay akışının tek kapısı |
+| `cascade/app.py` | kurulum, pano/slot/büyüteç bağlantıları, reload/exit |
 | `cascade/ui/tray.py` | tepsi simgesi + menü, Duraklat/Devam (AHK `Suspend`) |
 | `cascade/ui/tip.py` | AHK `ToolTip` karşılığı — zengin metin, emoji, renk, rozetli menü |
+| `cascade/ui/array_filter.py` | filtreli liste penceresi (`array_filter.ahk`) |
+| `cascade/ui/mem_slots.py` | hafıza slotları penceresi (`memory_slots.ahk`) |
+| `cascade/ui/menu.py` | imleç yanında açılır menü (`menus.ahk`in Qt hali) |
+| `cascade/ui/clipboard.py` | pano dinleyicisi (gecikmeli + tazelik kontrollü) |
+| `cascade/win32/magnifier.py` | Windows büyüteci (`magnifier.ahk`) |
 | `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
-| `main.py` | her şeyi bağlayan giriş noktası |
+| `main.py` | yalnız giriş noktası: kilit + Qt + Cascade kurulumu |
 
 ---
 

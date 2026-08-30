@@ -101,7 +101,7 @@ def test_tekerlek_yonu_onek_kombosunda_kullanilabilir():
 
 
 def test_onek_tuslari_listelenir():
-    """main.py bu listeye bakip hangi tusu keydown'da yutacagini biliyor."""
+    """dispatch.py bu listeye bakip hangi tusu keydown'da yutacagini biliyor."""
     table = HotkeyTable().add("F13 & F14", "a").add("F14", "b")
     assert table.prefixes == frozenset({F13})
 

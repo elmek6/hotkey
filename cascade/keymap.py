@@ -1,0 +1,339 @@
+"""Tus haritasi -- SCRIPT katmani. AHK'deki `AutoHotkey.ahk`'nin karsiligi.
+
+Bu dosyada MANTIK YOK: hangi tusun ne yapacagi, menulerde ne yazacagi ve
+jestlerin hangi yone bagli oldugu burada VERI olarak durur. Tuslarin nasil
+calistigi (yutma, onek, basim suresi) cascade/dispatch.py'de; eylem
+kimliklerinin gercek isi cascade/app.py + cascade/actions.py'de.
+
+Yeni bir tus baglamak istediginde SADECE bu dosyaya dokunman gerekir.
+Ileride JSON'a tasinacak yer de burasi (builder.def_from_dict hazir).
+
+Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
+
+    F13              kisa: acilir menu     basili tut: pano hizli menusu
+    ^ (Caret)        kisa: `^` yazilir     basili tut: pano hizli menusu
+    F13 & F14        onek kombosu -- onek YUTULUR
+    ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
+    F19 & LButton    onek klavyede, kombo tusu FARE dugmesi
+    RButton & Wheel  sag tus basiliyken tekerlek -> ses; sag tik yutulur
+    F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/gesture.py)
+    ~F13 & WheelUp   basili tutup tekerlek
+    Pause & Home     yeniden baslat (AHK: reloadScript)
+    Pause & End      cikis        Pause & c   busy kilidini acar
+    ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
+    ScrollLock       kaskad menusu (demo_cascade)
+"""
+
+from __future__ import annotations
+
+from cascade.core.builder import CascadeDef, KeyBuilder, PressType
+from cascade.core.gesture import Direction, GestureTracker
+from cascade.core.hotkey import HotkeyTable
+from cascade.core.keynames import register_name
+from cascade.win32 import send
+
+KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
+
+
+def demo_cascade() -> CascadeDef:
+    """AHK'deki cascadeTab()/cascadeCaps() ile ayni sekil, zararsiz eylemlerle."""
+    return (
+        KeyBuilder("ScrollLock", short=350)
+        .main_key(PressType.SHORT, "tip_html:<b>ScrollLock</b> kisa basim \U0001f44c")
+        .main_key(PressType.MEDIUM, "beep")
+        .set_exit_on_press_type(PressType.SHORT)
+        .combo("1", "\U0001f4dd Ornek metin yaz", "send_text:cascade calisiyor ")
+        .combo("2", "\U0001f4cb Pano gecmisi", "clip.filter")
+        .combo("9", "\U0001f501 Yeniden baslat", "app.restart")
+        .combo("0", "\U0001f6d1 Cikis", "app.exit")
+        .named("ScrollLock")
+        .build()
+    )
+
+
+# AHK: showF14menu() icindeki subMenuKey. F14'un kendisi sende baska is
+# icin duruyor, ozel tuslar F13 menusune tasindi.
+SPECIAL_KEYS_MENU = (
+    ("⏎ Enter", "send_key:Enter"),
+    ("⌫ Backspace", "send_key:Backspace"),
+    ("⌦ Delete", "send_key:Delete"),
+    ("⎋ Esc", "send_key:Escape"),
+    None,
+    ("Hepsini sec + kes", "send_keys:^a ^x"),
+    ("Hepsini sec + kopyala", "send_keys:^a ^c"),
+    ("Bicimsiz yapistir", "send_key:^+v"),
+)
+
+# AHK: showF14menu() icindeki subMenuSet.
+SYSTEM_MENU = (
+    ("\U0001f440 Olay izleyici...", "app.monitor"),
+    ("⏸️ Duraklat / Devam", "app.pause"),
+    ("\U0001f513 Busy kilidini ac", "busy.free"),
+    None,
+    ("\U0001f4c4 Son hatalar...", "errors.show"),
+    ("\U0001f4cb Son hatayi kopyala", "errors.copy"),
+    None,
+    ("\U0001f501 Yeniden baslat", "app.restart"),
+    ("\U0001f6d1 Cikis", "app.exit"),
+)
+
+F13_MENU = (
+    ("\U0001f4cb Pano gecmisi...", "clip.filter"),
+    ("\U0001f5c2️ Windows pano gecmisi", "send_key:#v"),
+    None,
+    ("\U0001f5bc️ Ekran alintisi", "send_key:#+s"),
+    ("\U0001f4f7 Pencere goruntusu", "send_key:!PrintScreen"),
+    ("\U0001f524 OCR ile metin sec", "send_key:#+t"),
+    ("\U0001f50d Buyutec ac / kapa", "magnifier.toggle"),
+    None,
+    # TODO(AHK): screen_ocr.ahk / OCR.ahk port edilmedi (bilerek) --
+    # yukaridaki OCR ogesi Windows'un kendi kisayolunu (#+t) cagiriyor.
+    ("⌨️ Ozel tuslar", SPECIAL_KEYS_MENU),
+    ("⚙️ Sistem", SYSTEM_MENU),
+)
+"""AHK: showF13menu() + showF14menu(). Oge basina bir kod satiri degil, tek
+veri tablosu. AHK'nin OCR / makro kaydedici ogeleri bilerek port edilmedi;
+Windows'un kendi kisayoluyla yapilabilenler (ekran alintisi, OCR) duruyor."""
+
+# AHK: sysCommands() -- `´` tusu (SC00D / VK 0xDD). Kaskad menusu olarak
+# degil acilir menu olarak veriliyor: icerigi uzun ve fare ile de secilecek.
+# Port edilmemis olanlarin basinda `--` var, tiklanabilirler ama uyari verir.
+SYS_COMMANDS_MENU = (
+    ("1  Yeniden baslat", "app.restart"),
+    ("2  Durum ve hatalar", "errors.show"),
+    # TODO(AHK): app_shorts.ahk -- uygulamaya ozel kisayol profilleri
+    # (Files/profiles.json). Aktif pencereye gore kisayol tablosu degistiriyordu.
+    ("3  -- Profil yoneticisi", "yok:app_shorts.ahk"),
+    ("4  Olay izleyici", "app.monitor"),
+    ("5  Hafiza slotlari", "memslots.start"),
+    # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma
+    # (Files/rec1.ahk gibi uretilmis dosyalar).
+    ("6  -- Makro kaydedici", "yok:macro_recorder.ahk"),
+    None,
+    ("7  F13 menusu", "menu.f13"),
+    ("8  Pano gecmisi...", "clip.filter"),
+    ("9  Duraklat / Devam", "app.pause"),
+    ("0  Cikis", "app.exit"),
+    None,
+    # TODO(AHK): repository.ahk (Files/repository.json) -- kod parcasi deposu.
+    ("r  -- Repository", "yok:repository.ahk"),
+    # TODO(AHK): incognito.ahk (Files/incognito_appids.json) -- secili
+    # uygulamalarda pano gecmisine hic yazmama modu.
+    ("i  -- Incognito", "yok:incognito.ahk"),
+    ("a  Tepsi balonu denemesi", "notify:Mesaj icerigi"),
+)
+
+# ---- OnStart / OnExit -- AHK: LoadSettings() ve ExitSettings() ----
+# Pano gecmisinin diskten okunmasi/yazilmasi app.py on_start/on_exit icinde;
+# buraya yalniz "acilista/kapanista su eylemler de calissin" turu script
+# istekleri girer.
+START_ACTIONS: tuple[str, ...] = ()
+EXIT_ACTIONS: tuple[str, ...] = ()
+
+
+def build_cascades() -> dict[int, CascadeDef]:
+    """F15..F20 -- AHK key_handler_mouse.ahk'deki handleF15..handleF20.
+
+    Bunlar kisayol degil KASKAD: kisa/orta/uzun basim ayri eylem, ustune
+    basili tutulurken baska tusa basilinca kombo. Tam olarak
+    CascadeMachine'in isi, o yuzden HotkeyTable'a degil oraya giriyorlar.
+
+    Port edilmemis eylemler `--` ile isaretli ve calismiyor; menude de oyle
+    gorunurler ki neyin hazir olmadigi belli olsun.
+    """
+    defs: list[CascadeDef] = [
+        # handleF15: kisa ^y (yinele), orta Escape
+        KeyBuilder("F15", short=350)
+        .main_key(PressType.SHORT, "send_key:^y")
+        .main_key(PressType.MEDIUM, "send_key:Escape")
+        .show_menu(False)
+        .named("F15")
+        .build(),
+        # handleF16: kisa ^z (geri al), orta Enter
+        KeyBuilder("F16", short=350)
+        .main_key(PressType.SHORT, "send_key:^z")
+        .main_key(PressType.MEDIUM, "send_key:Enter")
+        .show_menu(False)
+        .named("F16")
+        .build(),
+        # handleF17: kisa Alt+Sag, orta Delete, uzun End
+        KeyBuilder("F17", short=350, long=800)
+        .main_key(PressType.SHORT, "send_key:!Right")
+        .main_key(PressType.MEDIUM, "send_key:Delete")
+        .main_key(PressType.LONG, "send_key:End")
+        # AHK: .combo("F18", "panic", Magnifier.reset + WinMinimize)
+        .combo("F18", "panic (buyutec %100 + kucult)", "magnifier.panic")
+        .show_menu(False)
+        .named("F17")
+        .build(),
+        # handleF18: kisa Alt+Sol, orta Backspace, uzun Home
+        KeyBuilder("F18", short=350, long=800)
+        .main_key(PressType.SHORT, "send_key:!Left")
+        .main_key(PressType.MEDIUM, "send_key:Backspace")
+        .main_key(PressType.LONG, "send_key:Home")
+        .combo("F17", "panic (buyutec %100 + kucult)", "magnifier.panic")
+        .combo("LButton", "VSCode: satiri sil", "send_key:^+k")
+        .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
+        .show_menu(False)
+        .named("F18")
+        .build(),
+        # handleF19: kisa ^v, orta ^a^v, uzun MemSlots
+        KeyBuilder("F19", short=300, long=800)
+        .main_key(PressType.SHORT, "send_key:^v")
+        .main_key(PressType.MEDIUM, "send_keys:^a ^v")
+        .main_key(PressType.LONG, "memslots.start")
+        .combo("F20", "Hepsini sec + yapistir", "send_keys:^a ^v")
+        .combo("LButton", "Tikla + yapistir", "click_then:^v")
+        .combo("MButton", "3x tikla + yapistir", "click3_then:^v")
+        .show_menu(False)
+        .named("F19")
+        .build(),
+        # handleF20: kisa ^c, orta ^x, uzun MemSlots
+        KeyBuilder("F20", short=300, long=800)
+        .main_key(PressType.SHORT, "send_key:^c")
+        .main_key(PressType.MEDIUM, "send_key:^x")
+        .main_key(PressType.LONG, "memslots.start")
+        .combo("F19", "Hepsini sec + kopyala", "send_keys:^a ^c")
+        .combo("LButton", "Tikla + kopyala", "click_then:^c")
+        .combo("MButton", "3x tikla + kopyala", "click3_then:^c")
+        .show_menu(False)
+        .named("F20")
+        .build(),
+    ]
+    return {definition.key: definition for definition in defs}
+
+
+MEMSLOT_SHORT_MS = 300.0
+MEMSLOT_LONG_MS = 800.0
+
+
+def memslots_defs() -> dict[int, CascadeDef]:
+    """F1..F10 -- AHK memory_slots.ahk `_setupFKeys` + `_handleFKey`.
+
+    Bu tanimlar SADECE pencere acik ve kutusu isaretliyken makineye
+    ekleniyor (app.Cascade._on_memslot_fkeys); kapaninca cikiyorlar. AHK'de
+    de `Hotkey("F1", ..., "On"/"Off")` boyle acilip kapaniyordu -- F1..F10
+    surekli ele gecirilecek tuslar degil.
+
+    AHK cift basimla "slota kaydet" diyordu; bizde bloke eden basim
+    olcumu yok, onun yerine UZUN basim (bkz. ui/mem_slots.py).
+    """
+    defs = [
+        KeyBuilder(f"F{index}", short=MEMSLOT_SHORT_MS, long=MEMSLOT_LONG_MS)
+        .main_key(PressType.SHORT, f"memslots.paste_slot:{index}")
+        .main_key(PressType.MEDIUM, f"memslots.paste_hist:{index}")
+        .main_key(PressType.LONG, f"memslots.save_slot:{index}")
+        .show_menu(False)
+        .named(f"F{index} (slot {index})")
+        .build()
+        for index in range(1, 11)
+    ]
+    return {definition.key: definition for definition in defs}
+
+
+def build_hotkeys() -> HotkeyTable:
+    """Denemek icin istenen tuslar. AHK'deki statik `::` satirlarinin karsiligi.
+
+    F13/F14 klavyede yok, faren onlari gonderiyor (AHK'de de `F13::` ile
+    yakalaniyorlar, SC064/SC065). Bu yuzden "fare tuslari kendi arasinda
+    kombo olur" demek, F13 & F14 demek -- klavye modifier'i karismiyor.
+
+    `^` tusunun VK'si klavye duzenine bagli; sabit yazmak yerine duzene
+    soruluyor (Turkce Q'da 0xDC, US'de Shift+6). Bulunduktan sonra "Caret"
+    adiyla kaydediliyor ki dizgide okunur dursun.
+    """
+    table = HotkeyTable()
+
+    # --- F13: kisa basim menu, basili tutma pano hizli menusu ---
+    # AHK handleF13: pt1 showF13menu, pt2 showQuickHistoryMenu. Kisa basim
+    # tablodan, basili tutma prefix tanimindan geliyor.
+    table.add("F13", "menu.f13", "kisa: menu")
+    table.prefix("F13", hold_action="menu.clip", desc="basili tut: pano menusu")
+    table.add(
+        "F14",
+        "tip_html:<b>F14</b> \U0001f5b1️ fare yan tusu",
+        "ipucu goster",
+    )
+    # AHK key_handler_mouse.ahk: handleF13 `.combo("F14", "Magnifier", ...)`
+    # ve handleF14 `.combo("F13", ...)`. Orada ikisi de toggle'di; burada
+    # yon ayrildi -- hangi tusa ONCE bastigin kademeyi belirliyor.
+    table.add("F13 & F14", "magnifier.zoom:+", "buyutec: yakinlastir")
+    table.add("F14 & F13", "magnifier.zoom:-", "buyutec: uzaklastir")
+
+    # --- tekerlek kombolari. AHK'de bu satirlar `~F13 & WheelUp::` diye
+    # yazili; burada `~` YOK ve olmamali. AHK'de tilde gerekiyordu cunku
+    # orada onek tusu tamamen bloklanir; bizde onek zaten birakilinca kendi
+    # eylemini calistiriyor, ustune bir de F13'u uygulamaya gecirmenin
+    # anlami yok. `~` bizde per-tus: bir satirda yazarsan o tus HIC
+    # yutulmaz. ---
+    table.add("F13 & WheelUp", "send_key:#NumpadAdd", "buyut")
+    table.add("F13 & WheelDown", "send_key:#NumpadSub", "kucult")
+    table.add("F14 & WheelUp", "send_key:Volume_Up", "ses +")
+    table.add("F14 & WheelDown", "send_key:Volume_Down", "ses -")
+
+    # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
+    # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---
+    table.add("~LButton & F16", "send_key:^v", "tikla + yapistir")
+    table.add("~LButton & F19", "send_keys:^a ^v Enter", "hepsini sec + yapistir")
+    table.add("~LButton & F20", "send_keys:^a ^c", "hepsini kopyala")
+
+    # F15..F20 BURADA DEGIL: onlar kaskad (kisa/orta/uzun basim + kombo),
+    # build_cascades() icinde. AHK'de de `F19::` satiri handleF19()'a
+    # gidiyor ve orada bir KeyBuilder kuruluyor.
+
+    # --- Sag tus basiliyken tekerlek -> ses. Sag tus once yutuluyor ki
+    # tekerlek cevrilirken baglam menusu acilmasin; ama SADECE tekerlek
+    # cevrilirse tuketiliyor. Fare surulurse "bu bir surukleme" deyip
+    # gercek basim o anda enjekte ediliyor, tek basina birakilirsa normal
+    # sag tik gonderiliyor. Sira dispatch.py icinde. ---
+    table.add("RButton & WheelUp", "send_key:Volume_Up", "ses +")
+    table.add("RButton & WheelDown", "send_key:Volume_Down", "ses -")
+
+    # --- `´` (SC00D, VK 0xDD): AHK sysCommands(). Kaskad degil menu. ---
+    backtick = send.vk_for_char("´") or 0xDD
+    register_name(backtick, "Backtick")
+    table.add("Backtick", "menu.sys", "sistem menusu")
+
+    # --- Pause kombolari. AHK'de bunlar scriptin acil cikis yolu. ---
+    table.add("Pause & Home", "app.restart", "yeniden baslat")  # AHK: reloadScript()
+    table.add("Pause & End", "app.exit", "cikis")
+    table.add("Pause & c", "busy.free", "busy kilidini ac")
+
+    # `^` basiliyken rakam: pano gecmisinin o sirasindaki kaydi yapistirir.
+    # 1 en yeni kopya, 2 bir onceki... AHK'deki `clip_slot` mantiginin
+    # gecmis listesi uzerinde calisan hali.
+    caret = send.vk_for_char("^")
+    if caret is not None:
+        register_name(caret, "Caret")
+        # AHK cascadeCaret: kisa basim `^` yazar (yuttugumuz tusu geri
+        # gondererek), basili tutma menu acar, rakamlar slot yukler.
+        table.prefix("Caret", hold_action="menu.clip", desc="basili tut: pano menusu")
+        for index in range(1, 10):
+            table.add(
+                f"Caret & {index}",
+                f"clip.paste:{index}",
+                "pano gecmisi 1-9" if index == 1 else "",
+            )
+
+    return table
+
+
+def build_gestures() -> GestureTracker:
+    """AHK: hgsRight.Register(...) -- ama sekil tanima degil, yon + kademe.
+
+    F13 basili tutulup fare bir yone surulunce her `step_px` piksel bir
+    adim uretir; adim sayisi eylemin kac kez calisacagidir (ses kac kademe
+    artacak). Jest tetiklendiginde F13'un kendi isi iptal olur: ne menu
+    acilir ne baska kombo beklenir.
+
+    Dikey eksen Windows buyutecinin yakinlastirmasi, yatay eksen ses.
+    Eksen bir kez kilitlendikten sonra dik yondeki hareket OKUNMAZ
+    (core/gesture.py `_lock`): hafif capraz bir hareket artik yanlis
+    eksene dusmez.
+    """
+    tracker = GestureTracker(step_px=60.0)
+    tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "yakinlastir")
+    tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
+    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "ses +")
+    tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "ses -")
+    return tracker

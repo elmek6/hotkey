@@ -13,8 +13,8 @@ AHK'deki kurallar birebir korundu:
   * bos metin ve 1 MB ustu metin alinmaz
   * liste dolunca en eski (sondaki) kayit duser
 
-Faz 5'te ayni yapi diske yazilacak; o zaman `entries` dogrudan
-serilestirilebilir oldugu icin bu dosya degismeyecek.
+Diske kayit store.ClipStore'da: `entries` acilista oradan yuklenir
+(`load`), kapanista oraya yazilir.
 """
 
 from __future__ import annotations

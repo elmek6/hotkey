@@ -1,10 +1,10 @@
 """Olay izleyici penceresi -- tepsi menusunden acilir.
 
 probes/gui.py'deki sondajin uygulama icindeki hali. Fark: kendi hook'unu
-KURMAZ. Uygulamada zaten calisan tek hook'un olaylari main.py tarafindan
+KURMAZ. Uygulamada zaten calisan tek hook'un olaylari app.py tarafindan
 buraya beslenir -- iki hook birden kurmak gereksiz ve kafa karistirici olurdu.
 
-Pencere kapaliyken main.py besleme yapmaz, yani acik degilken maliyeti sifir.
+Pencere kapaliyken app.py besleme yapmaz, yani acik degilken maliyeti sifir.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ class EventMonitor(QWidget):
         self._update_stats()
 
     def add(self, event, swallowed: bool) -> None:
-        """main.py her klavye olayinda cagirir (pencere acikken)."""
+        """app.py her klavye olayinda cagirir (pencere acikken)."""
         if self._t0 is None:
             self._t0 = event.t
         self._count += 1

@@ -38,8 +38,8 @@ class ClipboardWatcher(QObject):
     """Pano degisimini gecikmeli, tazelik kontrollu sekilde bildirir.
 
     text_copied : metin kopyalandi (gecmise girecek olan)
-    other_copied: metin olmayan icerik (gorsel/dosya) -- Faz 7'ye kadar
-                  sadece geri bildirim icin
+    other_copied: metin olmayan icerik (gorsel/dosya) -- sadece geri
+                  bildirim icin (gorsel pano bilerek port edilmedi)
     """
 
     text_copied = Signal(str)

@@ -1,24 +1,23 @@
-"""main.py'nin yutma karari: onek tusu, kombo ve geri gonderme.
+"""Dispatcher'in yutma karari: onek tusu, kombo ve geri gonderme.
 
-Cascade nesnesi kurulmuyor (o hook thread'i baslatirdi); karar veren iki
-metot dogrudan cagriliyor. Test ettigimiz sey tam olarak hook callback'inin
-icinde calisan kod.
+Dispatcher dogrudan kuruluyor (hook thread'i yok, Qt yok); karar veren
+metotlar dogrudan cagriliyor. Test ettigimiz sey tam olarak hook
+callback'inin icinde calisan kod.
 """
 
-from types import SimpleNamespace
+import queue
 
-import main
-from cascade.core.combo import ComboTracker
+from cascade.core.cascade import CascadeMachine
 from cascade.core.gesture import GestureTracker
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import VK_WHEEL_UP, register_name
-from cascade.core.prefix import PrefixTracker
+from cascade.dispatch import Dispatcher
 
 F13, F14, CARET, ONE = 0x7C, 0x7D, 0xDC, 0x31
 LBUTTON, F16 = 0x01, 0x7F
 
 
-def make_dispatcher() -> SimpleNamespace:
+def make_dispatcher() -> Dispatcher:
     register_name(CARET, "Caret")
     table = (
         HotkeyTable()
@@ -29,25 +28,21 @@ def make_dispatcher() -> SimpleNamespace:
         .add("~LButton & F16", "send_key:^v", "tikla + yapistir")
         .prefix("Caret", hold_action="menu.clip", hold_ms=350)
     )
-    box = SimpleNamespace(
-        tracker=ComboTracker(),
+    return Dispatcher(
+        machine=CascadeMachine(),
         hotkeys=table,
-        prefixes=PrefixTracker(table.prefix_defs),
         # Bos jest izleyicisi: `has()` her tusa False der, yani jest yolu
-        # kapalı. Jestin kendi testleri tests/test_gesture.py icinde.
+        # kapali. Jestin kendi testleri tests/test_gesture.py icinde.
         gestures=GestureTracker(),
-        _hk_swallowed=set(),
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
     )
-    box._hotkey_up = lambda vk, t: main.Cascade._hotkey_up(box, vk, t)
-    box._hotkey_key = lambda vk, down, t, chord: main.Cascade._hotkey_key(
-        box, vk, down, t, chord
-    )
-    return box
 
 
-def feed(box: SimpleNamespace, vk: int, down: bool, t: float, momentary: bool = False):
-    """_key_filter / _mouse_filter'in ortak yarisi: tracker + tablo."""
-    return main.Cascade._dispatch(box, vk, down, t, momentary)
+def feed(box: Dispatcher, vk: int, down: bool, t: float, momentary: bool = False):
+    """key_filter / mouse_filter'in ortak yarisi: tracker + tablo."""
+    return box._dispatch(vk, down, t, momentary)
 
 
 def actions(result) -> list[str]:
@@ -163,22 +158,22 @@ def test_basili_tutma_esikte_calisir():
     """AHK cascadeCaret: kisa basim `^` yazar, basili tutma menu acar."""
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
-    assert box.prefixes.tick(0.2) == []  # esik 350 ms
-    assert box.prefixes.tick(0.4) == [(CARET, "menu.clip")]
+    assert box.tick(0.2) == []  # esik 350 ms
+    assert box.tick(0.4) == [(CARET, "menu.clip")]
 
 
 def test_basili_tutma_bir_kez_calisir():
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
-    box.prefixes.tick(0.4)
-    assert box.prefixes.tick(0.5) == []
+    box.tick(0.4)
+    assert box.tick(0.5) == []
 
 
 def test_basili_tutmadan_sonra_caret_yazilmaz():
     """Menu acildiktan sonra tusu birakinca `^` ekrana dusmemeli."""
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
-    box.prefixes.tick(0.4)
+    box.tick(0.4)
     assert actions(feed(box, CARET, False, 0.5)) == []
 
 
@@ -186,7 +181,7 @@ def test_kombo_yapilinca_basili_tutma_calismaz():
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
     feed(box, ONE, True, 0.05)
-    assert box.prefixes.tick(0.6) == []
+    assert box.tick(0.6) == []
 
 
 # ---- tekerlek ----

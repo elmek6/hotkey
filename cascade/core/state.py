@@ -1,10 +1,12 @@
 """Calisma zamani durumu -- script_state.ahk'nin karsiligi.
 
 Aktif olanlar: Busy (BusyModule) ve ClipboardState (ClipboardModule).
-ScriptModule ve MouseModule dosyanin altinda yorumda duruyor.
 
-Cevirmediklerim: WindowModule ve IdleModule -- ikisi de Win32 cagrisi
-gerektiriyor, core'un "Win32 import'u yasak" kuralini bozarlardi.
+TODO(AHK): script_state.ahk'nin diger modulleri port edilmedi --
+ScriptModule (calisma suresi, istatistik), MouseState (tekerlek kisitlama),
+WindowModule (hep ustte tutma) ve IdleModule. Son ikisi Win32 cagrisi
+gerektirir, core'un "Win32 import'u yasak" kurali geregi buraya degil
+win32/ altina yazilmalilar.
 """
 
 from __future__ import annotations
@@ -131,77 +133,3 @@ class ClipboardState:
 
     def set_mem_slots(self) -> None:
         self._mode = ClipboardMode.MEM_SLOTS
-
-
-# ======================================================================
-# ASAGIDAKILER DEVRE DISI -- istenmedi, gerekince yorumdan cikar.
-# script_state.ahk'nin Script / Mouse / Clipboard modulleri.
-# Yorumdan cikarirsan su import'lari da ac:
-#     from dataclasses import dataclass, field
-#     from datetime import datetime
-# ======================================================================
-#
-# @dataclass
-# class ScriptInfo:
-#     """AHK: State.Script"""
-#
-#     version: str
-#     start_time: datetime = field(default_factory=datetime.now)
-#     save_on_exit: bool = True
-#
-#     @property
-#     def uptime_seconds(self) -> float:
-#         return (datetime.now() - self.start_time).total_seconds()
-#
-#     def uptime_text(self) -> str:
-#         total = int(self.uptime_seconds)
-#         hours, rest = divmod(total, 3600)
-#         minutes, seconds = divmod(rest, 60)
-#         if hours:
-#             return f"{hours} sa {minutes} dk"
-#         if minutes:
-#             return f"{minutes} dk {seconds} sn"
-#         return f"{seconds} sn"
-#
-#
-# @dataclass
-# class MouseState:
-#     """AHK: State.Mouse -- tekerlek kisitlama ve sag tik durumu."""
-#
-#     right_click_active: bool = False
-#     middle_wheel_used: bool = False
-#     _last_wheel_t: float = 0.0
-#     _wheel_count: int = 0
-#
-#     def should_process_wheel(self, now: float, throttle_ms: float = 600.0) -> bool:
-#         """AHK shouldProcessWheel: hizli tekerlek cevriminde her ikinci olayi al."""
-#         diff_ms = (now - self._last_wheel_t) * 1000.0
-#         if diff_ms > throttle_ms:
-#             self._last_wheel_t = now
-#             self._wheel_count = 0
-#             return False
-#         self._wheel_count += 1
-#         self._last_wheel_t = now
-#         return self._wheel_count % 2 == 0
-#
-#
-# @dataclass
-# class AppState:
-#     """AHK'deki `global State` nesnesinin karsiligi."""
-#
-#     version: str
-#     script: ScriptInfo = field(init=False)
-#     busy: Busy = field(default_factory=Busy)
-#     mouse: MouseState = field(default_factory=MouseState)
-#     clipboard: ClipboardState = field(default_factory=ClipboardState)
-#     key_counts: dict[str, int] = field(default_factory=dict)
-#
-#     def __post_init__(self) -> None:
-#         self.script = ScriptInfo(version=self.version)
-#
-#     def count_key(self, name: str) -> None:
-#         """AHK: App.KeyCounts.inc(key)"""
-#         self.key_counts[name] = self.key_counts.get(name, 0) + 1
-#
-#     def top_keys(self, limit: int = 10) -> list[tuple[str, int]]:
-#         return sorted(self.key_counts.items(), key=lambda kv: -kv[1])[:limit]

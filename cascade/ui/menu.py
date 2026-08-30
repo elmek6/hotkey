@@ -9,8 +9,8 @@ QMenu kendi kaydiriyor, ikon yerine emoji yaziyoruz, varsayilan oge
 Tanim veri olarak veriliyor: (etiket, eylem kimligi) ciftleri, `None`
 ayrac. Eylem kimligi yerine ic ice bir demet verilirse ALT MENU olur --
 AHK'deki `menuF14.Add("Special keys", subMenuKey)`. Boylece menu icerigi
-main.py'de tek bir listede durur ve ileride JSON'a tasinabilir; AHK'de her
-oge bir kod satiriydi.
+keymap.py'de tek bir listede durur ve ileride JSON'a tasinabilir; AHK'de
+her oge bir kod satiriydi.
 
 Tip (ui/tip.py) ile farki: bu menu odagi ALIR. Kasitli -- ok tuslari,
 harfe basip secme ve fare tiklamasi Windows'un menu davranisidir, kullanici

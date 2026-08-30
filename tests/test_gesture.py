@@ -1,8 +1,8 @@
 """Fare jesti. AHK'de bu hic test edilemiyordu -- tanima gercek fare
 hareketine ve cizim tahtasina bagliydi. Burada girdi delta olarak verilir.
 
-Girdinin delta olmasinin sebebi: jest sirasinda imlec donduruluyor (main.py
-hareket olayini yutuyor), yani mutlak konum akmiyor. Her olay yalniz o
+Girdinin delta olmasinin sebebi: jest sirasinda imlec donduruluyor
+(dispatch.py hareket olayini yutuyor), yani mutlak konum akmiyor. Her olay yalniz o
 darbenin ne kadar ittigini soyluyor.
 """
 

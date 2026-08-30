@@ -14,7 +14,7 @@ Nasil calisir:
     her `step_px` kadar daha     -> bir adim daha uretilir
 
 Girdi mutlak konum degil **delta**: jest sirasinda imleci yerinde tuttugumuz
-icin (main.py hareket olayini yutuyor) mutlak konum akmaz, her olay yalniz o
+icin (dispatch.py hareket olayini yutuyor) mutlak konum akmaz, her olay yalniz o
 darbenin ne kadar ittigini soyler. AHK de jest sirasinda imleci sabitliyordu;
 sebebi hem yanlislikla bir seye tiklanmasin hem de jest bittiginde imlec
 baslangictaki yerinde kalsin.

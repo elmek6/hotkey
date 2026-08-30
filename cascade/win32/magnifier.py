@@ -58,7 +58,7 @@ START_WAIT_MS = 3000  # AHK: loop 30 * Sleep 100
 
 
 class Magnifier:
-    """AHK: singleMagnifier. Tek ornek main.py'de tutuluyor."""
+    """AHK: singleMagnifier. Tek ornek app.py'de tutuluyor."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
