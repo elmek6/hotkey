@@ -12,8 +12,13 @@ AHK'den birebir gelenler:
       hangisinin aktif oldugunu renkle soyler
     * baslik seridine tiklayinca listeyi TERS cevirme
     * cift tiklama: slot listesinde panoya kopyalar, gecmiste yapistirir
-    * akilli yapistirma (`smartPaste`): aktif listeden yapistirir ve
-      siradaki kayda gecer
+    * akilli yapistirma (`smartPaste`): orta fare tusu / `Insert` ile
+      yapistirir ve siradaki kayda gecer ("Orta tus" kutusu ile kapanir);
+      tus kombosuyla gelindiginde secim yerinde kalir -- AHK ile ayni ayrim
+    * satiri disari surukleyip birakma (`OleDragSource`): tabloda kisaltilmis
+      onizleme yazar, surukleme TAM icerigi tasir
+    * sifre slotu: 10. slot ("Slot 0") listede ve menude maskeli gorunur,
+      yapistirmasi normal calisir
 
 AHK'den AYRILAN iki yer, ikisi de mimari yuzunden:
 
@@ -37,16 +42,6 @@ Pencere panoyu kendisi yazmaz, sinyal gonderir -- ArrayFilter'daki kural.
 
 Port EDILMEYENLER:
 
-TODO(AHK): memory_slots.ahk `OleDragSource.attachListView` -- satiri
-    pencereden disari surukleyip birakma (Notepad'e metin surukler gibi).
-    Qt'nin surukleme modeli tamamen ayri, birebir tasinamaz.
-TODO(AHK): memory_slots.ahk `smartPaste(middlePressed)` -- `Insert` tusu ve
-    ORTA FARE TUSU ile akilli yapistirma. Eylem hazir (`smart_paste`,
-    app.py `memslots.paste`) ama bir tusa BAGLI DEGIL: Insert'i ya da orta
-    tusu sistem genelinde yutmak pencere kapaliyken de sonuc dogururdu.
-    Baglanacaksa yalniz pencere acikken gecerli bir kisayol gerekiyor.
-TODO(AHK): memory_slots.ahk `middlePasteCheck` kutusu -- yukaridaki orta
-    tus yapistirmasini acip kapatiyordu; eylem baglanmadigi icin kutu da yok.
 TODO(AHK): clip_slot.ahk grup yonetimi -- birden fazla slot grubu, "yan
     grup" secimi, grup ekle/sil ve slot adi duzenleme. Dosyadaki gruplar
     okunup BOZULMADAN geri yaziliyor, ama arayuz yalniz varsayilan grubu
@@ -55,7 +50,7 @@ TODO(AHK): clip_slot.ahk grup yonetimi -- birden fazla slot grubu, "yan
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, QMimeData, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -70,12 +65,39 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from cascade.store import slot_display
+
 SLOT_COUNT = 10  # AHK: Loop 10
 PREVIEW_LIMIT = 60  # AHK: _makePreview -> SubStr(preview, 1, 60)
 
 ACTIVE_SLOTS_BG = "#2196f3"  # AHK: Background0x2196F3
 ACTIVE_HIST_BG = "#4caf50"  # AHK: Background0x4CAF50
 IDLE_BG = "#808080"
+
+
+class DragTable(QTableWidget):
+    """Satiri disari surukleyebilen tablo -- AHK `OleDragSource.attachListView`.
+
+    Tabloda KISALTILMIS onizleme yaziyor; surukleyip birakilan sey ise
+    slotun TAM icerigi olmali (AHK'de de oyleydi: `(row) => this.slots[row]`).
+    O yuzden mime verisi satir numarasindan uretiliyor, hucre metninden
+    degil. Sifre slotunda maske yaziyor -- surukleme gercek parolayi
+    tasir, ekranda gorunmez.
+    """
+
+    def __init__(self, columns: int, text_for_row) -> None:
+        super().__init__(0, columns)
+        self._text_for_row = text_for_row
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+
+    def mimeData(self, items) -> QMimeData:
+        data = QMimeData()
+        rows = {item.row() for item in items}
+        text = self._text_for_row(min(rows) + 1) if rows else ""
+        data.setText(text)
+        return data
 
 
 def preview(text: str, limit: int = PREVIEW_LIMIT) -> str:
@@ -131,6 +153,11 @@ class MemSlots(QWidget):
 
         self.allow_repeat = QCheckBox("Veri tekrarini kabul et")
 
+        # AHK: middlePasteCheck -- varsayilan ACIK. Orta fare tusu (ve
+        # Insert) aktif kayitti yapistirir, sonra siradakine gecer.
+        self.middle_paste = QCheckBox("Orta tus / Insert: aktif kaydi yapistir")
+        self.middle_paste.setChecked(True)
+
         clear_button = QPushButton("\U0001f5d1️ Slotlari temizle")
         clear_button.clicked.connect(self.clear_slots)
 
@@ -144,7 +171,7 @@ class MemSlots(QWidget):
         # Slot tablosunda UC sutun: AHK slotlarin ADINI da tutuyor
         # (clip_slot.ahk "Slot 1" / "fan ow" gibi), o ad dosyada duruyor ve
         # burada gorunmezse kullanici neyin ne oldugunu bilemez.
-        self.slot_table = self._make_table(("Slot", "Ad", "Icerik"), mono)
+        self.slot_table = self._make_table(("Slot", "Ad", "Icerik"), mono, self._slot)
         self.slot_table.itemSelectionChanged.connect(self._on_slot_selected)
         self.slot_table.doubleClicked.connect(lambda _index: self._slot_double())
         self.slot_table.setRowCount(SLOT_COUNT)
@@ -153,13 +180,14 @@ class MemSlots(QWidget):
             self.slot_table.setItem(row, 1, QTableWidgetItem(f"Slot {row + 1}"))
             self.slot_table.setItem(row, 2, QTableWidgetItem(""))
 
-        self.hist_table = self._make_table(("#", "Icerik"), mono)
+        self.hist_table = self._make_table(("#", "Icerik"), mono, self._history_text)
         self.hist_table.itemSelectionChanged.connect(self._on_hist_selected)
         self.hist_table.doubleClicked.connect(lambda _index: self._hist_double())
 
         top = QHBoxLayout()
         top.addWidget(self.fkeys, 1)
         top.addWidget(self.allow_repeat)
+        top.addWidget(self.middle_paste)
         top.addWidget(clear_button)
 
         layout = QVBoxLayout(self)
@@ -172,8 +200,8 @@ class MemSlots(QWidget):
         self.resize(560, 680)
         self._paint_headers()
 
-    def _make_table(self, columns: tuple[str, ...], font: QFont) -> QTableWidget:
-        table = QTableWidget(0, len(columns))
+    def _make_table(self, columns: tuple[str, ...], font: QFont, text_for_row) -> QTableWidget:
+        table = DragTable(len(columns), text_for_row)
         table.setHorizontalHeaderLabels(list(columns))
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -201,7 +229,7 @@ class MemSlots(QWidget):
             self.names[index] = name or f"Slot {index + 1}"
             self.slots[index] = content
             self.slot_table.item(index, 1).setText(self.names[index])
-            self.slot_table.item(index, 2).setText(preview(content))
+            self.slot_table.item(index, 2).setText(slot_display(index + 1, content, preview))
 
     def slot_values(self) -> list[tuple[str, str]]:
         """Diske yazilacak (ad, icerik) ciftleri."""
@@ -263,14 +291,27 @@ class MemSlots(QWidget):
         self._pending_slot = index
         self.grab_clip.emit()
 
-    def smart_paste(self) -> None:
-        """AHK: smartPaste -- aktif listeden yapistir, siradakine gec."""
+    def smart_paste(self, middle: bool = False) -> None:
+        """AHK: smartPaste(middlePressed) -- aktif listeden yapistir.
+
+        Ayrim AHK'den birebir: ORTA TUS ile gelindiyse yapistirdiktan sonra
+        siradaki kayda gecilir (arka arkaya basmak listeyi gezdirir); tus
+        kombosuyla gelindiyse yalnizca yapistirir, secim yerinde kalir.
+        Pencere kapaliyken hicbir sey olmaz -- orta tus her yerde calisan
+        bir tus, yalniz bu pencere acikken anlam kazanir.
+        """
+        if not self.isVisible():
+            return
+        if middle and not self.middle_paste.isChecked():
+            return
         if self._slots_active:
             self.paste_slot(self.slot_index)
-            self.select_slot(self._next(self.slot_index, self._used_slots()))
+            if middle:
+                self.select_slot(self._next(self.slot_index, self._used_slots()))
         else:
             self.paste_history(self.hist_index)
-            self.select_history(self._next(self.hist_index, len(self.history)))
+            if middle:
+                self.select_history(self._next(self.hist_index, len(self.history)))
 
     def clear_slots(self) -> None:
         """AHK: _clearSlots"""
@@ -280,6 +321,10 @@ class MemSlots(QWidget):
         self.select_slot(1)
 
     # ---- ic yardimcilar ----
+
+    def _history_text(self, row: int) -> str:
+        """Surukleme icin gecmis satirinin TAM metni (1 tabanli)."""
+        return self.history[row - 1] if 1 <= row <= len(self.history) else ""
 
     def _slot(self, index: int) -> str:
         return self.slots[index - 1] if 1 <= index <= SLOT_COUNT else ""
@@ -301,7 +346,7 @@ class MemSlots(QWidget):
 
     def _write_slot(self, index: int, text: str) -> None:
         self.slots[index - 1] = text
-        self.slot_table.item(index - 1, 2).setText(preview(text))
+        self.slot_table.item(index - 1, 2).setText(slot_display(index, text, preview))
 
     def _fill_history(self) -> None:
         """AHK: _populateHistory"""

@@ -26,7 +26,13 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 
+from cascade.win32.screen import BITMAPINFOHEADER, gdi32
 from cascade.win32.structs import kernel32, user32
+
+shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+
+#: Menu tanimlarinda "buradan sonrasi YENI KOLON" isareti (AHK: MENU_COL).
+COLUMN = "|"
 
 MF_STRING = 0x0000
 MF_POPUP = 0x0010
@@ -34,6 +40,14 @@ MF_SEPARATOR = 0x0800
 MF_GRAYED = 0x0001
 MF_DISABLED = 0x0002
 MF_BYPOSITION = 0x0400
+#: Bayragi TASIYAN oge yeni bir kolonun ILK ogesi olur (AHK: MENU_COL).
+#: Win32 menusu dikeyde ekrana sigmayinca kendiliginden kolon acmaz,
+#: kaydirma oku koyar -- kolonu elle istemek gerekiyor.
+MF_MENUBARBREAK = 0x0020  # yeni kolon + dikey ayrac cizgisi
+MF_MENUBREAK = 0x0040  # yeni kolon, cizgisiz
+
+MIIM_BITMAP = 0x00000080
+DI_NORMAL = 0x0003
 
 TPM_LEFTALIGN = 0x0000
 TPM_RETURNCMD = 0x0100
@@ -82,6 +96,59 @@ user32.CreateWindowExW.restype = wintypes.HWND
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
 user32.GetWindowThreadProcessId.restype = wintypes.DWORD
 user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+shell32.SHDefExtractIconW.argtypes = [
+    wintypes.LPCWSTR, ctypes.c_int, wintypes.UINT,
+    ctypes.POINTER(wintypes.HICON), ctypes.POINTER(wintypes.HICON), wintypes.UINT,
+]
+shell32.SHDefExtractIconW.restype = ctypes.c_long
+user32.DrawIconEx.argtypes = [
+    wintypes.HDC, ctypes.c_int, ctypes.c_int, wintypes.HICON,
+    ctypes.c_int, ctypes.c_int, wintypes.UINT, wintypes.HBRUSH, wintypes.UINT,
+]
+user32.DrawIconEx.restype = wintypes.BOOL
+user32.DestroyIcon.argtypes = [wintypes.HICON]
+user32.GetDC.argtypes = [wintypes.HWND]
+user32.GetDC.restype = wintypes.HDC
+user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+gdi32.CreateDIBSection.argtypes = [
+    wintypes.HDC, ctypes.c_void_p, wintypes.UINT,
+    ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD,
+]
+gdi32.CreateDIBSection.restype = wintypes.HBITMAP
+
+
+class MENUITEMINFOW(ctypes.Structure):
+    """`SetMenuItemInfoW` icin -- yalniz `hbmpItem` alanini kullaniyoruz."""
+
+    _fields_ = [
+        ("cbSize", wintypes.UINT),
+        ("fMask", wintypes.UINT),
+        ("fType", wintypes.UINT),
+        ("fState", wintypes.UINT),
+        ("wID", wintypes.UINT),
+        ("hSubMenu", wintypes.HMENU),
+        ("hbmpChecked", wintypes.HBITMAP),
+        ("hbmpUnchecked", wintypes.HBITMAP),
+        ("dwItemData", ctypes.c_void_p),
+        ("dwTypeData", wintypes.LPWSTR),
+        ("cch", wintypes.UINT),
+        ("hbmpItem", wintypes.HBITMAP),
+    ]
+
+
+user32.SetMenuItemInfoW.argtypes = [
+    wintypes.HMENU, wintypes.UINT, wintypes.BOOL, ctypes.POINTER(MENUITEMINFOW)
+]
+user32.SetMenuItemInfoW.restype = wintypes.BOOL
+
+#: Menu ikonlarinin geldigi DLL'ler -- AHK: ICO_SHELL / ICO_RES.
+ICON_FILES = {
+    "shell": "shell32.dll",
+    "res": "imageres.dll",
+}
+
+#: `"res:243"` -> HBITMAP. Menu her acilisinda yeniden uretmemek icin.
+_icon_cache: dict[str, int] = {}
 
 _owner: int = 0
 
@@ -126,6 +193,74 @@ def _force_foreground(hwnd: int) -> None:
         user32.AttachThreadInput(mine, target, False)
 
 
+def _icon_bitmap(name: str) -> int:
+    """`"res:243"` gibi bir ikon adini menuye konabilir HBITMAP'e cevirir.
+
+    AHK `menuIcon(menu, item, ICO_RES, 243)` ile ayni numaralar: sayi
+    DLL icindeki 1-TABANLI ikon sirasi. Menu 32 bit ARGB bitmap kabul
+    ediyor, o yuzden ikon bir DIB section'a `DrawIconEx` ile ciziliyor --
+    saydam kose ve golge korunuyor (klasik menu metni GDI ile cizildigi
+    icin emoji hep tek renk cikiyordu; ikon yolu renkli olanin tek yolu).
+
+    Ikon bulunamazsa 0 doner: menu ikonsuz acilir, hata vermez.
+    """
+    if name in _icon_cache:
+        return _icon_cache[name]
+    kind, _, number = name.partition(":")
+    path = ICON_FILES.get(kind)
+    if path is None or not number.isdigit():
+        return 0
+    bitmap = 0
+    icon = wintypes.HICON()
+    # SHDefExtractIcon: kucuk ikonu ISTENEN boyutta verir (ExtractIconEx
+    # yalniz 32/16 sistem boyutunu verir ve yuksek DPI'da bulaniklasir).
+    # Indeks 0 tabanli, AHK'nin numarasi 1 tabanli.
+    result = shell32.SHDefExtractIconW(
+        ctypes.c_wchar_p(path), int(number) - 1, 0, ctypes.byref(icon), None, 16
+    )
+    if result == 0 and icon:
+        bitmap = _icon_to_bitmap(icon.value, 16)
+        user32.DestroyIcon(icon)
+    _icon_cache[name] = bitmap
+    return bitmap
+
+
+def _icon_to_bitmap(icon: int, size: int) -> int:
+    """HICON -> 32 bit ARGB HBITMAP (menu `hbmpItem` bunu bekler)."""
+    header = BITMAPINFOHEADER()
+    header.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    header.biWidth = size
+    header.biHeight = -size  # yukaridan asagi
+    header.biPlanes = 1
+    header.biBitCount = 32
+    header.biCompression = 0  # BI_RGB
+    screen = user32.GetDC(None)
+    memory = gdi32.CreateCompatibleDC(screen)
+    bits = ctypes.c_void_p()
+    bitmap = gdi32.CreateDIBSection(
+        memory, ctypes.byref(header), 0, ctypes.byref(bits), None, 0
+    )
+    if bitmap:
+        old = gdi32.SelectObject(memory, bitmap)
+        user32.DrawIconEx(memory, 0, 0, icon, size, size, 0, None, DI_NORMAL)
+        gdi32.SelectObject(memory, old)
+    gdi32.DeleteDC(memory)
+    user32.ReleaseDC(None, screen)
+    return bitmap or 0
+
+
+def _set_icon(handle: int, position: int, name: str) -> None:
+    """Ogeye ikon koyar. Ikon yoksa sessizce gecer -- menu yine acilmali."""
+    bitmap = _icon_bitmap(name)
+    if not bitmap:
+        return
+    info = MENUITEMINFOW()
+    info.cbSize = ctypes.sizeof(MENUITEMINFOW)
+    info.fMask = MIIM_BITMAP
+    info.hbmpItem = bitmap
+    user32.SetMenuItemInfoW(handle, position, True, ctypes.byref(info))
+
+
 def _build(spec, actions: list[str], default: str) -> int:
     """Spec'i HMENU'ye cevirir. Alt menuler ozyinelemeli kurulur.
 
@@ -133,20 +268,35 @@ def _build(spec, actions: list[str], default: str) -> int:
     listesindeki sirayla eslesir.
     """
     handle = user32.CreatePopupMenu()
+    position = 0  # ikon koymak icin gereken oge sirasi (ayraclar dahil)
+    column = 0  # bir sonraki ogeye eklenecek kolon bayragi
     for entry in spec:
         if entry is None:
             user32.AppendMenuW(handle, MF_SEPARATOR, None, None)
+            position += 1
             continue
-        label, target = entry
+        if entry == COLUMN:
+            # Kolon bayragi ogenin KENDISINDE tasinir: bir sonraki oge
+            # yeni kolonun ilkidir (AHK'de de Add'in 3. argumaniydi).
+            column = MF_MENUBARBREAK
+            continue
+        label, target, *rest = entry
+        icon = rest[0] if rest else ""
         if isinstance(target, tuple):
             sub = _build(target, actions, default)
-            user32.AppendMenuW(handle, MF_STRING | MF_POPUP, ctypes.c_void_p(sub), label)
-            continue
-        actions.append(target)
-        command = len(actions)
-        user32.AppendMenuW(handle, MF_STRING, ctypes.c_void_p(command), label)
-        if default and target == default:
-            user32.SetMenuDefaultItem(handle, command, False)
+            user32.AppendMenuW(
+                handle, MF_STRING | MF_POPUP | column, ctypes.c_void_p(sub), label
+            )
+        else:
+            actions.append(target)
+            command = len(actions)
+            user32.AppendMenuW(handle, MF_STRING | column, ctypes.c_void_p(command), label)
+            if default and target == default:
+                user32.SetMenuDefaultItem(handle, command, False)
+        if icon:
+            _set_icon(handle, position, icon)
+        column = 0
+        position += 1
     # Alt menuler koke bagli: DestroyMenu(kok) hepsini birlikte yok eder.
     return handle
 

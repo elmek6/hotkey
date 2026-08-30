@@ -30,6 +30,7 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     Pause & End      cikis        Pause & c   busy kilidini acar
     ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
     ScrollLock       kisa: Turkce ac/kapa   basili tut: dizilim 1<->2
+    ~MButton/~Insert memslots penceresi acikken akilli yapistirma
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from cascade.core.gesture import Direction, GestureTracker
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import register_name
 from cascade.win32 import send
+from cascade.win32.menu import COLUMN
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
 
@@ -101,25 +103,44 @@ SYSTEM_MENU = (
     ("\U0001f6d1 Cikis", "app.exit"),
 )
 
+#: Menu ikonlari AHK ile AYNI numaralar (menus.ahk `menuIcon`): sayi
+#: DLL icindeki 1 tabanli ikon sirasi. Emoji yerine gercek ikon: klasik
+#: Win32 menusu metni GDI ile ciziyor ve renkli emoji tablosunu
+#: kullanmiyor, o yuzden emoji hep tek renk (siyah/beyaz) cikiyor.
 F13_MENU = (
-    ("\U0001f4cb Pano gecmisi...", "clip.filter"),
-    ("\U0001f5bc️ Pano gorselleri...", "clip.images"),
-    ("\U0001f9f0 Slotlar...", "menu.slots"),
-    ("\U0001f5c2️ Windows pano gecmisi", "send_key:#v"),
+    # ---- 1. KOLON: pano, ekran goruntusu, OCR (AHK showF13menu) ----
+    ("Clipboard history", "clip.filter"),
+    ("Clipboard history win", "send_key:#v", "res:243"),  # panodan pencereye
     None,
-    ("\U0001f5bc️ Ekran alintisi", "send_key:#+s"),
-    ("\U0001f4f7 Pencere goruntusu", "send_key:!PrintScreen"),
-    ("\U0001f524 OCR ile metin sec", "send_key:#+t"),
-    ("\U0001f50d Buyutec ac / kapa", "magnifier.toggle"),
+    ("Select screenshot", "send_key:#+s", "shell:260"),  # makas
+    ("Window screenshot", "send_key:!PrintScreen", "shell:196"),  # fotograf makinesi
+    ("Select text with OCR", "send_key:#+t"),
+    # AHK: App.ScreenOcr.snipInteractive() / snip("plain"). Bizde secim
+    # araci aciliyor ve alan secilir secilmez o OCR kipi calisiyor.
+    ("OCR Gelismis", "select.ocr_adv"),
+    ("OCR Basit", "select.ocr"),
     None,
-    # TODO(AHK): screen_ocr.ahk / OCR.ahk port edilmedi (bilerek) --
-    # yukaridaki OCR ogesi Windows'un kendi kisayolunu (#+t) cagiriyor.
-    ("⌨️ Ozel tuslar", SPECIAL_KEYS_MENU),
-    ("⚙️ Sistem", SYSTEM_MENU),
+    ("Clipboard images", "clip.images", "res:109"),  # gorsel
+    ("Memory slots", "menu.slots", "res:30"),  # bellek cubugu
+    ("Magnifier", "magnifier.toggle"),
+    # ---- 2. KOLON: aktif pencere profili, araclar, hep ustte ----
+    # Kolon ayracini COLUMN ciziyor; bu yuzden 1. kolonun sonunda ayrica
+    # yatay ayrac YOK -- AHK'de de oyle, kolon dibinde boslukta asili bir
+    # cizgi kalmasin diye. Profil ve "hep ustte" bloklarini app.py
+    # ekliyor (o anki pencereye bagli).
+    COLUMN,
 )
-"""AHK: showF13menu() + showF14menu(). Oge basina bir kod satiri degil, tek
-veri tablosu. AHK'nin OCR / makro kaydedici ogeleri bilerek port edilmedi;
-Windows'un kendi kisayoluyla yapilabilenler (ekran alintisi, OCR) duruyor."""
+"""AHK: showF13menu()'nun 1. KOLONU. Oge basina bir kod satiri degil, tek
+veri tablosu. Isimlendirme, sira ve ikon numaralari AHK ile ayni; port
+edilmemis ogeler (Repository GUI, Incognito) `´` menusunde `--` isaretli."""
+
+F13_MENU_TAIL = (
+    ("Special keys", SPECIAL_KEYS_MENU),
+    ("System", SYSTEM_MENU),
+)
+"""2. kolonun SONU. Arasina app.py o anki pencereye bagli bloklari koyar:
+uygulama profili + kisayollari (AHK menuAppProfile) ve hep-ustte listesi
+(AHK menuAlwaysOnTop)."""
 
 # AHK: sysCommands() -- `´` tusu (SC00D / VK 0xDD). Kaskad menusu olarak
 # degil acilir menu olarak veriliyor: icerigi uzun ve fare ile de secilecek.
@@ -388,6 +409,13 @@ def build_hotkeys() -> HotkeyTable:
     if less is not None:
         register_name(less, "Less")
         table.add("^Less", "send_key:^+k", "satiri sil (VSCode)")
+
+    # --- Hafiza slotlari penceresi acikken akilli yapistirma (AHK
+    # memory_slots.ahk `smartPaste`). Ikisi de `~` ile: orta tus ve Insert
+    # her yerde calisan tuslar, YUTULMAMALI -- eylem pencere kapaliyken
+    # zaten hicbir sey yapmiyor. ---
+    table.add("~MButton", "memslots.paste:middle", "memslots: akilli yapistir")
+    table.add("~Insert", "memslots.paste", "memslots: akilli yapistir")
 
     # --- ScrollLock: Turkce eklentisi (AHK turkish_layout_addon.ahk).
     # Kisa basim Turkce harfleri acar/kapar, BASILI TUTMAK dizilim 1 ile 2

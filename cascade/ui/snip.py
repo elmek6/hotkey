@@ -136,6 +136,11 @@ class SnipOverlay(QWidget):
         self._picking = False  # ilk secim suruklemesi mi
         self._session = False  # OCR+ acik: cerceve kalir, orutu kalkar
         self._virtual = (0, 0, 0, 0)  # sanal masaustu, FIZIKSEL piksel
+        #: Secim biter bitmez KENDILIGINDEN calisacak eylem (ACTIONS'tan bir
+        #: kimlik). F13 menusundeki "OCR Gelismis / OCR Basit" boyle
+        #: calisiyor: alan secilir secilmez OCR baslar, islem cubugundan
+        #: dugmeye basmaya gerek kalmaz. Bir kez kullanilir, sonra silinir.
+        self.auto_action = ""
         #: Yeniden yakalamadan once gizlenecek DIS pencereler (OCR paneli).
         #: app.py doldurur; geri gosteren bir cagrilabilir dondurmeli.
         self.hide_others = None
@@ -308,6 +313,9 @@ class SnipOverlay(QWidget):
         self._place_bar()
         self._update_mask()
         self.update()
+        if self.auto_action:
+            action, self.auto_action = self.auto_action, ""
+            self._finish(action)
 
     def repick(self, origin: tuple[int, int] | None = None) -> None:
         """Secim ekranda dururken tusa (F14) yeniden basildi: bastan sec.

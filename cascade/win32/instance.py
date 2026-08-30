@@ -48,9 +48,23 @@ kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 kernel32.WaitForSingleObject.restype = wintypes.DWORD
 
 WAIT_OBJECT_0 = 0
-#: Devralmada eski ornegin kapanmasi icin beklenen sure. Kapanis pano
-#: yazma + hook sokme kadar surer; 5 sn fazlasiyla yeter.
-TAKEOVER_SECONDS = 5.0
+
+#: Devralmada eski ornegin kapanmasi icin beklenen EN COK sure -- gecikme
+#: degil ust sinir: kilit serbest kalir kalmaz aliniyor. Olcum: kapanisin
+#: kendisi milisaniyeler (pano yazma ~3 ms), gecikme haberin ulasmasindan
+#: geliyor -- olay dilimi 100 ms + `_tick` 20 ms, yani ~150 ms. Iki kat
+#: tampon 0.5 sn ederdi; 2 sn birakildi cunku eski ornek o an bloke bir
+#: menu (TrackPopupMenu) icinde olabilir ve bayragi ancak menu kapaninca
+#: gorur.
+TAKEOVER_SECONDS = 2.0
+
+#: Kilit yoklama araligi. Kucuk tutuluyor: devralmanin gorunen suresi
+#: buna esit (eski ornek kilidi biraktiktan sonra bir sonraki yoklama).
+POLL_SECONDS = 0.025
+
+#: Devralma olayinin beklendigi dilim. Thread bu araliklarla uyanip
+#: durdurma bayragina bakiyor.
+EVENT_SLICE_MS = 100
 
 
 class SingleInstance:
@@ -85,7 +99,7 @@ class SingleInstance:
 
         deadline = time.monotonic() + wait_seconds
         while time.monotonic() < deadline:
-            time.sleep(0.1)
+            time.sleep(POLL_SECONDS)
             if self._try_acquire():
                 self._arm()
                 return
@@ -105,7 +119,10 @@ class SingleInstance:
 
         def wait() -> None:
             while not self._stop.is_set():
-                if kernel32.WaitForSingleObject(self._quit_event, 250) == WAIT_OBJECT_0:
+                if (
+                    kernel32.WaitForSingleObject(self._quit_event, EVENT_SLICE_MS)
+                    == WAIT_OBJECT_0
+                ):
                     callback()
                     return
 
@@ -125,7 +142,7 @@ class SingleInstance:
 
     def release(self) -> None:
         # Olay tutamaci BILEREK kapatilmiyor: bekleyen thread daemon ve
-        # 250 ms'lik dilimlerle donuyor, kapatilmis tutamac uzerinde
+        # EVENT_SLICE_MS'lik dilimlerle donuyor, kapatilmis tutamac uzerinde
         # uyanirsa gecersiz tutamaca bakardi. Surec zaten bitiyor.
         self._stop.set()
         if self._handle:

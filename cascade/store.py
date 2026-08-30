@@ -402,6 +402,26 @@ class Slot:
 DEFAULT_GROUP = ""  # AHK: adi bos olan grup her zaman ilk sirada yazilir
 SLOTS_PER_GROUP = 10  # AHK: Loop 10
 
+#: Sifre slotu. Tuslarda "0" ile cagrilan SON slot (F13 menusunde "Slot 0",
+#: dosyada 10. kayit). Icerigi HICBIR listede/menude gosterilmez -- yalnizca
+#: yapistirilir. Parolayi slotta tutmak yaygin kullanim; ekranda durmasi
+#: omuz ustunden okunmasina aciktir.
+PASSWORD_SLOT = SLOTS_PER_GROUP
+MASK = "••••••••"
+
+
+def slot_display(index: int, content: str, shorten=None) -> str:
+    """Slot icerigi listede nasil gorunur (1 tabanli indeks).
+
+    Sifre slotunda icerik yerine maske doner; bos slotta bos dizgi. Metni
+    kisaltan islev disaridan verilebilir (menu ve pencere ayri kisaltiyor).
+    """
+    if not content:
+        return ""
+    if index == PASSWORD_SLOT:
+        return MASK
+    return shorten(content) if shorten is not None else content
+
 
 class SlotStore:
     """Hafiza slotlari -- `clip_slot.ahk` (`Files/slots.json`).

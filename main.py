@@ -23,7 +23,7 @@ import sys
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from cascade import logs
-from cascade.app import RESTART_FLAG, Cascade
+from cascade.app import Cascade
 from cascade.win32.instance import SingleInstance
 
 
@@ -39,8 +39,10 @@ def main() -> int:
     # edilemez; bu yuzden hafizadaki eski ornek once duzgunce kapatiliyor
     # (SingleInstance devralma olayi), kilit sonra aliniyor. Yeniden
     # baslatilan cocuk (--restart) da ayni yoldan gecer.
-    restarting = RESTART_FLAG in sys.argv
-    lock = SingleInstance("cascade", wait_seconds=5.0 if restarting else 0.0)
+    # Ayri bir bekleme suresi verilmiyor: devralma zaten kilidi serbest
+    # kalana kadar (en cok TAKEOVER_SECONDS) yokluyor -- yeniden baslatilan
+    # cocuk da bu yoldan geciyor.
+    lock = SingleInstance("cascade")
     if not lock.acquired:
         QMessageBox.warning(
             None, "cascade", "Onceki cascade kapanmadi; yenisi baslatilamadi."
