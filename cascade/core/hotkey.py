@@ -234,6 +234,7 @@ class HotkeyTable:
         passthrough: bool = False,
         hold_action: str = "",
         hold_ms: float = DEFAULT_HOLD_MS,
+        drag_action: str = "",
         desc: str = "",
     ) -> HotkeyTable:
         """Onek tusuna basili-tutma davranisi ekler.
@@ -250,6 +251,7 @@ class HotkeyTable:
             passthrough=passthrough or spec.strip().startswith("~"),
             hold_action=hold_action,
             hold_ms=hold_ms,
+            drag_action=drag_action,
             desc=desc,
         )
         return self
@@ -261,6 +263,7 @@ class HotkeyTable:
         passthrough: bool = False,
         hold_action: str = "",
         hold_ms: float = DEFAULT_HOLD_MS,
+        drag_action: str = "",
         desc: str = "",
     ) -> None:
         """Onek tanimini olustur/birlestir. Tanim birden cok satirdan parca
@@ -272,6 +275,7 @@ class HotkeyTable:
             passthrough=passthrough or (old.passthrough if old else False),
             hold_action=hold_action or (old.hold_action if old else ""),
             hold_ms=hold_ms if hold_action else (old.hold_ms if old else hold_ms),
+            drag_action=drag_action or (old.drag_action if old else ""),
             desc=desc or (old.desc if old else ""),
         )
 

@@ -1,9 +1,10 @@
 """Onek tusu durum makinesi -- AHK'de `A & B::` yaziminin arkasindaki is.
 
-Bir onek tusu (F13, `^`, LButton) uc sey yapabilir ve hangisi oldugu ancak
+Bir onek tusu (F13, `^`, LButton) dort sey yapabilir ve hangisi oldugu ancak
 SONRADAN belli olur:
 
     kombo       onek basiliyken baska tusa basildi   -> kombo eylemi
+    surukleme   onek basiliyken fare kimildadi       -> drag eylemi
     basili tut  esik gecti, kombo yok                -> hold eylemi
     kisa basim  esikten once birakildi, kombo yok    -> tap eylemi
                                                         (yoksa tus geri gonderilir)
@@ -44,6 +45,9 @@ class PrefixDef:
     passthrough: bool = False  # AHK'deki `~`
     hold_action: str = ""
     hold_ms: float = DEFAULT_HOLD_MS
+    #: Onek basiliyken fare kimildarsa calisir (F14: ekran alani secimi).
+    #: Bos ise surukleme tusun anlamini degistirmez.
+    drag_action: str = ""
     desc: str = ""
 
 
@@ -68,6 +72,13 @@ class PrefixTracker:
 
     def is_down(self, vk: int) -> bool:
         return vk in self._down
+
+    def is_used(self, vk: int) -> bool:
+        """Bu basimda kombo/surukleme/hold calisti mi -- ikinci kez tetiklenmesin."""
+        return vk in self._used
+
+    def definition(self, vk: int) -> PrefixDef | None:
+        return self.defs.get(vk)
 
     @property
     def held(self) -> tuple[int, ...]:

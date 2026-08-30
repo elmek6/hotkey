@@ -188,6 +188,10 @@ class Dispatcher:
         with contextlib.suppress(queue.Full):
             self.actions.put_nowait(action)
 
+    def _has_drag(self, vk: int) -> bool:
+        definition = self.prefixes.definition(vk)
+        return definition is not None and bool(definition.drag_action)
+
     def _gesture_move(self, event: MouseEvent) -> bool:
         """Jest sirasindaki fare hareketi.
 
@@ -231,18 +235,30 @@ class Dispatcher:
             self._put(Run(f"tip:{status.text}", key=prefix))
 
     def _drag_check(self, event: MouseEvent) -> None:
-        """Yutup beklettigimiz bir fare onegi varken fare suruldu mu?
+        """Onek basiliyken fare suruldu mu? Iki ayri is yapar.
 
-        Sag tus icin: basimi yutuyoruz ki tekerlek cevrilince baglam menusu
-        acilmasin. Ama kullanici sag tusu basili tutup fareyi suruyorsa bu
-        bir SURUKLEME -- beklemeyi burada bitirip gercek basimi enjekte
-        ediyoruz, o andan sonra her sey uygulamaya geciyor. Istenen sira
-        buydu: tuketme YALNIZCA tekerlek cevrildiginde.
+        1. **Surukleme eylemi olan onek** (F14): tusa basip fareyi kimildatmak
+           tusun anlamini degistirir -- F14 icin ekran alani secimi baslar.
+           Kimildatmadan birakilirsa onek kendi tap eylemini calistirir
+           (slot menusu). AHK'de bu ayrim yoktu; tusa basar basmaz secim
+           gelirdi ve tusun oteki isleri kullanilamazdi.
+        2. **Yutup beklettigimiz fare onegi** (sag tus): basimi yutuyoruz ki
+           tekerlek cevrilince baglam menusu acilmasin. Kullanici sag tusu
+           basili tutup fareyi suruyorsa bu bir SURUKLEME -- beklemeyi
+           bitirip gercek basimi enjekte ediyoruz, o andan sonra her sey
+           uygulamaya geciyor. Tuketme YALNIZCA tekerlek cevrildiginde.
         """
         origin = self._prefix_at
         if origin is not None and max(abs(event.x - origin[0]), abs(event.y - origin[1])) < DRAG_PX:
-            return  # titreme: sag tik yaparken imlec bir iki piksel oynar
+            return  # titreme: tusa basarken imlec bir iki piksel oynar
         for vk in self.prefixes.held:
+            definition = self.prefixes.definition(vk)
+            if definition is not None and definition.drag_action:
+                if self.prefixes.is_used(vk):
+                    continue  # bu basimda bir kez calisti, yeter
+                self.prefixes.combo_used(vk)  # birakilinca tap eylemi calismasin
+                self._put(Run(definition.drag_action, key=vk, desc=definition.desc))
+                continue
             if vk not in send.MOUSE_VK_NAMES or vk in self._passed_through:
                 continue
             if vk not in self._hk_swallowed:
@@ -253,7 +269,7 @@ class Dispatcher:
                 continue
             self._passed_through.add(vk)
             self._hk_swallowed.discard(vk)
-            self.prefixes.combo_used(vk)  # birakilinca tap eylemi calismasin
+            self.prefixes.combo_used(vk)
             self._put(Run(f"button_down:{key_name(vk)}", key=vk))
 
     def _dispatch(
@@ -293,9 +309,9 @@ class Dispatcher:
             if self.gestures.has(vk):
                 self.gestures.start(vk)
                 self._freeze_at = send.cursor_pos()
-            elif vk in send.MOUSE_VK_NAMES:
-                # Fare onegi: surukleme mi tekerlek mi, imlecin nereden
-                # kalktigina bakarak anlayacagiz.
+            elif vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
+                # Surukleme olcumunun baslangic noktasi: fare onegi icin
+                # "surukleme mi tekerlek mi", F14 icin "secim mi menu mu".
                 self._prefix_at = send.cursor_pos()
             return swallow, []
 
@@ -329,7 +345,7 @@ class Dispatcher:
 
         if not self.gestures.watching:
             self._freeze_at = None
-        if vk in send.MOUSE_VK_NAMES:
+        if vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
             self._prefix_at = None
 
         binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi

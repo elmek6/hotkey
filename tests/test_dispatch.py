@@ -17,6 +17,13 @@ F13, F14, CARET, ONE = 0x7C, 0x7D, 0xDC, 0x31
 LBUTTON, F16 = 0x01, 0x7F
 
 
+def _drain(q: queue.Queue) -> list:
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    return items
+
+
 def make_dispatcher() -> Dispatcher:
     register_name(CARET, "Caret")
     table = (
@@ -184,6 +191,73 @@ def test_kombo_yapilinca_basili_tutma_calismaz():
     assert box.tick(0.6) == []
 
 
+# ---- surukleyince baska is yapan onek (F14) ----
+
+
+def make_drag_dispatcher() -> Dispatcher:
+    """F14: kimildatmadan birakinca menu, surukleyince ekran secimi."""
+    table = (
+        HotkeyTable()
+        .add("F14", "menu.slots", "kisa: slot menusu")
+        .prefix("F14", drag_action="select.start", desc="surukle: sec")
+    )
+    return Dispatcher(
+        machine=CascadeMachine(),
+        hotkeys=table,
+        gestures=GestureTracker(),
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+
+
+class _Mouse:
+    """_drag_check'in okudugu alanlar."""
+
+    def __init__(self, x: int, y: int) -> None:
+        self.x, self.y = x, y
+        self.t = 0.0
+
+
+def test_kimildatmadan_birakilinca_tap_eylemi_calisir():
+    """F14'e basip birakmak menuyu acar -- secim baslamaz."""
+    box = make_drag_dispatcher()
+    feed(box, F14, True, 0.0)
+    box._prefix_at = (500, 500)
+    release = feed(box, F14, False, 0.1)
+    assert actions(release) == ["menu.slots"]
+
+
+def test_titreme_suruklemeye_sayilmaz():
+    """Tusa basarken imlec bir iki piksel oynar; secim baslamamali."""
+    box = make_drag_dispatcher()
+    feed(box, F14, True, 0.0)
+    box._prefix_at = (500, 500)
+    box._drag_check(_Mouse(503, 502))
+    assert _drain(box.actions) == []
+    assert actions(feed(box, F14, False, 0.1)) == ["menu.slots"]
+
+
+def test_surukleyince_drag_eylemi_calisir_ve_menu_acilmaz():
+    box = make_drag_dispatcher()
+    feed(box, F14, True, 0.0)
+    box._prefix_at = (500, 500)
+    box._drag_check(_Mouse(560, 540))
+    assert [a.action for a in _drain(box.actions)] == ["select.start"]
+    # Surukleme "kombo" sayildi: birakinca menu acilmaz.
+    assert actions(feed(box, F14, False, 0.3)) == []
+
+
+def test_surukleme_bir_kez_tetiklenir():
+    """Fare surdukce her harekette yeni secim baslatmaz."""
+    box = make_drag_dispatcher()
+    feed(box, F14, True, 0.0)
+    box._prefix_at = (500, 500)
+    box._drag_check(_Mouse(560, 540))
+    box._drag_check(_Mouse(600, 580))
+    assert len(_drain(box.actions)) == 1
+
+
 # ---- onek + kaskad tusu cakismasi ----
 
 
@@ -240,13 +314,6 @@ def test_onek_yokken_kaskad_tusu_normal_calisir():
     box.key_filter(_Key(F15, False, 0.1))
     fired = [a.action for a in _drain(box.actions)]
     assert "send_key:^y" in fired  # kisa basim eylemi makineden geldi
-
-
-def _drain(q: queue.Queue) -> list:
-    items = []
-    while not q.empty():
-        items.append(q.get_nowait())
-    return items
 
 
 # ---- tekerlek ----

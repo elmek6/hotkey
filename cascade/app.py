@@ -32,7 +32,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from cascade import keymap, logs, paths
 from cascade.actions import ActionRunner, beep
@@ -56,6 +56,7 @@ from cascade.win32 import ocr, send
 from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
 from cascade.win32.magnifier import Magnifier
+from cascade.win32.window import WindowPins, foreground_window, window_title
 
 log = logging.getLogger("cascade.app")
 
@@ -87,7 +88,7 @@ class _OcrBridge(QObject):
     """OCR ayri thread'de kosuyor (bloklayici, bkz. win32/ocr.py); sonuc
     Qt sinyaliyle ana thread'e doner -- baska thread'den arayuze dokunulmaz."""
 
-    finished = Signal(str, str)  # mod ("ocr" / "ocr_adv"), metin
+    finished = Signal(str, object)  # mod ("ocr" / "ocr_adv"), ocr.Result
     failed = Signal(str)
 
 
@@ -174,12 +175,21 @@ class Cascade:
         # kisayollar susar (ui_open) -- fare secime, Esc iptale gitsin.
         self.snip = SnipOverlay()
         self.snip.done.connect(self._on_snip_done)
-        self.snip.closed.connect(lambda: setattr(self.dispatcher, "ui_open", False))
+        self.snip.rect_changed.connect(self._on_snip_rect_changed)
+        self.snip.closed.connect(self._on_snip_closed)
         self.ocr_view = OcrView()
         self.ocr_view.copy_text.connect(self._copy_to_history)
+        self.ocr_view.reocr_requested.connect(self._on_reocr)
+        self.ocr_view.closed.connect(self.snip.end_session)
+        #: OCR+ oturumundaki son kirpim -- ayar degisince ekran YENIDEN
+        #: CEKILMEDEN bunun uzerinden tekrar okunur (AHK: cache'li bitmap).
+        self._ocr_image: QImage | None = None
         self._ocr_bridge = _OcrBridge()
         self._ocr_bridge.finished.connect(self._on_ocr_done)
         self._ocr_bridge.failed.connect(self._on_ocr_failed)
+
+        # AHK: State.Window.onTopWindows -- sabitledigimiz pencereler.
+        self.pins = WindowPins()
 
         self.paused = False
         self._exited = False
@@ -243,8 +253,11 @@ class Cascade:
         self.runner.register("memslots.paste", lambda _: self.mem_slots.smart_paste())
         # F13 & F15..F20 -- slots.json'daki slotlardan yapistirma.
         self.runner.register("slot.paste", self.paste_slot)
-        # F14 -- ekran alani secimi (kopyala / sakla / OCR).
+        # F14 -- surukleyince ekran alani secimi, kimildatmadan birakinca menu.
         self.runner.register("select.start", lambda _: self.show_snip())
+        self.runner.register("menu.slots", lambda _: self.show_slots_menu())
+        # AHK menus.ahk: menuAlwaysOnTop -- pencereyi hep ustte tut.
+        self.runner.register("window.pin", self.toggle_pin)
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
         self.runner.register("magnifier.zoom", self.zoom)
         self.runner.register("magnifier.toggle", lambda _: self.magnifier.toggle())
@@ -440,6 +453,10 @@ class Cascade:
         if text:
             QGuiApplication.clipboard().setText(text)
 
+    def _on_snip_closed(self) -> None:
+        self.dispatcher.ui_open = False
+        self._ocr_image = None
+
     def _on_snip_done(self, action: str, image: QImage) -> None:
         """Secim bitti: eylem kimligi ui/snip.py ACTIONS tablosundan gelir."""
         if action == "copy":
@@ -448,41 +465,133 @@ class Cascade:
                 f"\U0001f4cb <b>goruntu panoda</b> {image.width()}x{image.height()}", 1500
             )
         elif action == "save":
-            paths.CAPTURES.mkdir(parents=True, exist_ok=True)
-            target = paths.CAPTURES / f"alinti-{datetime.now():%Y%m%d-%H%M%S}.png"
-            if image.save(str(target), "PNG"):
-                self.tip.show_html(f"\U0001f4be <b>{target.name}</b>", 1800)
-            else:
-                self.tip.show_html("⚠️ <b>goruntu kaydedilemedi</b>", 1800)
+            self.save_capture(image)
         elif action in ("ocr", "ocr_adv"):
-            if not ocr.available():
-                self.tip.show_html("⚠️ <b>OCR paketi kurulu degil</b> (winrt)", 2000)
-                return
-            self.tip.show_html("\U0001f524 <b>okunuyor...</b>", 800)
-            threading.Thread(
-                target=self._ocr_work, args=(action, image), name="cascade-ocr", daemon=True
-            ).start()
+            self._start_ocr(action, image)
 
-    def _ocr_work(self, mode: str, image: QImage) -> None:
+    def _on_snip_rect_changed(self, image: QImage) -> None:
+        """OCR+ acikken alan yeniden ayarlandi: taze kirpimla tekrar oku."""
+        self._start_ocr("ocr_adv", image)
+
+    def save_capture(self, image: QImage) -> None:
+        """AHK'de menuden secilince dosya adi soruluyordu; burada da soruyoruz.
+
+        Varsayilan klasor `Files/captures`, ad zaman damgali. Kullanici
+        istedigi yeri secebilir -- sessizce bir yere yazmak, sonradan
+        "nereye kaydetti" sorusunu doguruyordu.
+        """
+        paths.CAPTURES.mkdir(parents=True, exist_ok=True)
+        suggested = paths.CAPTURES / f"alinti-{datetime.now():%Y%m%d-%H%M%S}.png"
+        target, _filter = QFileDialog.getSaveFileName(
+            None,
+            "Ekran alintisini kaydet",
+            str(suggested),
+            "PNG goruntu (*.png);;JPEG goruntu (*.jpg);;Tum dosyalar (*)",
+        )
+        if not target:
+            return  # vazgecildi
+        if image.save(target):
+            self.tip.show_html(f"\U0001f4be <b>{html.escape(os.path.basename(target))}</b>", 1800)
+        else:
+            self.tip.show_html("⚠️ <b>goruntu kaydedilemedi</b>", 1800)
+
+    def _start_ocr(self, mode: str, image: QImage) -> None:
+        if not ocr.available():
+            self.tip.show_html("⚠️ <b>OCR paketi kurulu degil</b> (winrt)", 2000)
+            return
+        self._ocr_image = image
+        if mode == "ocr_adv":
+            self.ocr_view.set_languages(ocr.languages())
+            self.ocr_view.busy()
+            scale, grayscale, language = (
+                self.ocr_view.scale,
+                self.ocr_view.grayscale,
+                self.ocr_view.language,
+            )
+        else:
+            self.tip.show_html("\U0001f524 <b>okunuyor...</b>", 800)
+            scale, grayscale, language = ocr.DEFAULT_SCALE, True, ""
+        self._run_ocr(mode, image, scale, grayscale, language)
+
+    def _on_reocr(self, scale: int, grayscale: bool, language: str) -> None:
+        """Panelde dil/olcek/gri ton degisti: ekran TEKRAR CEKILMEZ, elimizdeki
+        kirpim yeniden okunur (AHK: cache'li bitmap uzerinden)."""
+        if self._ocr_image is not None:
+            self._run_ocr("ocr_adv", self._ocr_image, scale, grayscale, language)
+
+    def _run_ocr(
+        self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
+    ) -> None:
+        threading.Thread(
+            target=self._ocr_work,
+            args=(mode, image, scale, grayscale, language),
+            name="cascade-ocr",
+            daemon=True,
+        ).start()
+
+    def _ocr_work(
+        self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
+    ) -> None:
         """OCR thread'i: motoru bekler, sonucu sinyalle ana thread'e verir."""
         try:
-            self._ocr_bridge.finished.emit(mode, ocr.recognize(image))
+            result = ocr.recognize(image, scale=scale, grayscale=grayscale, language=language)
+            self._ocr_bridge.finished.emit(mode, result)
         except Exception as exc:  # motor yok / dil paketi eksik
             log.exception("OCR basarisiz")
             self._ocr_bridge.failed.emit(str(exc))
 
-    def _on_ocr_done(self, mode: str, text: str) -> None:
-        if not text:
-            self.tip.show_html("\U0001f524 <b>metin bulunamadi</b>", 1500)
-            return
+    def _on_ocr_done(self, mode: str, result) -> None:
         if mode == "ocr":
             # Basit OCR: metin dogrudan panoya (ve oradan gecmise) gider.
-            self._copy_to_history(text)
+            if not result.lines:
+                self.tip.show_html("\U0001f524 <b>metin bulunamadi</b>", 1500)
+                return
+            self._copy_to_history(result.text)
             return
-        self.ocr_view.show_text(text)  # OCR+: pencerede goster, oradan kopyala
+        # OCR+: kelime kutulari panele gider, dizilim orada secilir.
+        self.ocr_view.set_languages(ocr.languages(), result.language)
+        self.ocr_view.show_result(result.words, result.lines, result.ms)
 
     def _on_ocr_failed(self, message: str) -> None:
         self.tip.show_html(f"⚠️ <b>OCR hatasi</b><br>{html.escape(_shorten(message, 80))}", 2500)
+
+    # ---- hep ustte (AHK: menuAlwaysOnTop) ----
+
+    def toggle_pin(self, argument: str) -> None:
+        """`window.pin` (bos = one cikan pencere) / `window.pin:<hwnd>`."""
+        try:
+            hwnd = int(argument) if argument else 0
+        except ValueError:
+            return
+        title = window_title(hwnd) if hwnd else ""
+        state = self.pins.toggle(hwnd, title)
+        if state is None:
+            self.tip.show_html("⚠️ <b>pencere bulunamadi</b>", 1200)
+            return
+        name = html.escape(_shorten(title or window_title(hwnd) or "pencere", 40))
+        if state:
+            self.tip.show_html(f"\U0001f4cc <b>hep ustte</b><br>{name}", 1500)
+        else:
+            self.tip.show_html(f"\U0001f4cd <b>birakildi</b><br>{name}", 1500)
+
+    def _pin_menu_items(self) -> tuple:
+        """AHK menuAlwaysOnTop: once "bu pencereyi sabitle", sonra sabitli
+        olanlar (tiklayinca birakilir).
+
+        Menu her acilista yeniden kuruluyor -- sabitli pencereler ve one cikan
+        pencere degisiyor, statik tablo bunu tasiyamaz.
+        """
+        self.pins.prune()
+        hwnd = foreground_window()
+        title = window_title(hwnd)
+        items: list = []
+        if hwnd and not self.pins.has(hwnd):
+            label = _shorten(title or "(baslıksiz)", 45)
+            items.append((f"\U0001f4cc Sabitle: {label}", f"window.pin:{hwnd}"))
+        for pin in self.pins.items():
+            label = _shorten(pin.title or "(baslıksiz)", 45)
+            items.append((f"✓ \U0001f4cc {label}", f"window.pin:{pin.hwnd}"))
+        return tuple(items)
 
     # ---- hafiza slotlari ----
 
@@ -584,8 +693,32 @@ class Cascade:
         self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ cascade {VERSION}")
 
     def show_f13_menu(self) -> None:
-        """AHK: showF13menu()"""
-        self.menu.show(keymap.F13_MENU, title=f"cascade {VERSION}", default="clip.filter")
+        """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
+        pins = self._pin_menu_items()
+        spec = keymap.F13_MENU + ((None, *pins) if pins else ())
+        self.menu.show(spec, title=f"cascade {VERSION}", default="clip.filter")
+
+    def show_slots_menu(self) -> None:
+        """F14 kisa basim -- AHK `App.ClipSlot.showQuickSlotsMenu`.
+
+        Slotlar diskten taze okunuyor: dosyayi AHK tarafi ya da elle
+        duzenleme degistirmis olabilir. Bos slotlar da listeleniyor ki
+        hangisinin bos oldugu gorunsun (AHK'de de oyleydi).
+        """
+        self.slot_store.load()
+        group = self.slot_store.slots(self.slot_store.default_group)
+        spec = tuple(
+            (
+                f"{index}  {slot.name}: "
+                + (_shorten(" ".join(slot.content.split()), 40) if slot.content else "(bos)"),
+                f"slot.paste:{index}",
+            )
+            for index, slot in enumerate(group[:10], start=1)
+        )
+        title = "\U0001f9f0 Slotlar"
+        if self.slot_store.default_group:
+            title += f" [{self.slot_store.default_group}]"
+        self.menu.show((*spec, None, ("\U0001f4cb Pano gecmisi...", "clip.filter")), title=title)
 
     def not_ported(self, module: str) -> None:
         """Menude `--` ile isaretli ogeler buraya duser."""
@@ -704,6 +837,9 @@ class Cascade:
             self.runner.run(action)
         # AHK: ExitSettings -> _save(). Yazma basarisizsa (veri kaybi
         # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.
+        # AHK ExitSettings: State.Window.clearAllOnTop() -- program kapaninca
+        # sabitledigimiz pencereler ustte asili kalmasin.
+        self.pins.clear_all()
         saved = self.clip_store.save_entries(self.clip_history.entries)
         log.info(
             "cascade kapaniyor (%d pano kaydi, diske yazildi: %s)",

@@ -27,7 +27,7 @@ Eksik aktarılan özelliklerin tam listesi: `eksikler.md`.
 | ✅ Faz 4 | günlük kullanımda: F13-F20, Caret, tekerlek/jest komboları |
 | ✅ Faz 5 | pano geçmişi + slotlar + kalıcılık (`clipboards.bin`, `slots.json` — AHK ile aynı biçim) |
 | 🔶 Faz 6 | GUI: filtreli liste, F13/sistem menüleri, tip, olay izleyici, hafıza slotları; slot grup yönetimi ve slot hızlı menüleri eksik |
-| 🔶 Faz 9'dan öne alındı | büyüteç (`win32/magnifier.py`); F14 seçim aracı: alan seç → kopyala / sakla / OCR / OCR+ (`ui/snip.py` + `win32/ocr.py`) |
+| 🔶 Faz 9'dan öne alındı | büyüteç (`win32/magnifier.py`); F14 seçim aracı: sürükle → alan seç → kopyala / sakla / OCR / OCR+ (`ui/snip.py`, `win32/ocr.py`, `core/ocr_layout.py`); hep-üstte (`win32/window.py`) |
 
 Çalışan program: `main.py` → tepsiye oturur; tuş haritası `cascade/keymap.py`
 içinde kod/veri olarak durur (JSON'a taşıma ileride, `def_from_dict` hazır).
@@ -242,8 +242,10 @@ birlikte açılır).
 | `cascade/ui/clipboard.py` | pano dinleyicisi (gecikmeli + tazelik kontrollü) |
 | `cascade/win32/magnifier.py` | Windows büyüteci (`magnifier.ahk`) |
 | `cascade/ui/snip.py` | F14 ekran alanı seçimi: tutamaçlı çerçeve + işlem çubuğu |
-| `cascade/win32/ocr.py` | Windows OCR (`OCR.ahk`in pywinrt ile ~60 satırı) |
-| `cascade/ui/ocr_view.py` | Gelişmiş OCR sonuç penceresi |
+| `cascade/win32/ocr.py` | Windows OCR motoru (`OCR.ahk`in pywinrt ile ~100 satırı) |
+| `cascade/core/ocr_layout.py` | OCR çıktısının dizilmesi: kolon/tablo (saf, test edilebilir) |
+| `cascade/ui/ocr_view.py` | Gelişmiş OCR paneli: dil, biçim, ayraç, ölçek, kolon eşiği |
+| `cascade/win32/window.py` | Hep-üstte pencere yönetimi (`WindowModule` + `menuAlwaysOnTop`) |
 | `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
 | `main.py` | yalnız giriş noktası: kilit + Qt + Cascade kurulumu |
 

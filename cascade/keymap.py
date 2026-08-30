@@ -11,6 +11,7 @@ Ileride JSON'a tasinacak yer de burasi (builder.def_from_dict hazir).
 Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
 
     F13              kisa: acilir menu     basili tut: pano hizli menusu
+    F14              kisa: slot menusu     surukle: ekran alani sec
     ^ (Caret)        kisa: `^` yazilir     basili tut: pano hizli menusu
     F13 & F14        onek kombosu -- onek YUTULUR
     ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
@@ -79,6 +80,7 @@ SYSTEM_MENU = (
 
 F13_MENU = (
     ("\U0001f4cb Pano gecmisi...", "clip.filter"),
+    ("\U0001f9f0 Slotlar...", "menu.slots"),
     ("\U0001f5c2️ Windows pano gecmisi", "send_key:#v"),
     None,
     ("\U0001f5bc️ Ekran alintisi", "send_key:#+s"),
@@ -249,9 +251,12 @@ def build_hotkeys() -> HotkeyTable:
     # tablodan, basili tutma prefix tanimindan geliyor.
     table.add("F13", "menu.f13", "kisa: menu")
     table.prefix("F13", hold_action="menu.clip", desc="basili tut: pano menusu")
-    # F14 secim tusu: basinca ekrandan alan secilir, secim uzerinde menu
-    # (kopyala / sakla / OCR) acilir -- ui/snip.py.
-    table.add("F14", "select.start", "ekran alani sec")
+    # F14 iki islevli: SURUKLERSEN ekran alani secimi baslar (ui/snip.py),
+    # kimildatmadan birakirsan slot menusu acilir. AHK handleF14'te kisa
+    # basim showF14menu (slotlar) idi; secim oraya sonradan eklendi ve
+    # tusun eski isini yemesin diye surukleme ile ayrildi.
+    table.add("F14", "menu.slots", "kisa: slot menusu")
+    table.prefix("F14", drag_action="select.start", desc="surukle: ekran alani sec")
 
     # --- F13 & F15..F20: slots.json'daki slotlardan yapistir. AHK
     # handleF14'un slot kombolari (F14 secim tusu olunca F13'e tasindi).

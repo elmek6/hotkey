@@ -15,6 +15,7 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 | 2 | `cascadeCaps` — CapsLock toggle + rakamla geçmiş yapıştır | key_handler_cascade.ahk | ⬜ |
 | 3 | `Caret & rakam` AHK'de SLOT yüklüyordu; Python'da geçmişi yapıştırıyor (bilinçli sapma diye notlu ama slot yükleme yolu yoktu) | cascadeCaret | 🔶 F13 kombolarıyla slot yolu açıldı |
 | 4 | MButton kaskadı: kısa=smartPaste (memslots), orta=smartPaste+Shift+Enter, MButton&F14=geçmiş arama, MButton&F15..F20=smart paste 6..1 | key_handler_mouse.ahk handleMButton | 🔶 `memslots.paste` eylemi hazır, tuşsuz |
+| 4b | F14 kısa basım AHK'de `showF14menu` (tam menü: makro, mem clip, sistem, özel tuşlar, slot kolonları) idi; bizde slot hızlı menüsü | menus.ahk showF14menu | 🔶 slot menüsü ✅, menünün diğer blokları F13 menüsünde |
 | 5 | `~MButton & WheelUp/Down` → Ctrl +/- zoom | AutoHotkey.ahk | ⬜ |
 | 6 | RButton & F13/F14 → büyüteç zoom | handleRButton | ⬜ (RButton & Wheel ses var) |
 | 7 | F13 & F15..F20 → pano geçmişi 6..1; F14 & F15..F20 → slot 6..1 | handleF13/handleF14 | ✅ F13 & F15..F20 → slot 6..1 eklendi (F14 seçim tuşu oldu) |
@@ -29,7 +30,7 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 
 | # | Özellik | AHK kaynağı | Durum |
 |---|---|---|---|
-| 14 | Slot menüleri: hızlı slot menüsü, slot arama, "slota kaydet" menüsü, grup ekle/sil, yan grup seçimi | clip_slot.ahk + menus.ahk | ⬜ (dosya biçimi bozulmadan korunuyor) |
+| 14 | Slot menüleri: hızlı slot menüsü ✅ (F14 kısa basım), slot arama ⬜, "slota kaydet" menüsü ⬜, grup ekle/sil ⬜, yan grup seçimi ⬜ | clip_slot.ahk + menus.ahk | 🔶 (dosya biçimi bozulmadan korunuyor) |
 | 15 | `bigclips.bin` — 1 MB üstü kopyalar ayrı dosyaya; bizde hiç alınmıyor | clip_hist.ahk | ⬜ |
 | 16 | Bellek içi geçmiş sınırı: AHK 1000, Python 50 (diskte ikisi de 2500) | clip_hist.ahk | ⬜ fark |
 
@@ -38,7 +39,7 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 | # | Özellik | AHK kaynağı | Durum |
 |---|---|---|---|
 | 17 | Tuş sayacı / istatistik (KeyCounts, loadStats/saveStats, stats penceresi) | key_counter.ahk, script_state.ahk | ⬜ |
-| 18 | Hep-üstte yönetimi (📌 pencere sabitleme, çıkışta hepsini bırakma) | script_state WindowModule + menus.ahk | ⬜ |
+| 18 | Hep-üstte yönetimi (📌 pencere sabitleme, çıkışta hepsini bırakma) | script_state WindowModule + menus.ahk | ✅ `win32/window.py`, F13 menüsünde |
 | 19 | Work/home profili: bilgisayar adına göre yapılandırma; work'te Outlook'u küçültülmüş başlatma | AutoHotkey.ahk LoadSettings | ⬜ (app_shorts kapsamında mı? karar senin) |
 | 20 | `Pause & Delete` — tüm AHK süreçlerini öldürüp çık | AutoHotkey.ahk | ⬜ |
 | 21 | Ufak statik kısayollar: `#a/#s/#d/#w` fare hareketi, `#q/#e` tık, `#y` Enter, NumpadIns/Del/Clear → J/L/K + Alt+Tab, `^<` VSCode satır sil, `!v` yavaş yapıştırma, AppsKey&a | AutoHotkey.ahk | ⬜ (deneme tuşlarını sen söyledikçe ekleniyor) |
@@ -46,3 +47,20 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 
 Not: `~RButton Up` → Esc mantığı eksik DEĞİL; Python'da farklı ve daha temiz
 çözüldü (sağ tık yutulup sürüklemede gerçek basım enjekte ediliyor).
+
+## OCR (F14 seçim aracı içinde) — AHK screen_ocr.ahk'den taşınanlar
+
+| Özellik | Durum |
+|---|---|
+| Alan seçimi, 8 tutamaç, ortadan taşıma, Esc iptal | ✅ |
+| Ayar fazında örtünün kalkması + tıklamaların altına geçmesi (maske) | ✅ |
+| Alan değişince ekranın temiz haliyle yeniden yakalanması (SETTLE_MS) | ✅ |
+| Dil seçimi (kurulu OCR dilleri) | ✅ |
+| Biçim: düz metin / kolonlu / tablo (ayraçlı) | ✅ |
+| Ayraç: hazır liste + elle yazma, `\t` `\n` `\s` kaçışları | ✅ |
+| Ölçek (1-4x) ve gri tonlama, yeniden OCR (ekran tekrar çekilmeden) | ✅ |
+| Kolon eşiği (otomatik / elle px) | ✅ |
+| Panelin yeniden boyutlandırılabilmesi | ✅ |
+| ⬜ Kelime kelime seçilebilen overlay (AHK'nin 1300 satırının çoğu buydu) | ⬜ |
+| ⬜ `readWindow` — aktif pencerenin tamamını OCR'la (seçimsiz) | ⬜ |
+| ⬜ Panel konumunun seçimin yanına (sağ/sol hangisi genişse) yerleşmesi | ⬜ |
