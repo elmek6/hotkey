@@ -438,11 +438,15 @@ class Dispatcher:
             return False, []
         if chord.prefix is not None:
             self.prefixes.combo_used(chord.prefix)
-        if vk <= 0xFF:  # tekerlegin birakma olayi yok, listede birakmayalim
+        # Tek basina `~` ile yazilan tus (orta tus, Insert): eylem calisir,
+        # tus uygulamaya AYNEN gider. Kombodaki `~` bundan ayri: orada
+        # yutulmayan sey ONEK, kombo tusu yine yutulur.
+        keep = binding.hotkey.passthrough and binding.hotkey.prefix is None
+        if vk <= 0xFF and not keep:  # tekerlegin birakma olayi yok
             self._hk_swallowed.add(vk)
         if chord.repeat:  # basili tutmada eylem tekrarlanmaz, yutma surer
-            return True, []
-        return True, [Run(binding.action, key=vk, desc=binding.desc)]
+            return not keep, []
+        return not keep, [Run(binding.action, key=vk, desc=binding.desc)]
 
     def _hotkey_up(self, vk: int, t: float) -> tuple[bool, list]:
         was_ours = vk in self._hk_swallowed

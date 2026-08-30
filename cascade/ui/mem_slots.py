@@ -42,16 +42,20 @@ Pencere panoyu kendisi yazmaz, sinyal gonderir -- ArrayFilter'daki kural.
 
 Port EDILMEYENLER:
 
-TODO(AHK): clip_slot.ahk grup yonetimi -- birden fazla slot grubu, "yan
-    grup" secimi, grup ekle/sil ve slot adi duzenleme. Dosyadaki gruplar
-    okunup BOZULMADAN geri yaziliyor, ama arayuz yalniz varsayilan grubu
-    gosteriyor (bkz. store.SlotStore).
+TODO(AHK): clip_slot.ahk `showSlotsSearch` -- butun gruplarin dolu
+    slotlarinda arama. Grup yonetiminin geri kalani portlandi: yan grup
+    secimi, grup ekle/sil ve "slota kaydet" F14 menusunde (app.py
+    `_side_slot_menu`), slot adi bu penceredeki "Ad" sutununda.
+
+Bu pencere HANGI grubu gosterir: secili yan grubu (`SlotStore.
+default_group`) -- AHK'de de kaskad slotlari `defaultGroupName` uzerinden
+yukleniyordu.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QMimeData, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QDrag, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -65,7 +69,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cascade.store import slot_display
+from cascade.store import PASSWORD_SLOT, slot_display
 
 SLOT_COUNT = 10  # AHK: Loop 10
 PREVIEW_LIMIT = 60  # AHK: _makePreview -> SubStr(preview, 1, 60)
@@ -92,12 +96,27 @@ class DragTable(QTableWidget):
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.setDefaultDropAction(Qt.DropAction.CopyAction)
 
-    def mimeData(self, items) -> QMimeData:
+    def startDrag(self, actions) -> None:
+        """Suruklemeyi BASTAN KURAR -- yalniz `text/plain` tasinir.
+
+        Qt'nin kendi suruklemesi model verisini de
+        (`application/x-qabstractitemmodeldatalist`) ve secili HUCRELERIN
+        metnini koyuyor; hedef uygulama onu alinca satirin tamami
+        (slot no + ad + onizleme, sekmeli) dusuyordu. `mimeData()`
+        gecersiz kilmak yetmiyor cunku surukleme MODELDEN baslıyor.
+        Notepad'den metin surukler gibi tek bir metin birakilmali.
+        """
+        rows = {index.row() for index in self.selectedIndexes()}
+        if not rows:
+            return
+        text = self._text_for_row(min(rows) + 1)
+        if not text:
+            return
         data = QMimeData()
-        rows = {item.row() for item in items}
-        text = self._text_for_row(min(rows) + 1) if rows else ""
         data.setText(text)
-        return data
+        drag = QDrag(self)
+        drag.setMimeData(data)
+        drag.exec(Qt.DropAction.CopyAction)
 
 
 def preview(text: str, limit: int = PREVIEW_LIMIT) -> str:
@@ -112,9 +131,14 @@ class MemSlots(QWidget):
     """Slot penceresi."""
 
     #: panoya yaz ve Ctrl+V gonder
-    paste_text = Signal(str)
+    #: (metin, gizli mi) -- gizli olan sifre slotudur: pano gecmisine
+    #: (bizimkine de Windows'unkine de) yazilmaz.
+    paste_text = Signal(str, bool)
     #: panoya yaz, yapistirma
-    copy_text = Signal(str)
+    #: (metin, gizli mi) -- sifre slotu panoya GIZLI konur.
+    copy_text = Signal(str, bool)
+    #: (slot no, yeni ad) -- ad penceredeyken degistirildi (AHK setName)
+    name_changed = Signal(int, str)
     #: hedef uygulamadan Ctrl+C iste (secili metni slota alacagiz)
     grab_clip = Signal()
     #: kisa ipucu (HTML)
@@ -130,8 +154,7 @@ class MemSlots(QWidget):
 
         self.slots: list[str] = [""] * SLOT_COUNT
         #: slot adlari -- clip_slot.ahk `values[i]["name"]`. Dosyadan gelir,
-        #: dosyaya geri yazilir. TODO(AHK): adi buradan DUZENLEME yok;
-        #: AHK'de menus.ahk uzerinden yeniden adlandirilabiliyordu.
+        #: "Ad" sutunundan duzenlenir, dosyaya geri yazilir (AHK: setName).
         self.names: list[str] = [f"Slot {index}" for index in range(1, SLOT_COUNT + 1)]
         self.history: list[str] = []
         self.slot_index = 1  # 1 tabanli, AHK ile ayni
@@ -142,6 +165,7 @@ class MemSlots(QWidget):
         # onlari dosyaya yazmak kullanicinin slotlarini silerdi.
         self.opened = False
         self._pending_slot: int | None = None  # `^c` bekleyen slot
+        self._loading = False  # tabloyu programla doldururken sinyal yutulur
 
         mono = QFont("Cascadia Mono")
         mono.setStyleHint(QFont.StyleHint.Monospace)
@@ -174,11 +198,26 @@ class MemSlots(QWidget):
         self.slot_table = self._make_table(("Slot", "Ad", "Icerik"), mono, self._slot)
         self.slot_table.itemSelectionChanged.connect(self._on_slot_selected)
         self.slot_table.doubleClicked.connect(lambda _index: self._slot_double())
+        # AHK `setName`: slot adi duzenlenebilir. YALNIZ "Ad" sutunu --
+        # icerik sutunu elle yazilirsa slot ile listedeki metin ayrisirdi
+        # (listede kisaltilmis onizleme var, tam icerik degil).
+        self.slot_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.slot_table.itemChanged.connect(self._on_slot_item_changed)
         self.slot_table.setRowCount(SLOT_COUNT)
         for row in range(SLOT_COUNT):
             self.slot_table.setItem(row, 0, QTableWidgetItem(f"F{row + 1:02}"))
-            self.slot_table.setItem(row, 1, QTableWidgetItem(f"Slot {row + 1}"))
-            self.slot_table.setItem(row, 2, QTableWidgetItem(""))
+            name_item = QTableWidgetItem(f"Slot {row + 1}")
+            name_item.setToolTip("Cift tiklayarak adini degistir")
+            self.slot_table.setItem(row, 1, name_item)
+            content_item = QTableWidgetItem("")
+            content_item.setFlags(content_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.slot_table.setItem(row, 2, content_item)
+            self.slot_table.item(row, 0).setFlags(
+                self.slot_table.item(row, 0).flags() & ~Qt.ItemFlag.ItemIsEditable
+            )
 
         self.hist_table = self._make_table(("#", "Icerik"), mono, self._history_text)
         self.hist_table.itemSelectionChanged.connect(self._on_hist_selected)
@@ -224,12 +263,18 @@ class MemSlots(QWidget):
         kaliciydi; memory_slots.ahk ise her acilista sifirdan basliyordu.
         Ikisini birlestiriyoruz: pencere ayni, icerik kalici.
         """
-        for index in range(SLOT_COUNT):
-            name, content = values[index] if index < len(values) else ("", "")
-            self.names[index] = name or f"Slot {index + 1}"
-            self.slots[index] = content
-            self.slot_table.item(index, 1).setText(self.names[index])
-            self.slot_table.item(index, 2).setText(slot_display(index + 1, content, preview))
+        self._loading = True
+        try:
+            for index in range(SLOT_COUNT):
+                name, content = values[index] if index < len(values) else ("", "")
+                self.names[index] = name or f"Slot {index + 1}"
+                self.slots[index] = content
+                self.slot_table.item(index, 1).setText(self.names[index])
+                self.slot_table.item(index, 2).setText(
+                    slot_display(index + 1, content, preview)
+                )
+        finally:
+            self._loading = False
 
     def slot_values(self) -> list[tuple[str, str]]:
         """Diske yazilacak (ad, icerik) ciftleri."""
@@ -274,7 +319,7 @@ class MemSlots(QWidget):
             self.tip.emit(f"⚠️ <b>Slot {index}</b> bos")
             return
         self.select_slot(index)
-        self.paste_text.emit(text)
+        self.paste_text.emit(text, index == PASSWORD_SLOT)
 
     def paste_history(self, index: int) -> None:
         """Orta basim. AHK: _pasteFromHistory."""
@@ -282,7 +327,7 @@ class MemSlots(QWidget):
             self.tip.emit(f"⚠️ <b>Gecmis {index}</b> yok")
             return
         self.select_history(index)
-        self.paste_text.emit(self.history[index - 1])
+        self.paste_text.emit(self.history[index - 1], False)
 
     def save_slot(self, index: int) -> None:
         """Uzun basim (AHK'de cift basim). Once `^c`, gelen metin slota."""
@@ -346,7 +391,11 @@ class MemSlots(QWidget):
 
     def _write_slot(self, index: int, text: str) -> None:
         self.slots[index - 1] = text
-        self.slot_table.item(index - 1, 2).setText(slot_display(index, text, preview))
+        self._loading = True
+        try:
+            self.slot_table.item(index - 1, 2).setText(slot_display(index, text, preview))
+        finally:
+            self._loading = False
 
     def _fill_history(self) -> None:
         """AHK: _populateHistory"""
@@ -390,7 +439,11 @@ class MemSlots(QWidget):
         self.names[:used] = list(reversed(self.names[:used]))  # ad icerikle gitsin
         for index in range(1, SLOT_COUNT + 1):
             self._write_slot(index, self.slots[index - 1])
-            self.slot_table.item(index - 1, 1).setText(self.names[index - 1])
+            self._loading = True
+            try:
+                self.slot_table.item(index - 1, 1).setText(self.names[index - 1])
+            finally:
+                self._loading = False
         self.select_slot(1)
 
     def _reverse_history(self) -> None:
@@ -419,20 +472,39 @@ class MemSlots(QWidget):
             self._slots_active = False
             self._paint_headers()
 
+    def _on_slot_item_changed(self, item) -> None:
+        """Ad sutunu duzenlendi: adi bellege al (diske kapanista yazilir).
+
+        Yukleme sirasinda da tetikleniyor; `load_slots` bayragi ile ayirt
+        ediliyor, yoksa dosyadan gelen ad kendini yeniden yazardi.
+        """
+        if self._loading or item.column() != 1:
+            return
+        row = item.row()
+        self.names[row] = item.text().strip() or f"Slot {row + 1}"
+        self.name_changed.emit(row + 1, self.names[row])
+
     def _slot_double(self) -> None:
         """AHK: _onSlotDoubleClick -- panoya kopyalar, yapistirmaz."""
-        text = self._slot(self.slot_table.currentRow() + 1)
+        if self.slot_table.currentColumn() == 1:
+            return  # ad sutunu: cift tiklama DUZENLEMEYE giriyor
+        index = self.slot_table.currentRow() + 1
+        text = self._slot(index)
         if not text:
             return
-        self.copy_text.emit(text)
-        self.tip.emit(f"\U0001f4cb {preview(text, 40)}")
+        # Sifre slotunda ipucu icerigi GOSTERMEZ.
+        secret = index == PASSWORD_SLOT
+        self.copy_text.emit(text, secret)
+        self.tip.emit(
+            "\U0001f4cb kopyalandi" if secret else f"\U0001f4cb {preview(text, 40)}"
+        )
 
     def _hist_double(self) -> None:
         """AHK: _onHistoryDoubleClick -- dogrudan yapistirir."""
         row = self.hist_table.currentRow()
         if 0 <= row < len(self.history):
             self.select_history(row + 1)
-            self.paste_text.emit(self.history[row])
+            self.paste_text.emit(self.history[row], False)
 
     def eventFilter(self, watched, event: QEvent) -> bool:
         """Baslik seridine tiklama: aktif degilse aktif yapar, aktifse listeyi

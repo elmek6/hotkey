@@ -230,3 +230,67 @@ def test_gecmise_yuklenince_sira_korunur(store):
 def test_yuklemede_tekrar_eden_metin_bir_kez_girer():
     history = ClipHistory()
     assert history.load([entry("ayni"), entry("ayni"), entry("baska")]) == 2
+
+
+# ---- grup yonetimi (AHK: clip_slot.ahk addGroup/deleteGroup/setDefaultGroup) ----
+
+
+def _slot_store(tmp_path):
+    from cascade.store import SlotStore
+
+    store = SlotStore(directory=tmp_path)
+    store.load()
+    return store
+
+
+def test_grup_eklenir_ve_on_bos_slotla_acilir(tmp_path):
+    store = _slot_store(tmp_path)
+    assert store.add_group("is") is True
+    assert store.add_group("is") is False  # ayni ad ikinci kez eklenmez
+    assert store.group_names() == ["is"]
+    assert len(store.slots("is")) == 10
+    assert all(not slot.content for slot in store.slots("is"))
+
+
+def test_yan_grup_secimi_diske_yazilir(tmp_path):
+    from cascade.store import SlotStore
+
+    store = _slot_store(tmp_path)
+    store.add_group("is")
+    assert store.set_default_group("is") is True
+    assert store.set_default_group("yok") is False  # olmayan grup secilmez
+
+    tekrar = SlotStore(directory=tmp_path)
+    tekrar.load()
+    assert tekrar.default_group == "is"
+
+
+def test_grup_silinince_yan_grup_secimi_bosa_duser(tmp_path):
+    store = _slot_store(tmp_path)
+    store.add_group("is")
+    store.set_default_group("is")
+    assert store.delete_group("is") is True
+    assert store.default_group == ""
+    assert store.group_names() == []
+    # Varsayilan (adsiz) grup silinemez -- AHK'de de oyle.
+    assert store.delete_group("") is False
+
+
+def test_slot_adi_ve_icerigi_yazilir(tmp_path):
+    from cascade.store import SlotStore
+
+    store = _slot_store(tmp_path)
+    assert store.set_slot_name("", 3, "  fan ow  ") is True
+    assert store.set_slot_content("", 3, "M106 O1 S60") is True
+    assert store.set_slot_name("", 99, "olmaz") is False
+
+    tekrar = SlotStore(directory=tmp_path)
+    tekrar.load()
+    slot = tekrar.slots("")[2]
+    assert (slot.name, slot.content) == ("fan ow", "M106 O1 S60")
+
+
+def test_bos_ad_verilince_slot_varsayilan_adina_doner(tmp_path):
+    store = _slot_store(tmp_path)
+    store.set_slot_name("", 4, "   ")
+    assert store.slots("")[3].name == "Slot 4"

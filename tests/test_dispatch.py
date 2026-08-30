@@ -14,7 +14,7 @@ from cascade.core.keynames import VK_WHEEL_UP, register_name
 from cascade.dispatch import Dispatcher
 
 F13, F14, CARET, ONE = 0x7C, 0x7D, 0xDC, 0x31
-LBUTTON, F16 = 0x01, 0x7F
+LBUTTON, MBUTTON, F16 = 0x01, 0x04, 0x7F
 CTRL = 0xA2
 
 
@@ -450,3 +450,14 @@ def test_turkce_asamasi_onek_basiliyken_atlanir():
     feed(box, F13, True, 0.0)
     assert box.key_filter(_press(0x43, 0.1)) is False
     assert _drain(box.actions) == []
+
+
+def test_tilde_ile_yazilan_tus_yutulmaz_ama_eylem_calisir():
+    """`~MButton` -- orta tus her yerde isini gorur, eylem de calisir."""
+    box = make_dispatcher()
+    box.hotkeys.add("~MButton", "memslots.paste:middle")
+    swallow, acts = feed(box, MBUTTON, True, 0.0)
+    assert swallow is False
+    assert [a.action for a in acts] == ["memslots.paste:middle"]
+    # Birakma da yutulmaz: basim listemize hic girmedi.
+    assert feed(box, MBUTTON, False, 0.1)[0] is False

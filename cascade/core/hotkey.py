@@ -106,7 +106,7 @@ class Hotkey:
 
 
 def parse_hotkey(spec: str) -> Hotkey:
-    """"^!k" / "Ctrl+Alt+K" / "Caret & 1" / "F13" -> Hotkey.
+    """ "^!k" / "Ctrl+Alt+K" / "Caret & 1" / "F13" -> Hotkey.
 
     Bilinmeyen tus adinda ValueError.
     """
@@ -126,6 +126,20 @@ def parse_hotkey(spec: str) -> Hotkey:
             passthrough=passthrough,
             wildcard=hotkey.wildcard,
             text=f"{'~' if passthrough else ''}{key_name(prefix)} & {hotkey.text}",
+        )
+    if text.startswith("~"):
+        # AHK `~MButton`: eylem calisir ama tus YUTULMAZ. Kombolarda `~`
+        # onegin yutulmamasi demekti (`~LButton & F16`); tek basina bir
+        # tusta ise tusun kendisinin uygulamaya gecmesi demek. Orta tus /
+        # Insert gibi her yerde isi olan tuslara boyle eylem baglanabiliyor.
+        inner = parse_hotkey(text[1:])
+        return Hotkey(
+            vk=inner.vk,
+            mods=inner.mods,
+            prefix=inner.prefix,
+            passthrough=True,
+            wildcard=inner.wildcard,
+            text=f"~{inner.text}",
         )
     if text[0] in MOD_SYMBOLS or text[0] in "*<>":
         return _parse_symbols(text)
@@ -174,9 +188,7 @@ def _parse_words(spec: str) -> Hotkey:
     return _hotkey(_resolve(parts[-1]), mods)
 
 
-def _hotkey(
-    vk: int, mods: list[tuple[str, tuple[int, ...]]], wildcard: bool = False
-) -> Hotkey:
+def _hotkey(vk: int, mods: list[tuple[str, tuple[int, ...]]], wildcard: bool = False) -> Hotkey:
     label = "*" if wildcard else ""
     label += "+".join([name for name, _ in mods] + [key_name(vk)])
     return Hotkey(
@@ -188,6 +200,7 @@ def _hotkey(
 
 
 def _resolve(name: str) -> int:
+
     vk = vk_from_name(name)
     if vk is None:
         raise ValueError(f"bilinmeyen tus adi: {name!r}")
@@ -211,9 +224,7 @@ class HotkeyTable:
 
     bindings: list[Binding] = field(default_factory=list)
     _keys: set[int] = field(default_factory=set, init=False, repr=False)
-    _prefix_defs: dict[int, PrefixDef] = field(
-        default_factory=dict, init=False, repr=False
-    )
+    _prefix_defs: dict[int, PrefixDef] = field(default_factory=dict, init=False, repr=False)
 
     def add(self, spec: str, action: str, desc: str = "") -> HotkeyTable:
         hotkey = parse_hotkey(spec)

@@ -35,7 +35,7 @@ from datetime import datetime
 from PIL import Image
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from cascade import keymap, logs, paths
 from cascade.actions import ActionRunner, beep
@@ -47,7 +47,7 @@ from cascade.core.keynames import key_name, vk_from_name
 from cascade.core.state import Busy, ClipboardMode, ClipboardState
 from cascade.dispatch import Dispatcher
 from cascade.imgstore import ClipImageStore
-from cascade.store import ClipStore, SlotStore, slot_display
+from cascade.store import PASSWORD_SLOT, ClipStore, SlotStore, slot_display
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clip_images import ClipImages
 from cascade.ui.clipboard import ClipboardWatcher
@@ -189,6 +189,13 @@ class Cascade:
         self.mem_slots.grab_clip.connect(lambda: self.runner.run("send_key:^c"))
         self.mem_slots.tip.connect(lambda body: self.tip.show_html(body, 1500))
         self.mem_slots.fkeys_toggled.connect(self._on_memslot_fkeys)
+        # Ad penceredeyken degisti: diske HEMEN yaz (AHK setName da oyleydi)
+        # -- pencere kapanmadan program kapanirsa ad kaybolmasin.
+        self.mem_slots.name_changed.connect(
+            lambda index, name: self.slot_store.set_slot_name(
+                self.slot_store.default_group, index, name
+            )
+        )
         self.mem_slots.closed.connect(self._on_memslots_closed)
 
         # F14 secim araci (ui/snip.py) + OCR koprusu. Secim acikken
@@ -300,6 +307,20 @@ class Cascade:
         )
         # F13 & F15..F20 -- slots.json'daki slotlardan yapistirma.
         self.runner.register("slot.paste", self.paste_slot)
+        # Grup yonetimi (AHK clip_slot.ahk + menus.ahk buildSideSlotMenu).
+        self.runner.register("slot.paste_group", self.paste_slot_of)
+        self.runner.register("slots.copy", self.copy_slot)
+        self.runner.register("slots.save", self.save_to_slot)
+        self.runner.register("slots.rename", self.rename_slot)
+        self.runner.register("slots.group_new", lambda _: self.new_slot_group())
+        self.runner.register("slots.group_select", self.select_slot_group)
+        self.runner.register("slots.group_delete", self.delete_slot_group)
+        self.runner.register(
+            "slots.edit_file",
+            lambda _: subprocess.Popen(  # noqa: S603
+                ["notepad.exe", str(self.slot_store.path)]  # noqa: S607
+            ),
+        )
         # F14 -- surukleyince ekran alani secimi, kimildatmadan birakinca menu.
         # Secim acikken tusa yeniden basmak da buraya gelir: show_snip
         # pencerenin acik oldugunu gorup bastan sectiriyor.
@@ -437,17 +458,20 @@ class Cascade:
         else:
             self.tip.show_html(f"\U0001f4cb <b>goruntu panoda</b> {detail}", 1200)
 
-    def paste_text(self, text: str) -> None:
+    def paste_text(self, text: str, private: bool = False) -> None:
         """AHK: ArrayFilter.sendText -- panoya yaz, kisa bekle, Ctrl+V.
 
         Bekleme sus payi degil: panoya yazmak asenkron bitiyor ve hedef
         uygulama Ctrl+V'yi ayni anda alirsa eski icerigi yapistiriyor.
         AHK'de de Sleep(50) vardi. Kendi yazdigimiz metin gecmise ikinci kez
         girmiyor -- ClipboardWatcher.set_text bunu biliyor.
+
+        `private=True` sifre slotu icin: pano gecmisi (bizimki de Windows'un
+        Win+V'si de) bu kopyayi HIC kaydetmez.
         """
         if not text:
             return
-        self.clip_watcher.set_text(text)
+        self.clip_watcher.set_text(text, private=private)
         QTimer.singleShot(60, lambda: self.runner.run("send_key:^v"))
 
     def paste_history(self, argument: str) -> None:
@@ -556,7 +580,113 @@ class Cascade:
             f"{html.escape(slot_display(index, slot.content, lambda t: _shorten(t, 40)))}",
             1200,
         )
-        self.paste_text(slot.content)
+        self.paste_text(slot.content, private=index == PASSWORD_SLOT)
+
+    # ---- slot gruplari (AHK: clip_slot.ahk) ----
+
+    @staticmethod
+    def _group_slot(argument: str) -> tuple[str, int]:
+        """`"is/3"` -> ("is", 3). Grup adi bos olabilir (`"/3"`)."""
+        group, _, index = argument.rpartition("/")
+        return group, int(index) if index.isdigit() else 0
+
+    def paste_slot_of(self, argument: str) -> None:
+        """`slot.paste_group:is/3` -- ISTENEN gruptan yapistirir."""
+        group, index = self._group_slot(argument)
+        self.slot_store.load()
+        values = self.slot_store.slots(group)
+        if not 1 <= index <= len(values) or not values[index - 1].content:
+            self.tip.show_html("⚠️ <b>slot bos</b>", 1200)
+            return
+        self.paste_text(values[index - 1].content, private=index == PASSWORD_SLOT)
+
+    def copy_slot(self, argument: str) -> None:
+        """AHK yan grup menusu: oge tiklaninca icerik PANOYA konur."""
+        group, index = self._group_slot(argument)
+        self.slot_store.load()
+        values = self.slot_store.slots(group)
+        if not 1 <= index <= len(values) or not values[index - 1].content:
+            self.tip.show_html("⚠️ <b>slot bos</b>", 1200)
+            return
+        secret = index == PASSWORD_SLOT
+        self.clip_watcher.set_text(values[index - 1].content, private=secret)
+        self.tip.show_html("📋 <b>kopyalandi</b>", 1200)
+
+    def save_to_slot(self, argument: str) -> None:
+        """AHK `promptAndSaveSlot`: panodaki metni slota yazar, adini sorar."""
+        group, index = self._group_slot(argument)
+        self.slot_store.load()
+        content = QGuiApplication.clipboard().text()
+        if not content:
+            self.tip.show_html("⚠️ <b>pano bos</b>, kaydedilmedi", 1500)
+            return
+        values = self.slot_store.slots(group)
+        current = values[index - 1].name if 1 <= index <= len(values) else ""
+        name, ok = QInputDialog.getText(
+            None, "Slota kaydet", f"Slot {index % 10} adi:", text=current
+        )
+        if not ok:
+            return
+        self.slot_store.set_slot_content(group, index, content)
+        self.slot_store.set_slot_name(group, index, name)
+        self.tip.show_html(f"💾 <b>{html.escape(name or f'Slot {index}')}</b>", 1500)
+
+    def rename_slot(self, argument: str) -> None:
+        """AHK `setName`: yalniz ADI degistirir, icerige dokunmaz."""
+        group, index = self._group_slot(argument)
+        self.slot_store.load()
+        values = self.slot_store.slots(group)
+        current = values[index - 1].name if 1 <= index <= len(values) else ""
+        name, ok = QInputDialog.getText(
+            None, "Slot adi", f"Slot {index % 10} yeni adi:", text=current
+        )
+        if ok:
+            self.slot_store.set_slot_name(group, index, name)
+            self._refresh_mem_slots()
+
+    def new_slot_group(self) -> None:
+        """AHK `promptNewGroup`: grup acar ve HEMEN yan grup olarak secer."""
+        name, ok = QInputDialog.getText(None, "Yeni grup", "Grup adi:")
+        if not ok or not name.strip():
+            return
+        self.slot_store.load()
+        if not self.slot_store.add_group(name):
+            self.tip.show_html("⚠️ <b>grup zaten var</b>", 1500)
+            return
+        self.slot_store.set_default_group(name.strip())
+        self.tip.show_html(f"🧰 <b>{html.escape(name.strip())}</b> olusturuldu", 1500)
+
+    def select_slot_group(self, name: str) -> None:
+        """AHK `setDefaultGroup`: yan grup secimi (bos ad = yan grup yok)."""
+        self.slot_store.load()
+        if not self.slot_store.set_default_group(name):
+            return
+        self._refresh_mem_slots()
+        self.tip.show_html(
+            f"🧰 <b>{html.escape(name)}</b> secildi" if name else "🧰 yan grup yok",
+            1200,
+        )
+
+    def delete_slot_group(self, name: str) -> None:
+        """AHK: MsgBox YesNo -- silme sorulur, sessizce silinmez."""
+        if not name:
+            return
+        answer = QMessageBox.question(
+            None, "Grup sil", f"'{name}' grubunu silmek istiyor musun?"
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.slot_store.load()
+        if self.slot_store.delete_group(name):
+            self._refresh_mem_slots()
+            self.tip.show_html(f"🗑️ <b>{html.escape(name)}</b> silindi", 1500)
+
+    def _refresh_mem_slots(self) -> None:
+        """Slot penceresi acikken grup/ad degisti: pencereyi tazele."""
+        if not self.mem_slots.isVisible():
+            return
+        group = self.slot_store.slots(self.slot_store.default_group)
+        self.mem_slots.load_slots([(slot.name, slot.content) for slot in group])
 
     # ---- F14 secim araci ----
 
@@ -981,33 +1111,67 @@ class Cascade:
         spec += (None, *keymap.F13_MENU_TAIL)
         self.menu.show(spec, title=f"cascade {VERSION}", default="clip.filter")
 
+    def _slot_items(self, group: str, action: str, prefix: str = "") -> tuple:
+        """Bir grubun on slotu, menu ogesi olarak (AHK: addSlotItems).
+
+        `action` her ogeye uygulanacak eylem kimligi: yapistirma, panoya
+        kopyalama, uzerine kaydetme ya da ad degistirme. Etiket AHK ile ayni
+        duzende: tus numarasi (10 -> "0"), slot adi, icerik onizlemesi.
+        Sifre slotunun icerigi maskeli (store.slot_display).
+        """
+        items: list = []
+        for index, slot in enumerate(self.slot_store.slots(group)[:10], start=1):
+            text = " ".join(slot.content.split())
+            shown = (
+                slot_display(index, text, lambda t: _shorten(t, 40)) if text else "(bos)"
+            )
+            label = f"{prefix}{index % 10}  {slot.name or f'Slot {index}'}: {shown}"
+            items.append((label, f"{action}:{group}/{index}"))
+        return tuple(items)
+
+    def _side_slot_menu(self) -> tuple:
+        """AHK `buildSideSlotMenu`: gruplar, secim, ekle/sil, Notepad."""
+        items: list = [
+            ("Yeni grup ekle", "slots.group_new"),
+            ("Notepad ile ac", "slots.edit_file"),
+            None,
+            ("No side slot", "slots.group_select:"),
+        ]
+        for name in self.slot_store.group_names():
+            mark = "● " if name == self.slot_store.default_group else ""
+            items.append(
+                (
+                    f"{mark}{name}",
+                    (
+                        ("Select this group", f"slots.group_select:{name}"),
+                        None,
+                        # AHK'de bu ogeler icerigi PANOYA koyuyordu
+                        # (yapistirmiyordu); ayni davranis.
+                        *self._slot_items(name, "slots.copy"),
+                        None,
+                        ("Rename slot", tuple(self._slot_items(name, "slots.rename"))),
+                        ("Save clipboard to slot", tuple(self._slot_items(name, "slots.save"))),
+                        None,
+                        ("Delete this group", f"slots.group_delete:{name}"),
+                    ),
+                )
+            )
+        return tuple(items)
+
     def show_slots_menu(self) -> None:
         """F14 kisa basim -- AHK `showF14menu` + `showQuickSlotsMenu`.
 
         Kolon yapisi AHK ile ayni: 1. kolon eylemler ve alt menuler, 2.
-        kolon slotlar. Slotlar diskten TAZE okunuyor (dosyayi AHK tarafi ya
-        da elle duzenleme degistirmis olabilir), bos slotlar da listeleniyor
-        ki hangisinin bos oldugu gorunsun. Sifre slotunun icerigi
-        gosterilmez (store.slot_display).
+        kolon varsayilan grubun slotlari, 3. kolon "yan grup" (secili grup
+        varsa onun slotlari da aciliyor). Slotlar diskten TAZE okunuyor --
+        dosyayi AHK tarafi ya da elle duzenleme degistirmis olabilir.
         """
         self.slot_store.load()
-        group = self.slot_store.slots(self.slot_store.default_group)
-        slots = tuple(
-            (
-                f"{index % 10}  {slot.name}: "
-                + (
-                    slot_display(index, " ".join(slot.content.split()), lambda t: _shorten(t, 40))
-                    if slot.content
-                    else "(bos)"
-                ),
-                f"slot.paste:{index}",
-            )
-            for index, slot in enumerate(group[:10], start=1)
-        )
-        title = "🧰 Slotlar"
-        if self.slot_store.default_group:
-            title += f" [{self.slot_store.default_group}]"
-        spec = (
+        side = self.slot_store.default_group
+        title = "\U0001f9f0 Slotlar"
+        if side:
+            title += f" [{side}]"
+        spec: tuple = (
             ("Unformatted paste", "send_key:^+v"),
             None,
             # TODO(AHK): macro_recorder.ahk port edilmedi.
@@ -1021,10 +1185,22 @@ class Cascade:
             # TODO(AHK): clip_slot.ahk `showSlotsSearch` -- slotlarda arama.
             ("Search in slots", "yok:clip_slot.ahk showSlotsSearch"),
             None,
-            *slots,
+            *self._slot_items("", "slot.paste_group"),
+            None,
+            ("Save to ^ slot", self._slot_items("", "slots.save")),
+            ("Rename ^ slot", self._slot_items("", "slots.rename")),
             None,
             ("Clipboard history", "clip.filter"),
+            keymap.COLUMN,
+            (f"Side slot{f' [{side}]' if side else ''}", self._side_slot_menu()),
         )
+        if side and side in self.slot_store.groups:
+            spec += (
+                None,
+                *self._slot_items(side, "slot.paste_group", prefix="⇥ "),
+                None,
+                (f"Save to ⇥{side}", self._slot_items(side, "slots.save")),
+            )
         self.menu.show(spec, title=title)
 
     def not_ported(self, module: str) -> None:

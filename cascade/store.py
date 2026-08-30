@@ -442,10 +442,9 @@ class SlotStore:
       * Grup sirasi: adi bos olan grup HER ZAMAN once yazilir (AHK
         `saveSlots` acikca boyle yapiyor).
 
-    TODO(AHK): grup yonetimi arayuzu port edilmedi -- yeni grup ekleme,
-    grup silme, "yan grup" secme (`setDefaultGroup`) ve slot adi duzenleme
-    AHK'de menus.ahk uzerinden yapiliyordu. Buradaki okuma/yazma gruplari
-    BOZMADAN tasiyor: dokunmadigimiz gruplar dosyada aynen kalir.
+    Grup yonetimi (AHK `addGroup` / `deleteGroup` / `setDefaultGroup` /
+    `setName`) asagida; arayuzu F14 menusunun "Side slot" kolonu veriyor.
+    Dokunmadigimiz gruplar dosyada aynen kalir.
     """
 
     filename = "slots.json"
@@ -512,6 +511,56 @@ class SlotStore:
         while len(values) < SLOTS_PER_GROUP:
             values.append(Slot(name=f"Slot {len(values) + 1}", content=""))
         return values
+
+    def group_names(self) -> list[str]:
+        """Adi olan gruplar (AHK: getGroupsName -- varsayilan grup haric)."""
+        return [name for name in self.groups if name != DEFAULT_GROUP]
+
+    # ---- grup yonetimi (AHK: clip_slot.ahk) ----
+
+    def add_group(self, name: str) -> bool:
+        """Yeni grup: on bos slotla acilir. Var olan ada dokunmaz."""
+        name = name.strip()
+        if not name or name in self.groups:
+            return False
+        self.groups[name] = _blank_slots()
+        return self.save()
+
+    def delete_group(self, name: str) -> bool:
+        """Grubu siler. Varsayilan grup (adsiz) SILINMEZ -- AHK'de de oyle.
+
+        Silinen grup "yan grup" olarak secilmisse secim bosa duser.
+        """
+        if name == DEFAULT_GROUP or name not in self.groups:
+            return False
+        del self.groups[name]
+        if self.default_group == name:
+            self.default_group = DEFAULT_GROUP
+        return self.save()
+
+    def set_default_group(self, name: str) -> bool:
+        """AHK `setDefaultGroup`: "yan grup" secimi. Bos ad = yan grup yok."""
+        if name and name not in self.groups:
+            log.warning("grup bulunamadi: %s", name)
+            return False
+        self.default_group = name
+        return self.save()
+
+    def set_slot_name(self, group: str, index: int, name: str) -> bool:
+        """AHK `setName`: slotun ADI (icerik degil). 1 tabanli indeks."""
+        values = self.slots(group)
+        if not 1 <= index <= len(values):
+            return False
+        values[index - 1].name = name.strip() or f"Slot {index}"
+        return self.save()
+
+    def set_slot_content(self, group: str, index: int, content: str) -> bool:
+        """AHK `saveToSlot`: slota icerik yazar."""
+        values = self.slots(group)
+        if not 1 <= index <= len(values):
+            return False
+        values[index - 1].content = content
+        return self.save()
 
     # ---- yazma ----
 

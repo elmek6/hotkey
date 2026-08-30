@@ -148,3 +148,11 @@ def test_orta_dugme_ve_tekerlek():
 
 def test_ilgilenmedigimiz_mesaj_none_doner():
     assert mouse_key(WM_MOUSEMOVE, 0) is None
+
+
+def test_tek_basina_tilde_tusu_yutmaz():
+    """AHK `~MButton`: eylem calisir, tus uygulamaya da gider."""
+    hotkey = parse_hotkey("~MButton")
+    assert hotkey.passthrough is True
+    assert hotkey.prefix is None
+    assert hotkey.text == "~MButton"

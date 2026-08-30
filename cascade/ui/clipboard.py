@@ -26,12 +26,22 @@ Her sey Qt ana thread'inde calisir; hook thread'i buraya hic dokunmaz.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QByteArray, QMimeData, QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 
 from cascade.win32.clipboard import sequence_number
 
 READ_DELAY_MS = 100  # AHK: clipReadDelay (WPF pano API'si de 100 ms kullanir)
+
+#: Parola gibi icerikleri panoya "gizli" koymanin Windows'ta kabul gormus
+#: yolu: bu bicimler panoda dururken hem Windows pano gecmisi (Win+V) hem
+#: bulut esitlemesi kaydi ATLAR. Parola yoneticileri de bunu kullanir.
+#: Bizim kendi gecmisimiz ayrica `skip_next` ile susturuluyor.
+PRIVATE_FORMATS = (
+    "ExcludeClipboardContentFromMonitorProcessing",
+    "CanIncludeInClipboardHistory",
+    "CanUploadToCloudClipboard",
+)
 
 
 class ClipboardWatcher(QObject):
@@ -58,6 +68,9 @@ class ClipboardWatcher(QObject):
         self._delay_ms = delay_ms
         self._pending_seq = 0
         self._own_text: str | None = None
+        #: "Bir sonraki pano degisimini HIC kaydetme" (AHK: ignoreNextClip).
+        #: Sifre yapistirmasinda aciliyor; ilk degisimde kendini kapatir.
+        self.skip_next = False
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -68,10 +81,28 @@ class ClipboardWatcher(QObject):
 
     # ---- disari ----
 
-    def set_text(self, text: str) -> None:
-        """Panoya biz yazariz; donen bildirim gecmise ikinci kez girmez."""
+    def set_text(self, text: str, private: bool = False) -> None:
+        """Panoya biz yazariz; donen bildirim gecmise ikinci kez girmez.
+
+        `private=True` (sifre slotu): icerik panoya GIZLI konur --
+        `PRIVATE_FORMATS` ile Windows pano gecmisi ve bulut esitlemesi bu
+        kopyayi almaz; kendi gecmisimiz icin de bir sonraki pano degisimi
+        tamamen atlanir (`skip_next`). Metin karsilastirmasi tek basina
+        yetmiyordu: kopyayi baska bir programin kurcalamasi ya da hedefin
+        panoyu yeniden yazmasi parolayi listeye dusurebilirdi.
+        """
         self._own_text = text
-        QGuiApplication.clipboard().setText(text)
+        if not private:
+            QGuiApplication.clipboard().setText(text)
+            return
+        self.skip_next = True
+        data = QMimeData()
+        data.setText(text)
+        for name in PRIVATE_FORMATS:
+            # Bicimin VAR OLMASI yeter; degeri sifir DWORD olarak veriliyor
+            # (belgelerde de boyle: 0 = "bu kopyayi alma").
+            data.setData(name, QByteArray(bytes(4)))
+        QGuiApplication.clipboard().setMimeData(data)
 
     def stop(self) -> None:
         self._timer.stop()
@@ -89,6 +120,14 @@ class ClipboardWatcher(QObject):
     def _read(self) -> None:
         if sequence_number() != self._pending_seq:
             return  # beklerken yeni kopya geldi; onun timer'i halleder
+
+        if self.skip_next:
+            # Sifre yapistirmasi: bu degisim hicbir yere yazilmaz ve pano
+            # OKUNMAZ bile -- okumamak, icerigin log'a/izleyiciye sizma
+            # ihtimalini de kapatir.
+            self.skip_next = False
+            self._own_text = None
+            return
 
         mime = QGuiApplication.clipboard().mimeData()
         if mime is None:

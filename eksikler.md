@@ -18,7 +18,7 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 | 2 | `cascadeCaps` — CapsLock toggle + rakamla geçmiş yapıştır | key_handler_cascade.ahk | ✅ |
 | 3 | `Caret & rakam` AHK'de SLOT yüklüyordu; Python'da geçmişi yapıştırıyor (bilinçli sapma diye notlu ama slot yükleme yolu yoktu) | cascadeCaret | 🔶 F13 kombolarıyla slot yolu açıldı |
 | 4 | MButton kaskadı: kısa=smartPaste (memslots), orta=smartPaste+Shift+Enter, MButton&F14=geçmiş arama, MButton&F15..F20=smart paste 6..1 | key_handler_mouse.ahk handleMButton | 🔶 `memslots.paste` eylemi hazır, tuşsuz |
-| 4b | F14 kısa basım AHK'de `showF14menu` (tam menü: makro, mem clip, sistem, özel tuşlar, slot kolonları) idi; bizde slot hızlı menüsü | menus.ahk showF14menu | 🔶 slot menüsü ✅, menünün diğer blokları F13 menüsünde |
+| 4b | F14 kısa basım `showF14menu` (makro, mem clip, sistem, özel tuşlar, slot kolonları) | menus.ahk showF14menu | ✅ iki kolon, AHK isimlendirmesi; makro kaydedici ve slot arama `--` |
 | 5 | `~MButton & WheelUp/Down` → Ctrl +/- zoom | AutoHotkey.ahk | ⬜ |
 | 6 | RButton & F13/F14 → büyüteç zoom | handleRButton | ⬜ (RButton & Wheel ses var) |
 | 7 | F13 & F15..F20 → pano geçmişi 6..1; F14 & F15..F20 → slot 6..1 | handleF13/handleF14 | ✅ F13 & F15..F20 → slot 6..1 eklendi (F14 seçim tuşu oldu) |
@@ -36,7 +36,11 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 
 | # | Özellik | AHK kaynağı | Durum |
 |---|---|---|---|
-| 14 | Slot menüleri: hızlı slot menüsü ✅ (F14 kısa basım), slot arama ⬜, "slota kaydet" menüsü ⬜, grup ekle/sil ⬜, yan grup seçimi ⬜ | clip_slot.ahk + menus.ahk | 🔶 (dosya biçimi bozulmadan korunuyor) |
+| 14a | memSlots: orta fare tuşu / Insert ile smart paste + "Orta basım" kutusu | memory_slots.ahk `smartPaste(middlePressed)` | ✅ `~MButton` / `~Insert`, pencere kapalıyken etkisiz |
+| 14b | memSlots: satırı dışarı sürükleyip bırakma (metin) | `OleDragSource.attachListView` | ✅ Qt sürükleme, tam içerik taşınır |
+| 14c | Şifre slotu: 10. slot ("Slot 0") her yerde maskeli; yapıştırırken pano geçmişine (bizimkine de Win+V'ye de) YAZILMAZ | AHK'de kısmen (`gName=="" && idx==10` istisnaları) | ✅ `store.slot_display` + `ClipboardWatcher.set_text(private=True)` |
+| 14d | memSlots: pencerede slot adını düzenleme ("Ad" sütunu) | memory_slots/clip_slot `setName` | ✅ çift tık → düzenle, diske hemen yazılır |
+| 14 | Slot menüleri: hızlı slot menüsü ✅, "slota kaydet" ✅, slot adı değiştirme ✅, grup ekle/sil ✅, yan grup seçimi ✅, slot arama ⬜ | clip_slot.ahk + menus.ahk | 🔶 yalnız `showSlotsSearch` eksik |
 | 15 | `bigclips.bin` — 1 MB üstü kopyalar ayrı dosyaya; bizde hiç alınmıyor | clip_hist.ahk | ⬜ |
 | 15b | Görsel pano: yakalama, 500 slotlu indeks, 500 MB dairesel log, dedupe, thumb, önizleme penceresi | clip_image_store + clip_image_dialog | ✅ biçim birebir |
 | 16 | Bellek içi geçmiş sınırı: AHK 1000, Python 50 (diskte ikisi de 2500) | clip_hist.ahk | ⬜ fark |
@@ -49,7 +53,8 @@ Durum işaretleri: ⬜ yapılmadı · 🔶 kısmen / eylem hazır ama tuşsuz ·
 | 18 | Hep-üstte yönetimi (📌 pencere sabitleme, çıkışta hepsini bırakma) | script_state WindowModule + menus.ahk | ✅ `win32/window.py`, F13 menüsünde |
 | 19 | Work/home profili: bilgisayar adına göre yapılandırma; work'te Outlook'u küçültülmüş başlatma | AutoHotkey.ahk LoadSettings | ⬜ (app_shorts kapsamında mı? karar senin) |
 | 20 | `Pause & Delete` — tüm AHK süreçlerini öldürüp çık | AutoHotkey.ahk | ⬜ |
-| 21 | Ufak statik kısayollar: `#a/#s/#d/#w` fare hareketi, `#q/#e` tık, `#y` Enter, NumpadIns/Del/Clear → J/L/K + Alt+Tab, `^<` VSCode satır sil, `!v` yavaş yapıştırma, AppsKey&a | AutoHotkey.ahk | ⬜ (deneme tuşlarını sen söyledikçe ekleniyor) |
+| 21 | Ufak statik kısayollar: `#a/#s/#d/#w` fare hareketi, `#q/#e` tık, `#y` Enter, `^<` VSCode satır sil ✅ · NumpadIns/Del/Clear → J/L/K + Alt+Tab, `!v` yavaş yapıştırma, AppsKey&a ⬜ | AutoHotkey.ahk | 🔶 |
+| 23 | Menü kolonları (`MENU_COL` → MFT_MENUBARBREAK) ve renkli menü ikonları (`menuIcon` → shell32/imageres) | menus.ahk | ✅ `win32/menu.py`; F13/F14 isimlendirmesi ve kolon düzeni AHK ile aynı |
 | 22 | Ayarlar sistemi (settings.ahk + settings_dialog + SettingAction kayıtları) | settings*.ahk | ⬜ Faz 11'de planlı |
 
 Not: `~RButton Up` → Esc mantığı eksik DEĞİL; Python'da farklı ve daha temiz
