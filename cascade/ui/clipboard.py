@@ -45,6 +45,14 @@ class ClipboardWatcher(QObject):
     text_copied = Signal(str)
     other_copied = Signal()
 
+    # TODO(AHK): GORSEL PANO port edilmedi. AHK'de metin disi kopya
+    # `clip_image_store.ahk`e gidiyordu: PNG blob'u 500 MB'lik dairesel
+    # `clipimg.dat` icine, 64x64 kucuk resim + metadata sabit slotlu
+    # `clipimg.idx` icine yaziliyor, `clip_image_dialog.ahk` bunlari
+    # gosteriyordu (gdip_mini.ahk ile). Burada yalniz "gordum" deniyor.
+    # TODO(AHK): 1 MB ustu metinler AHK'de `bigclips.bin` icine tasiniyordu;
+    # bizde hic alinmiyor (core/clip_history.py MAX_BYTES).
+
     def __init__(self, delay_ms: int = READ_DELAY_MS, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._delay_ms = delay_ms

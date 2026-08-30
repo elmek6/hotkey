@@ -12,7 +12,7 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
     F19 & LButton    onek klavyede, kombo tusu FARE dugmesi
     RButton & Wheel  sag tus basiliyken tekerlek -> ses; sag tik yutulur
-    F13 + fare yonu  jest (core/gesture.py): 4 ana yon, kademe sayar
+    F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/gesture.py)
     ~F13 & WheelUp   basili tutup tekerlek
     Pause & End      cikis        Pause & c   busy kilidini acar
     ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
@@ -54,10 +54,11 @@ from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name, register_name, vk_from_name
 from cascade.core.mouse import WM_MOUSEMOVE, mouse_key
 from cascade.core.prefix import Outcome, PrefixTracker
-from cascade.core.state import Busy, ClipboardState
-from cascade.store import ClipStore
+from cascade.core.state import Busy, ClipboardMode, ClipboardState
+from cascade.store import ClipStore, SlotStore
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clipboard import ClipboardWatcher
+from cascade.ui.mem_slots import MemSlots
 from cascade.ui.menu import PopupMenu
 from cascade.ui.monitor import EventMonitor
 from cascade.ui.tip import Tip
@@ -65,6 +66,7 @@ from cascade.ui.tray import Tray
 from cascade.win32 import send
 from cascade.win32.hook import HookThread, KeyEvent, MouseEvent
 from cascade.win32.instance import SingleInstance
+from cascade.win32.magnifier import Magnifier
 
 log = logging.getLogger("cascade.main")
 
@@ -130,7 +132,11 @@ F13_MENU = (
     ("\U0001f5bc\ufe0f Ekran alintisi", "send_key:#+s"),
     ("\U0001f4f7 Pencere goruntusu", "send_key:!PrintScreen"),
     ("\U0001f524 OCR ile metin sec", "send_key:#+t"),
+    ("\U0001f50d Buyutec ac / kapa", "magnifier.toggle"),
     None,
+    # TODO(AHK): screen_ocr.ahk / OCR.ahk port edilmedi -- yukaridaki OCR
+    # ogesi Windows'un kendi kisayolunu (#+t) cagiriyor, AHK'nin kendi
+    # ekran-okuma penceresini degil.
     ("\u2328\ufe0f Ozel tuslar", SPECIAL_KEYS_MENU),
     ("\u2699\ufe0f Sistem", SYSTEM_MENU),
 )
@@ -158,8 +164,8 @@ def build_cascades() -> dict[int, CascadeDef]:
 
     Port edilmemis eylemler `--` ile isaretli ve calismiyor; menude de oyle
     gorunurler ki neyin hazir olmadigi belli olsun:
-        MemSlots (memory_slots.ahk)  ClipSlot (clip_slot.ahk)
-        Magnifier (magnifier.ahk)    smartPaste
+        ClipSlot (clip_slot.ahk)     Magnifier (magnifier.ahk)
+    MemSlots port edildi: ui/mem_slots.py, F19/F20 uzun basim.
     """
     defs: list[CascadeDef] = [
         # handleF15: kisa ^y (yinele), orta Escape
@@ -182,8 +188,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .main_key(PressType.MEDIUM, "send_key:Delete")
         .main_key(PressType.LONG, "send_key:End")
         # AHK: .combo("F18", "panic", Magnifier.reset + WinMinimize)
-        # Buyutec port edilmedi; pencereyi kucultme kismi calisiyor.
-        .combo("F18", "panic (pencereyi kucult)", "send_key:#Down")
+        .combo("F18", "panic (buyutec %100 + kucult)", "magnifier.panic")
         .show_menu(False)
         .named("F17")
         .build(),
@@ -192,28 +197,28 @@ def build_cascades() -> dict[int, CascadeDef]:
         .main_key(PressType.SHORT, "send_key:!Left")
         .main_key(PressType.MEDIUM, "send_key:Backspace")
         .main_key(PressType.LONG, "send_key:Home")
-        .combo("F17", "panic (pencereyi kucult)", "send_key:#Down")
+        .combo("F17", "panic (buyutec %100 + kucult)", "magnifier.panic")
         .combo("LButton", "VSCode: satiri sil", "send_key:^+k")
         .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
         .show_menu(False)
         .named("F18")
         .build(),
-        # handleF19: kisa ^v, orta ^a^v, uzun -- MemSlots (port edilmedi)
+        # handleF19: kisa ^v, orta ^a^v, uzun MemSlots
         KeyBuilder("F19", short=300, long=800)
         .main_key(PressType.SHORT, "send_key:^v")
         .main_key(PressType.MEDIUM, "send_keys:^a ^v")
-        # .main_key(PressType.LONG, "memslots.start")  -- memory_slots.ahk yok
+        .main_key(PressType.LONG, "memslots.start")
         .combo("F20", "Hepsini sec + yapistir", "send_keys:^a ^v")
         .combo("LButton", "Tikla + yapistir", "click_then:^v")
         .combo("MButton", "3x tikla + yapistir", "click3_then:^v")
         .show_menu(False)
         .named("F19")
         .build(),
-        # handleF20: kisa ^c, orta ^x, uzun -- MemSlots (port edilmedi)
+        # handleF20: kisa ^c, orta ^x, uzun MemSlots
         KeyBuilder("F20", short=300, long=800)
         .main_key(PressType.SHORT, "send_key:^c")
         .main_key(PressType.MEDIUM, "send_key:^x")
-        # .main_key(PressType.LONG, "memslots.start")  -- memory_slots.ahk yok
+        .main_key(PressType.LONG, "memslots.start")
         .combo("F19", "Hepsini sec + kopyala", "send_keys:^a ^c")
         .combo("LButton", "Tikla + kopyala", "click_then:^c")
         .combo("MButton", "3x tikla + kopyala", "click3_then:^c")
@@ -230,9 +235,13 @@ def build_cascades() -> dict[int, CascadeDef]:
 SYS_COMMANDS_MENU = (
     ("1  Yeniden baslat", "app.restart"),
     ("2  Durum ve hatalar", "errors.show"),
+    # TODO(AHK): app_shorts.ahk -- uygulamaya ozel kisayol profilleri
+    # (Files/profiles.json). Aktif pencereye gore kisayol tablosu degistiriyordu.
     ("3  -- Profil yoneticisi", "yok:app_shorts.ahk"),
     ("4  Olay izleyici", "app.monitor"),
-    ("5  -- Bellek gozleri", "yok:memory_slots.ahk"),
+    ("5  Hafiza slotlari", "memslots.start"),
+    # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma
+    # (Files/rec1.ahk gibi uretilmis dosyalar).
     ("6  -- Makro kaydedici", "yok:macro_recorder.ahk"),
     None,
     ("7  F13 menusu", "menu.f13"),
@@ -240,10 +249,41 @@ SYS_COMMANDS_MENU = (
     ("9  Duraklat / Devam", "app.pause"),
     ("0  Cikis", "app.exit"),
     None,
+    # TODO(AHK): repository.ahk (Files/repository.json) -- kod parcasi deposu.
     ("r  -- Repository", "yok:repository.ahk"),
+    # TODO(AHK): incognito.ahk (Files/incognito_appids.json) -- secili
+    # uygulamalarda pano gecmisine hic yazmama modu.
     ("i  -- Incognito", "yok:incognito.ahk"),
     ("a  Tepsi balonu denemesi", "notify:Mesaj icerigi"),
 )
+
+
+MEMSLOT_SHORT_MS = 300.0
+MEMSLOT_LONG_MS = 800.0
+
+
+def memslots_defs() -> dict[int, CascadeDef]:
+    """F1..F10 -- AHK memory_slots.ahk `_setupFKeys` + `_handleFKey`.
+
+    Bu tanimlar SADECE pencere acik ve kutusu isaretliyken makineye
+    ekleniyor (Cascade._on_memslot_fkeys); kapaninca cikiyorlar. AHK'de de
+    `Hotkey("F1", ..., "On"/"Off")` boyle acilip kapaniyordu -- F1..F10
+    surekli ele gecirilecek tuslar degil.
+
+    AHK cift basimla "slota kaydet" diyordu; bizde bloke eden basim
+    olcumu yok, onun yerine UZUN basim (bkz. ui/mem_slots.py).
+    """
+    defs = [
+        KeyBuilder(f"F{index}", short=MEMSLOT_SHORT_MS, long=MEMSLOT_LONG_MS)
+        .main_key(PressType.SHORT, f"memslots.paste_slot:{index}")
+        .main_key(PressType.MEDIUM, f"memslots.paste_hist:{index}")
+        .main_key(PressType.LONG, f"memslots.save_slot:{index}")
+        .show_menu(False)
+        .named(f"F{index} (slot {index})")
+        .build()
+        for index in range(1, 11)
+    ]
+    return {definition.key: definition for definition in defs}
 
 
 def build_hotkeys() -> HotkeyTable:
@@ -269,11 +309,11 @@ def build_hotkeys() -> HotkeyTable:
         "tip_html:<b>F14</b> \U0001f5b1️ fare yan tusu",
         "ipucu goster",
     )
-    table.add(
-        "F13 & F14",
-        "tip_html:<b>F13 &amp; F14</b> \U0001f389 onek kombosu calisti",
-        "fare tuslari kendi arasinda",
-    )
+    # AHK key_handler_mouse.ahk: handleF13 `.combo("F14", "Magnifier", ...)`
+    # ve handleF14 `.combo("F13", ...)`. Orada ikisi de toggle'di; burada
+    # yon ayrildi -- hangi tusa ONCE bastigin kademeyi belirliyor.
+    table.add("F13 & F14", "magnifier.zoom:+", "buyutec: yakinlastir")
+    table.add("F14 & F13", "magnifier.zoom:-", "buyutec: uzaklastir")
 
     # --- tekerlek kombolari. AHK'de bu satirlar `~F13 & WheelUp::` diye
     # yazili; burada `~` YOK ve olmamali. AHK'de tilde gerekiyordu cunku
@@ -339,12 +379,17 @@ def build_gestures() -> GestureTracker:
     adim uretir; adim sayisi eylemin kac kez calisacagidir (ses kac kademe
     artacak). Jest tetiklendiginde F13'un kendi isi iptal olur: ne menu
     acilir ne baska kombo beklenir.
+
+    Dikey eksen Windows buyutecinin yakinlastirmasi, yatay eksen ses.
+    Eksen bir kez kilitlendikten sonra dik yondeki hareket OKUNMAZ
+    (core/gesture.py `_lock`): hafif capraz bir hareket artik yanlis
+    eksene dusmez.
     """
     tracker = GestureTracker(step_px=60.0)
-    tracker.register(KEY_F13, Direction.UP, "send_key:Volume_Up", "ses +")
-    tracker.register(KEY_F13, Direction.DOWN, "send_key:Volume_Down", "ses -")
-    tracker.register(KEY_F13, Direction.LEFT, "send_key:Media_Prev", "onceki parca")
-    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Media_Next", "sonraki parca")
+    tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "yakinlastir")
+    tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
+    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "ses +")
+    tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "ses -")
     return tracker
 
 
@@ -361,21 +406,29 @@ def _shorten(text: str, limit: int = 60) -> str:
 
 
 class Cascade:
-    def __init__(self, app: QApplication) -> None:
+    def __init__(self, app: QApplication, lock: SingleInstance | None = None) -> None:
         self.app = app
+        # Tek ornek kilidi. restart() cocuk sureci baslatmadan ONCE birakmak
+        # zorunda: birakmazsak cocuk kilidi bekler ve program saniyelerce
+        # kapali kalir -- "reload calismiyor" boyle gorunuyordu.
+        self.lock = lock
         self.tip = Tip()
         self.monitor = EventMonitor()
         self.runner = ActionRunner()
 
         definition = demo_cascade()
-        definitions = {definition.key: definition, **build_cascades()}
-        self.machine = CascadeMachine(definitions, Busy())
+        # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
+        # bunlarin USTUNE ekleniyor, kapaninca tabana geri donuluyor.
+        self._base_defs = {definition.key: definition, **build_cascades()}
+        self.machine = CascadeMachine(dict(self._base_defs), Busy())
 
         # Pano. Durum (hangi mod) ile liste (ne saklandi) ayri duruyor;
         # dinleme tek yerde, ui/clipboard.py icinde. AHK'de de boyleydi.
         self.clip_state = ClipboardState()
         self.clip_history = ClipHistory()
         self.clip_store = ClipStore()
+        # AHK clip_slot.ahk ile ayni dosya ve bicim: Files/slots.json.
+        self.slot_store = SlotStore()
         self.clip_watcher = ClipboardWatcher()
         self.clip_watcher.text_copied.connect(self._on_clip_text)
         self.clip_watcher.other_copied.connect(self._on_clip_other)
@@ -387,6 +440,23 @@ class Cascade:
         self.filter_window.closed.connect(lambda: setattr(self, "_ui_open", False))
         self.menu = PopupMenu(self.runner.run)
         self._ui_open = False
+
+        # Hafiza slotlari (AHK memory_slots.ahk). Pencere panoyu kendisi
+        # yazmaz; her sey sinyalle buraya gelir. `_ui_open` BILEREK
+        # kurulmuyor: F1..F10 sistem geneli calismali, pencere onde
+        # degilken de.
+        # AHK: App.Magnifier. Magnify.exe bir kez acilir ve acik kalir;
+        # biz yalniz zoom kademesini degistiriyoruz (win32/magnifier.py).
+        self.magnifier = Magnifier()
+
+        self.mem_slots = MemSlots()
+        self._clip_mode_before = self.clip_state.mode
+        self.mem_slots.paste_text.connect(self.paste_text)
+        self.mem_slots.copy_text.connect(self.clip_watcher.set_text)
+        self.mem_slots.grab_clip.connect(lambda: self.runner.run("send_key:^c"))
+        self.mem_slots.tip.connect(lambda body: self.tip.show_html(body, 1500))
+        self.mem_slots.fkeys_toggled.connect(self._on_memslot_fkeys)
+        self.mem_slots.closed.connect(self._on_memslots_closed)
 
         # Kaskad disi kisayollar. tracker basili tuslari bilir (hangi modifier,
         # hangi onek); tablo "bu kombo bize mi ait" sorusunu cevaplar.
@@ -445,6 +515,23 @@ class Cascade:
         self.runner.register("busy.free", lambda _: self.free_busy())
         self.runner.register("errors.show", lambda _: self.show_errors())
         self.runner.register("errors.copy", lambda _: self.copy_last_error())
+        # AHK memory_slots.ahk. Argumani olanlar slot numarasi aliyor.
+        self.runner.register("memslots.start", lambda _: self.show_mem_slots())
+        self.runner.register(
+            "memslots.paste_slot", lambda n: self.mem_slots.paste_slot(int(n))
+        )
+        self.runner.register(
+            "memslots.paste_hist", lambda n: self.mem_slots.paste_history(int(n))
+        )
+        self.runner.register(
+            "memslots.save_slot", lambda n: self.mem_slots.save_slot(int(n))
+        )
+        self.runner.register("memslots.paste", lambda _: self.mem_slots.smart_paste())
+        # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
+        self.runner.register("magnifier.zoom", self.zoom)
+        self.runner.register("magnifier.toggle", lambda _: self.magnifier.toggle())
+        self.runner.register("magnifier.reset", lambda _: self.magnifier.reset())
+        self.runner.register("magnifier.panic", lambda _: self.panic())
 
         self.tray = Tray(
             VERSION,
@@ -600,6 +687,12 @@ class Cascade:
         for vk in self.prefixes.held:
             if vk not in send.MOUSE_VK_NAMES or vk in self._passed_through:
                 continue
+            if vk not in self._hk_swallowed:
+                # Yutmadigimiz onek (`~LButton`) zaten uygulamaya gitti;
+                # bir de biz basim enjekte edersek CIFT basim olur ve
+                # Paint'te cizgi cekmek gibi surukleme isleri bozulur.
+                # Sol tus hicbir kosulda tuketilmez.
+                continue
             self._passed_through.add(vk)
             self._hk_swallowed.discard(vk)
             self.prefixes.combo_used(vk)  # birakilinca tap eylemi calismasin
@@ -698,20 +791,29 @@ class Cascade:
         Mod kontrolu AHK'deki `if (!State.Clipboard.isHistory()) return`
         ile ayni yerde: dinleyici her zaman dinler, kaydi durum belirler.
         """
+        if self.clip_state.is_mem_slots():
+            # AHK: mod MEM_SLOTS iken kopyalanan sey gecmise DEGIL slota
+            # gider. Tek dinleyici + mod, iki dinleyiciden ongorulebilir.
+            self.mem_slots.on_clip(text)
+            return
         if not self.clip_state.is_history():
             return
         entry = self.clip_history.add(text, time.time())
         if entry is None:
             return  # bos, cok buyuk ya da zaten en ustteki kayit
+        # Sira numarasi YOK: kopyalarken listedeki yerini degil ne
+        # kopyalandigini gormek istiyorsun.
         self.tip.show_html(
-            f"📋 <b>{len(self.clip_history)}.</b> "
-            f"{html.escape(_shorten(entry.preview))}",
+            f"📋 {html.escape(_shorten(entry.preview))}",
             1200,
         )
 
     def _on_clip_other(self) -> None:
-        """Metin olmayan icerik. Gorsel pano Faz 7; simdilik AHK'deki gibi
-        sadece 'gordum' demek yeterli."""
+        """Metin olmayan icerik -- simdilik yalniz 'gordum'.
+
+        TODO(AHK): gorsel pano (clip_image_store.ahk) port edilmedi;
+        ayrintili not ui/clipboard.py icinde.
+        """
         self.tip.show_html("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
 
     def paste_text(self, text: str) -> None:
@@ -784,6 +886,65 @@ class Cascade:
             (*spec, None, ("\U0001f50d Ara...", "clip.filter")),
             title=f"\U0001f4cb Pano ({len(self.clip_history)})",
         )
+
+    def show_mem_slots(self) -> None:
+        """AHK: singleMemorySlot.getInstance().start()
+
+        Pano modu MEM_SLOTS'a geciyor; onceki mod kapanista geri aliniyor
+        (AHK: previousState). Slotlar diskten (slots.json), gecmis listesi
+        bellekten geliyor.
+        """
+        self._clip_mode_before = self.clip_state.mode
+        self.clip_state.set_mem_slots()
+        self.slot_store.load()
+        group = self.slot_store.slots(self.slot_store.default_group)
+        self.mem_slots.load_slots([(slot.name, slot.content) for slot in group])
+        self.mem_slots.start([entry.text for entry in self.clip_history.entries])
+
+    def save_mem_slots(self) -> None:
+        """Slotlari `slots.json` icine geri yazar. Dokunmadigimiz gruplar
+        oldugu gibi kalir (store.SlotStore)."""
+        group = self.slot_store.slots(self.slot_store.default_group)
+        for index, (name, content) in enumerate(self.mem_slots.slot_values()):
+            group[index].name = name
+            group[index].content = content
+        self.slot_store.save()
+
+    def zoom(self, argument: str) -> None:
+        """`magnifier.zoom:+` / `magnifier.zoom:-`"""
+        if argument.startswith("-"):
+            self.magnifier.zoom_out()
+        else:
+            self.magnifier.zoom_in()
+
+    def panic(self) -> None:
+        """AHK: `(App.Magnifier.reset(), WinMinimize("A"))` -- buyutec %100'e
+        doner ve one cikan pencere kuculur."""
+        self.magnifier.reset()
+        self.runner.run("send_key:#Down")
+
+    def _on_memslot_fkeys(self, enabled: bool) -> None:
+        """Slot penceresindeki kutu: F1..F10 kaskadlarini takar/soker.
+
+        AHK: _setupFKeys(true/false). Tanimlari tabanla birlestirip
+        makineye vermek yeterli -- makine kendi durumunu sifirliyor.
+        """
+        definitions = dict(self._base_defs)
+        if enabled:
+            definitions.update(memslots_defs())
+        self.machine.set_definitions(definitions)
+
+    def _on_memslots_closed(self) -> None:
+        """AHK: _destroy -- slotlar diske, pano modu geri (F tuslari
+        pencerenin kendi closeEvent'inde birakildi).
+
+        Pencere hic acilmadiysa YAZMIYORUZ: elimizdeki bos varsayilan
+        slotlari dosyaya basmak kullanicinin slotlarini silerdi (kapanista
+        `_shutdown` gorunmeyen pencereyi de kapatiyor).
+        """
+        if self.mem_slots.opened:
+            self.save_mem_slots()
+        self.clip_state.set_mode(getattr(self, "_clip_mode_before", ClipboardMode.HISTORY))
 
     def free_busy(self) -> None:
         """AHK: `Pause & c:: State.Busy.setFree()`.
@@ -954,11 +1115,17 @@ class Cascade:
         log.info("cascade %s basladi", VERSION)
         for action in START_ACTIONS:
             self.runner.run(action)
-        # Baslangicta ipucu GOSTERILMIYOR: her acilista "hangi tuslar bagli"
-        # listesini okumak istemiyorsun, tepsi simgesi zaten calistigini
-        # soyluyor. Ayni liste tepsi menusunden ve F13 menusunden ulasilir.
         count = self.clip_history.load(self.clip_store.load_entries())
         log.info("%d pano kaydi diskten okundu (%s)", count, self.clip_store.path)
+        # Kisa bir acilis bildirimi. "Hangi tuslar bagli" listesi DEGIL --
+        # onu her acilista okumak istemiyorsun; sadece "ayaktayim" demesi
+        # yeter, gerisi tepsi ve F13 menusunde.
+        self.tip.show_html(
+            f"✅ <b>cascade {VERSION}</b> hazir<br>"
+            f"<span style='color:#8b949e;'>{count} pano kaydi &nbsp;·&nbsp; "
+            f"F13 menu</span>",
+            1800,
+        )
 
     def on_exit(self) -> None:
         """AHK: ExitSettings() -- OnExit ile kayitli.
@@ -992,10 +1159,13 @@ class Cascade:
         birakana kadar bekliyor.
         """
         # SIRA ONEMLI: once kendi kapanisimiz (pano diske yazilir, hook
-        # sokulur, kilit birakilmaya hazir olur), SONRA cocuk surec. Ters
-        # sirada cocuk dosyayi biz yazmadan okuyor ve o oturumun kopyalari
-        # kayboluyordu -- "reload calismiyor" bunun yuzundendi.
+        # sokulur), SONRA kilidi BIRAK, en son cocuk surec. Ters sirada
+        # cocuk dosyayi biz yazmadan okuyor ve o oturumun kopyalari
+        # kayboluyordu; kilidi birakmadan baslatinca da cocuk mutex'i
+        # bekliyor ve yeniden baslatma ~10 saniye suruyordu.
         self.on_exit()
+        if self.lock is not None:
+            self.lock.release()
 
         script = os.path.abspath(__file__)
         try:
@@ -1028,6 +1198,7 @@ class Cascade:
         self._tick_timer.stop()
         self.clip_watcher.stop()
         self.filter_window.close()
+        self.mem_slots.close()
         self.machine.reset()
         self.hook.stop()
         self.tip.hide()
@@ -1050,7 +1221,7 @@ def main() -> int:
         QMessageBox.warning(None, "cascade", "cascade zaten calisiyor.")
         return 1
 
-    Cascade(app)
+    Cascade(app, lock)
     try:
         return app.exec()
     finally:

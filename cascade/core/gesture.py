@@ -32,6 +32,12 @@ menu acilir ne tusun kendisi geri gonderilir. Istenen davranis buydu.
 
 Saf Python: Win32 yok, Qt yok, zaman disaridan bile gerekmiyor -- yalniz
 koordinat.
+
+TODO(AHK): hot_vectors.ahk'nin SEKIL TANIMA tarafi port edilmedi -- vektor
+    dizisi biriktirip DTW benzeri bir mesafe matrisiyle kayitli sekillere
+    benzetme (`Gesture`, `DistanceMatrix`, cizim tahtasi, sekil kaydetme).
+    Bilerek: bize gereken dort ana yon ve kademe sayisi. Serbest sekil
+    (daire, L, zikzak) istenirse o kod buraya gelmek zorunda.
 """
 
 from __future__ import annotations
@@ -40,6 +46,13 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 DEFAULT_STEP_PX = 60.0
+
+# Yon kilitlenmeden once baskin eksenin otekini KAC KAT gecmesi gerektigi.
+# 1.0 olsaydi "hafif yukari-sol" hareketinde bir piksellik fark yonu
+# belirlerdi ve kullanici yukari giderken ses degisirdi. 1.6 ile capraz
+# hareket kilitlenmeyi ERTELER: kullanici birazcik daha ittiginde hangi
+# ekseni istedigi belli olur.
+DEFAULT_LOCK_RATIO = 1.6
 
 
 class Direction(IntEnum):
@@ -147,6 +160,7 @@ class GestureTracker:
 
     defs: dict[tuple[int, Direction], GestureDef] = field(default_factory=dict)
     step_px: float = DEFAULT_STEP_PX
+    lock_ratio: float = DEFAULT_LOCK_RATIO
     _active: dict[int, _Active] = field(default_factory=dict, init=False)
 
     # ---- tanim ----
@@ -185,16 +199,19 @@ class GestureTracker:
             return []
         events: list[GestureEvent] = []
         for prefix, state in self._active.items():
-            state.dx += dx
-            state.dy += dy
-
             if state.direction is None:
-                if max(abs(state.dx), abs(state.dy)) < self.step_px:
+                # Yon henuz belli degil: iki ekseni de biriktir.
+                state.dx += dx
+                state.dy += dy
+                if not self._lock(prefix, state):
                     continue
-                candidate = _direction(state.dx, state.dy)
-                if (prefix, candidate) not in self.defs:
-                    continue  # bu yon icin tanim yok: kilitleme, beklemeye devam
-                state.direction = candidate
+            else:
+                # KILITLI: dik eksen HIC okunmaz. Kullanici yukari giderken
+                # elin saga kaymasi sesi/zoom'u degistirmesin -- istenen buydu.
+                if state.direction in (Direction.LEFT, Direction.RIGHT):
+                    state.dx += dx
+                else:
+                    state.dy += dy
 
             moved = _advance(state.direction, state.dx, state.dy)
             steps = int(moved // self.step_px)
@@ -227,6 +244,32 @@ class GestureTracker:
                 )
             )
         return events
+
+    def _lock(self, prefix: int, state: _Active) -> bool:
+        """Baskin ekseni kilitlemeyi dener. Kilitlendiyse True.
+
+        Iki sart var: baskin eksende en az bir adimlik yol gidilmis olmali
+        VE oteki ekseni `lock_ratio` kati gecmis olmali. Ikincisi capraz
+        hareketin yanlis ekseni secmesini onler -- eskiden "hafif yukari
+        sol" hareketinde sol kazanip yanlis eylem calisiyordu.
+        """
+        primary = max(abs(state.dx), abs(state.dy))
+        if primary < self.step_px:
+            return False
+        secondary = min(abs(state.dx), abs(state.dy))
+        if primary < secondary * self.lock_ratio:
+            return False  # capraz: kararsiz, biraz daha bekle
+        candidate = _direction(state.dx, state.dy)
+        if (prefix, candidate) not in self.defs:
+            return False  # bu yon icin tanim yok: kilitleme, beklemeye devam
+        state.direction = candidate
+        # Dik eksendeki birikim silinir: kilitlendikten sonra hicbir islevi
+        # yok ve status() icinde yanlis mesafe gosterirdi.
+        if candidate in (Direction.LEFT, Direction.RIGHT):
+            state.dy = 0.0
+        else:
+            state.dx = 0.0
+        return True
 
     def status(self, prefix: int) -> Status | None:
         """Geri bildirim icin: hangi yon, ne kadar gidildi, kac kademe.

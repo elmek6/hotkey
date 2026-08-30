@@ -5,7 +5,7 @@ import orjson
 import pytest
 
 from cascade.core.clip_history import ClipEntry, ClipHistory
-from cascade.store import ClipStore, JsonStore
+from cascade.store import ClipStore, JsonStore, SlotStore
 
 
 @pytest.fixture
@@ -57,27 +57,128 @@ def test_surum_uyusmazligi_bozuk_sayilir(store):
     assert list(store.path.parent.glob("*.surum-*"))
 
 
-def test_liste_yerine_baska_bicim_gelirse_bos_doner(store):
-    store.save({"entries": "liste degil"})
-    assert store.load_entries() == []
-
-
-def test_tek_bozuk_kayit_dosyanin_tamamini_dusurmez(store):
-    """Bir satir bozuksa o atlanir, digerleri kurtarilir."""
-    store.save({"entries": [{"text": "iyi"}, {"yok": 1}, "duz metin", {"text": ""}]})
+def test_yarim_kalan_kayit_okunani_dusurmez(store):
+    """Dosyanin sonu kirpilmissa okunabilen kayitlar kurtarilir; dosya
+    yedeklenir ama yerinde de kalir (kopya)."""
+    store.save_entries([entry("iyi"), entry("yarim")])
+    raw = store.path.read_bytes()
+    store.path.write_bytes(raw[:-4])
     assert [e.text for e in store.load_entries()] == ["iyi"]
+    assert list(store.path.parent.glob("*.bozuk-*"))
+    assert store.path.exists()
+
+
+def test_isaretci_bozulursa_okuma_orada_durur(store):
+    """`~` (0x7E) bicimin tek saglamasi -- AHK de burada kesiyordu."""
+    store.save_entries([entry("iyi"), entry("bozuk")])
+    raw = bytearray(store.path.read_bytes())
+    ikinci = ClipStore.HEADER.size + ClipStore.RECORD.size + 1 + len("iyi")
+    raw[ikinci + ClipStore.RECORD.size] = 0x41  # `~` yerine `A`
+    store.path.write_bytes(bytes(raw))
+    assert [e.text for e in store.load_entries()] == ["iyi"]
+
+
+# ---- AHK ile bicim uyumu ----
+
+
+def test_baslik_ahk_bicimiyle_ayni(store):
+    """AHK `_readRecords`: [u32 sayi][u64 baslangic ms][u32 surum][u32 bos]."""
+    store.save_entries([entry("bir"), entry("iki")])
+    sayi, _baslangic, surum, ayrilmis = ClipStore.HEADER.unpack_from(
+        store.path.read_bytes(), 0
+    )
+    assert (sayi, surum, ayrilmis) == (2, 2, 0)
+
+
+def test_ahk_nin_yazdigi_dosya_okunur(store):
+    """Elle AHK bicimi kurup okuyoruz: kayit = [u64 ts][u16 count][u32 len]~metin."""
+    metin = b"merhaba"
+    ham = ClipStore.HEADER.pack(1, 1_700_000_000_000, 2, 0)
+    ham += ClipStore.RECORD.pack(1_700_000_000_000, 5, len(metin)) + b"~" + metin
+    store.path.write_bytes(ham)
+    okunan = store.load_entries()
+    assert [(e.text, e.count) for e in okunan] == [("merhaba", 5)]
+    assert not list(store.path.parent.glob("*.bozuk-*"))
+
+
+def test_baslangic_tarihi_korunur(store):
+    """AHK: 'ne okuduysan onu yaz' -- gecmisin baslangic tarihi kaybolmasin."""
+    store.path.write_bytes(ClipStore.HEADER.pack(0, 1_234_567_890_000, 2, 0))
+    store.load_entries()
+    store.save_entries([entry("a")])
+    baslangic = ClipStore.HEADER.unpack_from(store.path.read_bytes(), 0)[1]
+    assert baslangic == 1_234_567_890_000
+
+
+# ---- slots.json: clip_slot.ahk bicimi ----
+
+
+def test_slot_dosyasi_yoksa_on_bos_slot(tmp_path):
+    store = SlotStore(directory=tmp_path)
+    store.load()
+    slots = store.slots()
+    assert len(slots) == 10
+    assert slots[0].name == "Slot 1"
+    assert slots[0].content == ""
+
+
+def test_slot_gidis_donus_ve_bom(tmp_path):
+    store = SlotStore(directory=tmp_path)
+    store.load()
+    store.slots()[2].content = "icerik"
+    assert store.save()
+    assert store.path.read_bytes().startswith(b"\xef\xbb\xbf")  # AHK BOM ile yaziyor
+
+    tekrar = SlotStore(directory=tmp_path)
+    tekrar.load()
+    assert tekrar.slots()[2].content == "icerik"
+
+
+def test_ahk_slot_dosyasi_okunur_ve_gruplar_bozulmaz(tmp_path):
+    """Dokunmadigimiz gruplar geri yazarken aynen kalmali."""
+    ahk = {
+        "defaultGroupName": "x",
+        "groups": [
+            {"groupName": "", "values": [{"content": "a", "name": "Slot 1"}]},
+            {"groupName": "x", "values": [{"content": "b", "name": "isim"}]},
+        ],
+    }
+    store = SlotStore(directory=tmp_path)
+    store.path.write_bytes(b"\xef\xbb\xbf" + orjson.dumps(ahk))
+    store.load()
+    assert store.default_group == "x"
+    assert store.groups["x"][0].content == "b"
+    store.save()
+
+    data = orjson.loads(store.path.read_bytes().lstrip(b"\xef\xbb\xbf"))
+    assert data["defaultGroupName"] == "x"
+    assert data["groups"][0]["groupName"] == ""  # bos grup HER ZAMAN once
+    assert data["groups"][1]["values"] == [{"content": "b", "name": "isim"}]
 
 
 # ---- veri kaybi korumasi ----
 
 
+def test_diskteki_fazlalik_korunur(store):
+    """AHK `_save` birlestirmesi: bellekteki liste diskten kisa olabilir
+    (bellek siniri daha dusuk); diskteki fazlalar arkaya eklenir."""
+    store.save_entries([entry("a"), entry("b"), entry("c")])
+    store.load_entries()
+    assert store.save_entries([entry("a")])
+    assert [e.text for e in store.load_entries()] == ["a", "b", "c"]
+
+
 def test_okunandan_az_kayit_yazilmaz(store):
     """AHK'deki 'Asama 1' uyarisi: gecmis sadece buyur; azaldiysa bir yerde
-    is ters gitmistir ve ustune yazmak hatayi kalicilastirir."""
+    is ters gitmistir ve ustune yazmak hatayi kalicilastirir.
+
+    Birlestirme devredeyken bu ancak dosya elden kayarsa olur -- burada
+    dosyayi disaridan siliyoruz."""
     store.save_entries([entry("a"), entry("b"), entry("c")])
     store.load_entries()  # loaded_count = 3
+    store.path.unlink()
     assert store.save_entries([entry("a")]) is False
-    assert len(store.load_entries()) == 3
+    assert not store.path.exists()
 
 
 def test_bilerek_temizleme_korumayi_gecer(store):
