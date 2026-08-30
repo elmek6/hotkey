@@ -5,11 +5,12 @@ Kaynak: AHK projesinin kopyası `_AutoHotKey/` içinde — `AutoHotkey.ahk` +
 
 Hedef: aynı davranış, CPython 3.13 + ctypes/Win32 + PySide6.
 
-Bilinçli olarak TAŞINMAYACAK modüller: türkçe klavye eklentisi, görsel pano
-(clip_image_*), incognito (+ trace_store), repository, app_shorts
-(profiller), macro_recorder. OCR modülleri de atlanmıştı ama F14 seçim
-aracıyla geri geldi: Windows.Media.Ocr (pywinrt) üzerinden, AHK'nin 1800
-satırlık elle COM tesisatı olmadan (`win32/ocr.py`).
+Bilinçli olarak TAŞINMAYACAK modüller: türkçe klavye eklentisi, incognito
+(+ trace_store), repository, app_shorts (profiller), macro_recorder.
+
+Sonradan geri alınan ikisi: **OCR** (Windows.Media.Ocr / pywinrt üzerinden,
+AHK'nin 1800 satırlık elle COM tesisatı olmadan) ve **görsel pano**
+(`clip_image_*` → `imgstore.py`, dosya biçimi AHK ile birebir uyumlu).
 
 Eksik aktarılan özelliklerin tam listesi: `eksikler.md`.
 
@@ -122,7 +123,7 @@ kullanmamış olursun. Ayar dialogu en sona alındı; JSON dosyası aylarca yete
 | **4** ✅ | **ilk gerçek devir**: en sık kullandığın 5 kısayol | — | bir hafta günlük kullanım, geri dönüş yok |
 | 5 ✅ | pano geçmişi (metin) + slotlar + kalıcılık | `clip_hist`, `clip_slot`, `memory_slots` | |
 | 6 🔶 | GUI: geçmiş listesi, menüler, filtre (slot grupları eksik) | `menus`, `array_filter` | |
-| ~~7~~ | görsel pano + sürükleme — **bilinçli atlandı** | `clip_image_*`, `gdip_mini`, `ole_drag_source` | |
+| 7 🔶 | görsel pano ✅ (`imgstore.py` + `ui/clip_images.py`, biçim birebir); dışarı sürükleme ⬜ | `clip_image_*`, `gdip_mini`, `ole_drag_source` | |
 | ~~8~~ | makro kaydedici/oynatıcı — **bilinçli atlandı** | `macro_recorder` | |
 | 9 🔶 | ekran yakalama + OCR **bilinçli atlandı**; büyüteç ✅ | `screen_ocr`, `OCR.ahk`, `magnifier` | |
 | ~~10~~ | profiller, repository, incognito, trace — **bilinçli atlandı** | `app_shorts`, `repository`, `incognito`, `trace_store` | |
@@ -154,6 +155,14 @@ AHK dosyalarına başka hiçbir şekilde dokunulmaz.
   `_on_mouse` içine breakpoint koyarsan tüm sistemin girdisi donar, 300 ms
   sonra Windows hook'u düşürür. Sondajları **Ctrl+F5** ile çalıştır.
   Breakpoint `core/` içine konur, orası hook thread'inde değil.
+- **Qt'nin ekran geometrisi karışık DPI'da güvenilmez (çözüldü, dokunma).**
+  Bu makinede `QScreen.geometry` ikinci monitörün konumunu fiziksel (-1920),
+  boyutunu mantıksal (1418) veriyor; `virtualGeometry` de 3338 diyor, gerçeği
+  3840 fiziksel. Ayrıca `grabWindow` pixmap'i kendi `devicePixelRatio`'suyla
+  döndüğü için olduğu gibi çizilince ölçek kadar küçülüyor. Ekranla ilgili her
+  şey bu yüzden `win32/screen.py` üzerinden, **fiziksel pikselde** yapılır;
+  overlay da `SetWindowPos` ile (Qt'nin `setGeometry`'si değil) ve **`show()`
+  çağrıldıktan SONRA** yerleştirilir — önce çağrılırsa Qt üzerine yazar.
 - **VSCode F5 altında yeniden başlatma (çözüldü, dokunma).** debugpy programı
   KILL_ON_JOB_CLOSE bayraklı bir job'a koyar: debugger kapanınca job'daki her
   süreç ölür — restart'ın başlattığı çocuk dahil. Çözüm üç parça ve üçü de
@@ -246,6 +255,9 @@ birlikte açılır).
 | `cascade/core/ocr_layout.py` | OCR çıktısının dizilmesi: kolon/tablo (saf, test edilebilir) |
 | `cascade/ui/ocr_view.py` | Gelişmiş OCR paneli: dil, biçim, ayraç, ölçek, kolon eşiği |
 | `cascade/win32/window.py` | Hep-üstte pencere yönetimi (`WindowModule` + `menuAlwaysOnTop`) |
+| `cascade/win32/screen.py` | Tüm monitörleri tek BitBlt ile fiziksel pikselde yakalama |
+| `cascade/imgstore.py` | Görsel pano deposu (`clip_image_store.ahk`, biçim birebir) |
+| `cascade/ui/clip_images.py` | Görsel geçmişi penceresi (`clip_image_dialog.ahk`) |
 | `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
 | `main.py` | yalnız giriş noktası: kilit + Qt + Cascade kurulumu |
 

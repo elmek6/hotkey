@@ -89,6 +89,10 @@ def recognize(
 ) -> Result:
     """Goruntudeki metni ve kelime kutularini dondurur.
 
+    `grayscale` ve `language` arayuzden SORULMUYOR (bkz. ui/ocr_view.py):
+    varsayilanlari dogru cevap. Parametre olarak duruyorlar cunku motor
+    ikisini de destekliyor ve gerekirse cagiran verebilir.
+
     RuntimeError: paket kurulu degil ya da motor olusturulamadi (dil paketi
     eksik).
     """

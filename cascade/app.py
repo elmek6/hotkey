@@ -20,9 +20,11 @@ giris ve kilitlenme olur.
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import html
 import logging
 import os
+import platform
 import queue
 import subprocess
 import sys
@@ -30,25 +32,30 @@ import threading
 import time
 from datetime import datetime
 
+from PIL import Image
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from cascade import keymap, logs, paths
 from cascade.actions import ActionRunner, beep
+from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from cascade.core.clip_history import ClipHistory
 from cascade.core.filter import FilterItem
 from cascade.core.keynames import key_name, vk_from_name
 from cascade.core.state import Busy, ClipboardMode, ClipboardState
 from cascade.dispatch import Dispatcher
+from cascade.imgstore import ClipImageStore
 from cascade.store import ClipStore, SlotStore
 from cascade.ui.array_filter import ArrayFilter
+from cascade.ui.clip_images import ClipImages
 from cascade.ui.clipboard import ClipboardWatcher
 from cascade.ui.mem_slots import MemSlots
 from cascade.ui.menu import PopupMenu
 from cascade.ui.monitor import EventMonitor
 from cascade.ui.ocr_view import OcrView
+from cascade.ui.pause import PauseDialog
 from cascade.ui.snip import SnipOverlay
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
@@ -56,11 +63,20 @@ from cascade.win32 import ocr, send
 from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
 from cascade.win32.magnifier import Magnifier
-from cascade.win32.window import WindowPins, foreground_window, window_title
+from cascade.win32.window import (
+    WindowPins,
+    foreground_window,
+    window_class,
+    window_title,
+)
 
 log = logging.getLogger("cascade.app")
 
 VERSION = "0.1.0"
+
+VK_CAPITAL = 0x14  # buyuk harf kilidi (caps.toggle)
+VK_SCROLL = 0x91  # ScrollLock lambasi (turkish.toggle)
+user32 = ctypes.windll.user32
 
 # restart() cocuk surece bunu gecer: eski ornek kilidi birakana kadar bekle.
 RESTART_FLAG = "--restart"
@@ -129,10 +145,9 @@ class Cascade:
         self.monitor = EventMonitor()
         self.runner = ActionRunner()
 
-        definition = keymap.demo_cascade()
         # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
         # bunlarin USTUNE ekleniyor, kapaninca tabana geri donuluyor.
-        self._base_defs = {definition.key: definition, **keymap.build_cascades()}
+        self._base_defs = dict(keymap.build_cascades())
         self.machine = CascadeMachine(dict(self._base_defs), Busy())
 
         # Pano. Durum (hangi mod) ile liste (ne saklandi) ayri duruyor;
@@ -152,7 +167,12 @@ class Cascade:
         self.filter_window = ArrayFilter()
         self.filter_window.chosen.connect(self.paste_text)
         self.filter_window.closed.connect(lambda: setattr(self.dispatcher, "ui_open", False))
-        self.menu = PopupMenu(self.runner.run)
+        # Menu acikken dispatcher susmali: Win32 menusu kendi modal
+        # dongusunu isletir, tuslar hook'a degil MENUYE gitmeli.
+        self.menu = PopupMenu(
+            self.runner.run,
+            set_ui_open=lambda state: setattr(self.dispatcher, "ui_open", state),
+        )
 
         # AHK: App.Magnifier. Magnify.exe bir kez acilir ve acik kalir;
         # biz yalniz zoom kademesini degistiriyoruz (win32/magnifier.py).
@@ -172,8 +192,12 @@ class Cascade:
         self.mem_slots.closed.connect(self._on_memslots_closed)
 
         # F14 secim araci (ui/snip.py) + OCR koprusu. Secim acikken
-        # kisayollar susar (ui_open) -- fare secime, Esc iptale gitsin.
+        # kisayollar SUSMAZ: AHK'de de butun tuslar calisiyordu.
         self.snip = SnipOverlay()
+        # Yeniden yakalamadan once OCR paneli de gizlenmeli: ustte duran
+        # bir pencere ve secimin uzerine denk gelirse OCR kendi metnini
+        # okur (bkz. ui/snip.py `_recapture`).
+        self.snip.hide_others = self._hide_over_snip
         self.snip.done.connect(self._on_snip_done)
         self.snip.rect_changed.connect(self._on_snip_rect_changed)
         self.snip.closed.connect(self._on_snip_closed)
@@ -181,6 +205,12 @@ class Cascade:
         self.ocr_view.copy_text.connect(self._copy_to_history)
         self.ocr_view.reocr_requested.connect(self._on_reocr)
         self.ocr_view.closed.connect(self.snip.end_session)
+
+        # AHK clip_image_store.ahk + clip_image_dialog.ahk. Dosya bicimi
+        # AHK ile ayni (clipimg.idx / clipimg.dat), pencere de ayni islevde.
+        self.image_store = ClipImageStore()
+        self.clip_images = ClipImages(self.image_store)
+        self.clip_images.copied.connect(self._on_image_copied)
         #: OCR+ oturumundaki son kirpim -- ayar degisince ekran YENIDEN
         #: CEKILMEDEN bunun uzerinden tekrar okunur (AHK: cache'li bitmap).
         self._ocr_image: QImage | None = None
@@ -193,6 +223,14 @@ class Cascade:
 
         self.paused = False
         self._exited = False
+        # Yeni bir ornek acildi mi (win32/instance.py devralmasi). Hook
+        # disi bir thread kaldiriyor, `_tick` gorup kapatiyor.
+        self._quit_requested = False
+        # Arizali farenin yutulan basim sayisi (AHK: KeyCounts "DoubleCount").
+        self._bounce_count = 0
+        # AHK: State.Script.shouldSaveOnExit. "Kaydetmeden yeniden baslat"
+        # bunu indirir; kapanista pano dosyasina DOKUNULMAZ.
+        self.save_on_exit = True
 
         self.events: queue.Queue = queue.Queue(maxsize=4096)
         self.actions: queue.Queue = queue.Queue(maxsize=4096)
@@ -225,6 +263,11 @@ class Cascade:
         self.runner.register("clip.show", lambda _: self.show_clip_history())
         self.runner.register("clip.filter", lambda _: self.show_clip_filter())
         self.runner.register("clip.paste", self.paste_history)
+        # Arizali fare: yutulan ikinci basim (dispatch.DOUBLE_CLICK_MS).
+        self.runner.register("click.bounce", self.on_click_bounce)
+        # AHK cascadeCaps: kisa basim SetCapsLockState -- tusu yuttugumuz
+        # icin Windows kendi cevirmiyor.
+        self.runner.register("caps.toggle", lambda _: self.toggle_caps())
         self.runner.register("menu.f13", lambda _: self.show_f13_menu())
         self.runner.register("menu.sys", lambda _: self.show_sys_menu())
         self.runner.register("menu.close", lambda _: self.menu.close())
@@ -254,8 +297,12 @@ class Cascade:
         # F13 & F15..F20 -- slots.json'daki slotlardan yapistirma.
         self.runner.register("slot.paste", self.paste_slot)
         # F14 -- surukleyince ekran alani secimi, kimildatmadan birakinca menu.
-        self.runner.register("select.start", lambda _: self.show_snip())
+        # Secim acikken tusa yeniden basmak da buraya gelir: show_snip
+        # pencerenin acik oldugunu gorup bastan sectiriyor.
+        self.runner.register("select.start", self.show_snip)
         self.runner.register("menu.slots", lambda _: self.show_slots_menu())
+        # AHK: App.ClipImageDlg.show()
+        self.runner.register("clip.images", lambda _: self.show_clip_images())
         # AHK menus.ahk: menuAlwaysOnTop -- pencereyi hep ustte tut.
         self.runner.register("window.pin", self.toggle_pin)
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
@@ -263,6 +310,26 @@ class Cascade:
         self.runner.register("magnifier.toggle", lambda _: self.magnifier.toggle())
         self.runner.register("magnifier.reset", lambda _: self.magnifier.reset())
         self.runner.register("magnifier.panic", lambda _: self.panic())
+
+        # AHK: App.AppShorts (app_shorts.ahk). On plandaki pencereye gore
+        # F13 menusune ekstra kisayol maddeleri girer.
+        self.shorts = ShortcutStore()
+        self.runner.register("shorts.play", self.play_shortcut)
+        self.runner.register("shorts.edit", lambda _: self.edit_shortcuts())
+
+        # AHK menus.ahk `DialogPauseGui`: Pause tusu basili tutulunca acilir.
+        self.pause_dialog = PauseDialog()
+        self.pause_dialog.resume.connect(lambda: self.set_paused(False))
+        self.pause_dialog.restart.connect(self.restart)
+        self.pause_dialog.restart_nosave.connect(self._restart_without_saving)
+        self.pause_dialog.exit_app.connect(self.quit)
+        self.runner.register("app.pause_dialog", lambda _: self.show_pause_dialog())
+
+        # AHK turkish_layout_addon.ahk -- ScrollLock. Hangi VK hangi harf,
+        # duzene sorularak bulunuyor; kararlari dispatch veriyor.
+        self.dispatcher.turkish_keys = keymap.turkish_keys()
+        self.runner.register("turkish.toggle", lambda _: self.toggle_turkish())
+        self.runner.register("turkish.layout", lambda _: self.switch_turkish_layout())
 
         self.tray = Tray(
             VERSION,
@@ -312,12 +379,55 @@ class Cascade:
         )
 
     def _on_clip_other(self) -> None:
-        """Metin olmayan icerik -- simdilik yalniz 'gordum'.
+        """Metin disi kopya -- AHK: App.ClipImages.saveFromClipboard().
 
-        TODO(AHK): gorsel pano (clip_image_store.ahk) bilerek port edilmedi;
-        ayrintili not ui/clipboard.py icinde.
+        Panoda gorsel varsa gorsel deposuna dusuyor (clipimg.dat/idx).
+        Gorsel degilse (dosya listesi vb.) yalniz "gordum" deniyor.
         """
-        self.tip.show_html("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
+        image = QGuiApplication.clipboard().image()
+        if image.isNull():
+            self.tip.show_html("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
+            return
+        slot = self.save_clip_image(image)
+        if slot < 0:
+            self.tip.show_html("⚠️ <b>gorsel kaydedilemedi</b>", 1200)
+            return
+        self.tip.show_html(
+            f"\U0001f5bc️ <b>gorsel</b> {image.width()}x{image.height()}", 1200
+        )
+
+    def save_clip_image(self, image: QImage) -> int:
+        """QImage -> gorsel deposu. Slot no doner, basarisizsa -1.
+
+        QImage'i PIL'e ham RGBA baytlariyla geciriyoruz: iki kutuphane
+        arasinda dosya uzerinden gitmek gereksiz bir kodlama turu olurdu.
+        """
+        try:
+            converted = image.convertToFormat(QImage.Format.Format_RGBA8888)
+            width, height = converted.width(), converted.height()
+            stride = converted.bytesPerLine()
+            raw = converted.constBits().tobytes()
+            if stride != width * 4:  # satir dolgusu varsa kirp
+                raw = b"".join(
+                    raw[row * stride : row * stride + width * 4] for row in range(height)
+                )
+            pil = Image.frombytes("RGBA", (width, height), raw)
+            return self.image_store.save_image(pil)
+        except (OSError, ValueError):
+            log.exception("pano gorseli kaydedilemedi")
+            return -1
+
+    def show_clip_images(self) -> None:
+        """AHK: App.ClipImageDlg.show()"""
+        self.clip_images.open()
+
+    def _on_image_copied(self, detail: str) -> None:
+        if not detail:
+            self.tip.show_html("⚠️ <b>panoya konulamadi</b>", 1200)
+        elif detail.startswith("kaydedildi:"):
+            self.tip.show_html(f"\U0001f4be <b>{html.escape(_shorten(detail, 60))}</b>", 1800)
+        else:
+            self.tip.show_html(f"\U0001f4cb <b>goruntu panoda</b> {detail}", 1200)
 
     def paste_text(self, text: str) -> None:
         """AHK: ArrayFilter.sendText -- panoya yaz, kisa bekle, Ctrl+V.
@@ -441,10 +551,33 @@ class Cascade:
 
     # ---- F14 secim araci ----
 
-    def show_snip(self) -> None:
-        """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir."""
-        self.dispatcher.ui_open = True
-        self.snip.start()
+    def show_snip(self, key: str = "") -> None:
+        """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir.
+
+        `select.start:F14@{x},{y}` yazilirsa secim O TUSLA yapilir -- F14
+        basili tutuldugu surece fare hareketi dikdortgeni buyutur, tus
+        birakilinca secim biter (ui/snip.py `_poll_key`). `{x},{y}`
+        suruklemenin basladigi nokta: cerceve oradan baslar (dispatch.py
+        dolduruyor). Argumansiz cagrilirsa secim sol fare tusuyla yapilir.
+        """
+        # `F14@1200,430` -- tus adi ve suruklemenin basladigi ekran noktasi.
+        name, _, point = key.partition("@")
+        origin: tuple[int, int] | None = None
+        if point:
+            x, _, y = point.partition(",")
+            origin = (int(x), int(y))
+        vk = (vk_from_name(name) or 0) if name else 0
+        # Secim penceresi hook'u SUSTURMAZ (`ui_open` kurulmuyor): AHK'de de
+        # secim acikken butun tuslar calismaya devam ediyordu. Susturursak
+        # F13 menusu, kaskadlar, ses tuslari -- hepsi secim boyunca olur.
+        # Secimi yapan tusun durumu ayri bir izleyiciden geliyor.
+        self.dispatcher.watch(vk)
+        # Zaten acik: yeni pencere acmak yerine bastan sec (F14'e tekrar
+        # basmak "yeni secim" demek).
+        if self.snip.isVisible():
+            self.snip.repick(origin)
+            return
+        self.snip.start(vk, origin, self.dispatcher.watch_held)
 
     def _copy_to_history(self, text: str) -> None:
         """Panoya oyle yaz ki pano dinleyicisi NORMAL kopya sansin: metin
@@ -453,8 +586,25 @@ class Cascade:
         if text:
             QGuiApplication.clipboard().setText(text)
 
+    def _hide_over_snip(self):
+        """Secimin ustunde durabilecek kendi pencerelerimizi gizler.
+
+        Geri gosteren cagrilabilir doner -- yeniden yakalama bitince
+        cagriliyor. Gorunmeyen pencere listeye girmez ki kapali bir panel
+        yakalama sonrasi kendiliginden acilmasin.
+        """
+        hidden = [w for w in (self.ocr_view,) if w is not None and w.isVisible()]
+        for panel in hidden:
+            panel.hide()
+
+        def restore() -> None:
+            for panel in hidden:
+                panel.show()
+
+        return restore
+
     def _on_snip_closed(self) -> None:
-        self.dispatcher.ui_open = False
+        self.dispatcher.watch(0)
         self._ocr_image = None
 
     def _on_snip_done(self, action: str, image: QImage) -> None:
@@ -466,6 +616,12 @@ class Cascade:
             )
         elif action == "save":
             self.save_capture(image)
+        elif action == "clip_image":
+            # Secilen alani gorsel gecmisine koy ve pencereyi ac.
+            if self.save_clip_image(image) < 0:
+                self.tip.show_html("⚠️ <b>gorsel kaydedilemedi</b>", 1500)
+                return
+            self.show_clip_images()
         elif action in ("ocr", "ocr_adv"):
             self._start_ocr(action, image)
 
@@ -501,23 +657,18 @@ class Cascade:
             return
         self._ocr_image = image
         if mode == "ocr_adv":
-            self.ocr_view.set_languages(ocr.languages())
             self.ocr_view.busy()
-            scale, grayscale, language = (
-                self.ocr_view.scale,
-                self.ocr_view.grayscale,
-                self.ocr_view.language,
-            )
+            scale = self.ocr_view.scale
         else:
             self.tip.show_html("\U0001f524 <b>okunuyor...</b>", 800)
-            scale, grayscale, language = ocr.DEFAULT_SCALE, True, ""
-        self._run_ocr(mode, image, scale, grayscale, language)
+            scale = ocr.DEFAULT_SCALE
+        self._run_ocr(mode, image, scale, True, "")
 
-    def _on_reocr(self, scale: int, grayscale: bool, language: str) -> None:
-        """Panelde dil/olcek/gri ton degisti: ekran TEKRAR CEKILMEZ, elimizdeki
-        kirpim yeniden okunur (AHK: cache'li bitmap uzerinden)."""
+    def _on_reocr(self, scale: int) -> None:
+        """Panelde olcek degisti: ekran TEKRAR CEKILMEZ, elimizdeki kirpim
+        yeniden okunur (AHK: cache'li bitmap uzerinden)."""
         if self._ocr_image is not None:
-            self._run_ocr("ocr_adv", self._ocr_image, scale, grayscale, language)
+            self._run_ocr("ocr_adv", self._ocr_image, scale, True, "")
 
     def _run_ocr(
         self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
@@ -549,7 +700,6 @@ class Cascade:
             self._copy_to_history(result.text)
             return
         # OCR+: kelime kutulari panele gider, dizilim orada secilir.
-        self.ocr_view.set_languages(ocr.languages(), result.language)
         self.ocr_view.show_result(result.words, result.lines, result.ms)
 
     def _on_ocr_failed(self, message: str) -> None:
@@ -592,6 +742,95 @@ class Cascade:
             label = _shorten(pin.title or "(baslıksiz)", 45)
             items.append((f"✓ \U0001f4cc {label}", f"window.pin:{pin.hwnd}"))
         return tuple(items)
+
+    # ---- uygulamaya ozel kisayollar (AHK: app_shorts.ahk) ----
+
+    def _shortcut_menu_items(self) -> tuple:
+        """AHK `menuAppProfile`: on plandaki pencerenin profili + kisayollari.
+
+        Profil yoksa AHK bir "Ekle" maddesi koyuyordu; bizde duzenleme JSON
+        dosyasindan yapildigi icin madde "Profilleri duzenle" oluyor ve
+        yaninda pencerenin SINIF adi yaziyor -- dosyaya yazilacak deger o.
+        """
+        hwnd = foreground_window()
+        name = window_class(hwnd)
+        profile = self.shorts.find(name, window_title(hwnd))
+        if profile is None:
+            return ((f"\U0001f4dd Profil ekle ({_shorten(name, 30)})", "shorts.edit"),)
+        items: list = []
+        for index, shortcut in enumerate(profile.shortcuts):
+            label = f"▸ {shortcut.name}"
+            if shortcut.description:
+                label += f" - {shortcut.description}"
+            items.append((label, f"shorts.play:{profile.name}/{index}"))
+        items.append((f"\U0001f4dd Profili duzenle [{profile.name}]", "shorts.edit"))
+        return tuple(items)
+
+    def _shortcut_manager_item(self) -> tuple:
+        """AHK `showManagerGui` karsiligi: TUM profiller F13 menusunde.
+
+        AHK'de bu ayri bir pencereydi (profil listesi + kisayol listesi +
+        ekle/sil). Pencereyi port etmek yerine ayni bilgi menuye kondu: her
+        profil bir alt menu, altinda kisayollari -- ve tiklanabilir, yani
+        yonetici ayni zamanda calistirici. Ekleme/silme hala JSON
+        dosyasindan (son madde), cunku ayni dosyayi AHK tarafi da okuyor.
+        """
+        profiles: list = []
+        for profile in self.shorts.profiles:
+            rows: list = []
+            for index, shortcut in enumerate(profile.shortcuts):
+                label = f"▸ {shortcut.name}"
+                if shortcut.description:
+                    label += f" - {shortcut.description}"
+                rows.append((label, f"shorts.play:{profile.name}/{index}"))
+            if not rows:
+                rows.append(("(kisayol yok)", "shorts.edit"))
+            hint = profile.class_name or profile.title
+            name = profile.name or "(adsiz)"
+            label = f"{name} [{_shorten(hint, 24)}]" if hint else name
+            profiles.append((label, tuple(rows)))
+        if not profiles:
+            profiles.append(("(profil yok)", "shorts.edit"))
+        profiles.append(None)
+        profiles.append(("\U0001f4dd profiles.json duzenle", "shorts.edit"))
+        return ("\U0001f9e9 Uygulama profilleri", tuple(profiles))
+
+    def play_shortcut(self, argument: str) -> None:
+        """`shorts.play:Chrome/0` -- AHK `ShortCut.play()`.
+
+        Diziler SIRAYLA gonderilir. AHK'nin tek `Send`i yerine iki yol var:
+        modifierla baslayan ya da `{...}` iceren dizi kisayol, geri kalani
+        duz metin (bkz. app_shorts.stroke_kind).
+        """
+        profile_name, _, index = argument.rpartition("/")
+        shortcut = self.shorts.shortcut(profile_name, int(index) if index.isdigit() else -1)
+        if shortcut is None:
+            self.tip.show_html("⚠️ <b>kisayol bulunamadi</b>", 1500)
+            return
+        for stroke in shortcut.strokes:
+            if stroke_kind(stroke) == "key":
+                self.runner.run(f"send_key:{stroke}")
+            else:
+                send.type_text(stroke)
+
+    def edit_shortcuts(self) -> None:
+        """Profil dosyasini Notepad ile acar (AHK: yonetici GUI'si).
+
+        Dosya yoksa AHK bicimiyle bos bir iskelet yazilir -- bos Notepad
+        acmak "neyi nasil yazacagim" sorusunu birakiyordu.
+        """
+        path = self.shorts.path
+        if not path.exists():
+            paths.ensure_files_dir()
+            path.write_bytes(
+                b'{"projectName": "ProfileManager", "profiles": []}\n'
+            )
+        subprocess.Popen(["notepad.exe", str(path)])  # noqa: S603,S607
+        self.tip.show_html(
+            "\U0001f4dd <b>profiles.json</b><br>"
+            "<span style='color:#8b949e;'>kaydettikten sonra yeniden baslat</span>",
+            2500,
+        )
 
     # ---- hafiza slotlari ----
 
@@ -675,6 +914,7 @@ class Cascade:
             f"Hook callback  : en uzun {self.hook.max_callback_ms:.3f} ms (sinir 300)\n"
             f"Dusen olay     : {self.hook.dropped}\n"
             f"Pano kaydi     : {len(self.clip_history)}\n"
+            f"Yutulan cift tik: {self._bounce_count} (arizali fare)\n"
             f"Log dosyasi    : {paths.LOG}\n\n"
             f"{logs.recent_text(15)}",
         )
@@ -688,14 +928,42 @@ class Cascade:
         self.clip_watcher.set_text(last.line)
         self.tip.show_html("\U0001f4cb <b>son hata panoya kopyalandi</b>", 1500)
 
+    def on_click_bounce(self, argument: str) -> None:
+        """AHK: `#HotIf A_TimeSincePriorHotkey < 70` -> LButton yutulur.
+
+        Arizali mikro anahtarin urettigi ikinci basim dispatch'te zaten
+        yutuldu; burada yalniz sayim/uyari var. Log'a CRITICAL degil WARNING
+        dusuyor: fare yaslaniyor demek, program hatasi degil.
+        """
+        self._bounce_count += 1
+        log.warning("cift tiklama yutuldu (%s ms, toplam %d)", argument, self._bounce_count)
+        beep(1000, 100)
+
+    def toggle_caps(self) -> None:
+        """Buyuk harf kilidini cevirir ve yeni durumu soyler (AHK ShowTip).
+
+        Onek tusunun keydown'i yutuluyor, yani kilidi Windows cevirmiyor;
+        tusu geri gondermek yeterli -- kendi gonderdigimiz basim kilidi
+        normal sekilde cevirir.
+        """
+        state = bool(user32.GetKeyState(VK_CAPITAL) & 1)
+        send.tap(VK_CAPITAL)
+        self.tip.show_html("<b>CAPSLOCK</b>" if not state else "<b>capslock</b>", 900)
+
     def show_sys_menu(self) -> None:
         """AHK: sysCommands() -- `´` tusunun menusu."""
         self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ cascade {VERSION}")
 
     def show_f13_menu(self) -> None:
         """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
+        shorts = self._shortcut_menu_items()
         pins = self._pin_menu_items()
-        spec = keymap.F13_MENU + ((None, *pins) if pins else ())
+        spec = keymap.F13_MENU
+        # Yonetici HER ZAMAN gorunur (AHK showManagerGui); ustundeki
+        # maddeler o anki pencereye ait, yani degisken.
+        spec += (None, *shorts, self._shortcut_manager_item())
+        if pins:
+            spec += (None, *pins)
         self.menu.show(spec, title=f"cascade {VERSION}", default="clip.filter")
 
     def show_slots_menu(self) -> None:
@@ -767,6 +1035,12 @@ class Cascade:
             self._apply(action)
 
     def _tick(self) -> None:
+        # Devralma: yeni ornek kilidi istedi (win32/instance.py). Kapanis
+        # ANA THREAD'de olmali -- istegi kaldiran thread Qt'ye dokunamaz.
+        if self._quit_requested:
+            self._quit_requested = False
+            self.quit()
+            return
         if self.paused:
             return
         now = time.perf_counter()
@@ -789,16 +1063,22 @@ class Cascade:
     # ---- yasam dongusu ----
 
     def toggle_pause(self) -> None:
-        """AHK: Suspend. Hook yerinde kalir, sadece kararlar devre disi.
+        """AHK: Suspend. Hook yerinde kalir, sadece kararlar devre disi."""
+        self.set_paused(not self.paused)
+
+    def set_paused(self, state: bool) -> None:
+        """Duraklatma bayragi.
 
         Hook'u sokup takmak yerine bayrak kullaniliyor: yeniden kurulan hook
         zincirin sonuna duser, baska programlarla sira garantisi kaybolur.
         """
-        self.paused = not self.paused
-        self.dispatcher.paused = self.paused
+        if state == self.paused:
+            return
+        self.paused = state
+        self.dispatcher.paused = state
         self.dispatcher.reset()
-        self.tray.set_paused(self.paused)
-        if self.paused:
+        self.tray.set_paused(state)
+        if state:
             self.tip.show_html(
                 "⏸️ <b>duraklatildi</b><br>"
                 "<span style='color:#8b949e;'>tuslar dokunulmadan geciyor</span>",
@@ -807,6 +1087,50 @@ class Cascade:
         else:
             self.tip.show_html("▶️ <b>devam</b>", 1200)
 
+    def toggle_turkish(self) -> None:
+        """ScrollLock kisa basim -- AHK: `SetScrollLockState(!state)` + tip.
+
+        Tusu onek olarak yuttugumuz icin ScrollLock lambasini Windows kendi
+        cevirmiyor; bayragi cevirdikten sonra tusu biz gonderiyoruz ki lamba
+        durumu gostersin (AHK'de durumun KENDISI lambaydi).
+        """
+        state = self.dispatcher.turkish.toggle()
+        send.tap(VK_SCROLL)
+        layout = self.dispatcher.turkish.layout
+        self.tip.show_html(
+            f"🇹🇷 <b>TR: {'acik' if state else 'kapali'}</b>"
+            + (f" &nbsp;·&nbsp; dizilim {layout}" if state else ""),
+            900,
+        )
+
+    def switch_turkish_layout(self) -> None:
+        """ScrollLock basili tutma -- AHK: dizilim 1 <-> 2."""
+        layout = self.dispatcher.turkish.switch_layout()
+        note = "uzun basim (c s i g)" if layout == 1 else "dogrudan remap"
+        self.tip.show_html(
+            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br>"
+            f"<span style='color:#8b949e;'>{note}</span>",
+            1200,
+        )
+
+    def show_pause_dialog(self, critical: str = "") -> None:
+        """AHK `DialogPauseGui`: once duraklat, sonra pencereyi ac.
+
+        Pause tusu BASILI TUTULUNCA geliyor (keymap). Pencere kapaninca
+        program devam eder -- AHK'de de `Suspend(0)` kapanisa bagliydi.
+        """
+        self.set_paused(True)
+        beep(750, 120)
+        self.pause_dialog.show_paused(critical)
+
+    def _restart_without_saving(self) -> None:
+        """AHK: setShouldSaveOnExit(false) + Reload.
+
+        Pano dosyasi supheliyse uzerine yazmadan yeniden baslatmaya yarar.
+        """
+        self.save_on_exit = False
+        self.restart()
+
     def on_start(self) -> None:
         """AHK: LoadSettings() -- OnExit'in karsiti."""
         log.info("cascade %s basladi", VERSION)
@@ -814,14 +1138,20 @@ class Cascade:
             self.runner.run(action)
         count = self.clip_history.load(self.clip_store.load_entries())
         log.info("%d pano kaydi diskten okundu (%s)", count, self.clip_store.path)
+        self.shorts.load()
+        profile = keymap.current_profile()
+        label = keymap.PROFILE_LABELS.get(profile, profile)
+        log.info("makine profili: %s (%s)", profile, platform.node())
+        self.tray.setToolTip(f"cascade {VERSION} - {profile}")
         # Kisa bir acilis bildirimi. "Hangi tuslar bagli" listesi DEGIL --
         # onu her acilista okumak istemiyorsun; sadece "ayaktayim" demesi
         # yeter, gerisi tepsi ve F13 menusunde.
         self.tip.show_html(
-            f"✅ <b>cascade {VERSION}</b> hazir<br>"
+            f"✅ <b>cascade {VERSION}</b> hazir &nbsp;·&nbsp; {label}<br>"
             f"<span style='color:#8b949e;'>{count} pano kaydi &nbsp;·&nbsp; "
+            f"{len(self.shorts.profiles)} uygulama profili &nbsp;·&nbsp; "
             f"F13 menu</span>",
-            1800,
+            2200,
         )
 
     def on_exit(self) -> None:
@@ -840,7 +1170,11 @@ class Cascade:
         # AHK ExitSettings: State.Window.clearAllOnTop() -- program kapaninca
         # sabitledigimiz pencereler ustte asili kalmasin.
         self.pins.clear_all()
-        saved = self.clip_store.save_entries(self.clip_history.entries)
+        saved = (
+            self.clip_store.save_entries(self.clip_history.entries)
+            if self.save_on_exit
+            else False
+        )
         log.info(
             "cascade kapaniyor (%d pano kaydi, diske yazildi: %s)",
             len(self.clip_history),
@@ -909,6 +1243,15 @@ class Cascade:
         log.info("yeniden baslatiliyor")
         self.app.quit()
 
+    def request_quit(self) -> None:
+        """Yeni bir ornek acildi: yerimizi birak (win32/instance.py).
+
+        BASKA THREAD'den cagriliyor -- burada Qt'ye dokunulmuyor, sadece
+        bayrak kalkiyor; kapanisi ana thread'deki `_tick` yapiyor.
+        """
+        log.info("yeni ornek acildi, kapaniyoruz")
+        self._quit_requested = True
+
     def quit(self) -> None:
         """AHK: Pause & End -> ExitApp()"""
         self.on_exit()
@@ -923,7 +1266,10 @@ class Cascade:
         self.filter_window.close()
         self.snip.close()
         self.ocr_view.close()
+        self.clip_images.close()
+        self.image_store.close()
         self.mem_slots.close()
+        self.pause_dialog.close()
         self.machine.reset()
         self.hook.stop()
         self.tip.hide()

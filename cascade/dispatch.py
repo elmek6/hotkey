@@ -31,6 +31,7 @@ from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name
 from cascade.core.mouse import WM_MOUSEMOVE, mouse_key
 from cascade.core.prefix import Outcome, PrefixTracker
+from cascade.core.turkish import TurkishLayout
 from cascade.win32 import send
 from cascade.win32.hook import KeyEvent, MouseEvent
 
@@ -39,6 +40,15 @@ VK_ESCAPE = 0x1B
 # Fare onegi basiliyken bu kadar piksel oynarsa "surukleme" sayilir.
 # Altinda kalan hareket titremedir; sag tik yaparken imlec bir iki piksel oynar.
 DRAG_PX = 6
+
+VK_LBUTTON = 0x01
+
+# ARIZALI FARE FILTRESI (AHK: AutoHotkey.ahk `A_TimeSincePriorHotkey < 70`).
+# Yipranmis mikro anahtar tek basimi iki basim olarak gonderir; ikinci basim
+# ilkinden bu suren once gelirse insan eli degildir, yutuluyor. Gercek cift
+# tiklamada iki basim arasi 100 ms'nin altina inmez (Windows'un cift tik
+# suresi 500 ms), o yuzden bu esik normal kullanimi bozmaz.
+DOUBLE_CLICK_MS = 70.0
 
 
 class Dispatcher:
@@ -72,8 +82,14 @@ class Dispatcher:
         self.seen = seen  # (olay, yutuldu mu) -> olay izleyicisi
         self._menu_open = menu_open
 
+        # Turkce eklentisi (AHK turkish_layout_addon.ahk). ScrollLock ile
+        # acilir; hangi VK hangi harf, `turkish_keys` ile app.py'den gelir
+        # (duzene bagli, calisma aninda soruluyor).
+        self.turkish = TurkishLayout()
+        self.turkish_keys: dict[int, str] = {}
+
         self.paused = False
-        self.ui_open = False
+        self._ui_open = False
         self._hk_swallowed: set[int] = set()  # yuttugumuz keydown'in keyup'i
         # Jest sirasinda imlecin tutulacagi nokta ve son geri bildirim ani.
         self._freeze_at: tuple[int, int] | None = None
@@ -83,13 +99,67 @@ class Dispatcher:
         # basimi enjekte ediliyor; bu kume onlari tutuyor ki birakma olayi
         # da uygulamaya gecsin.
         self._passed_through: set[int] = set()
+        # `ui_open` acikken hicbir olay islenmiyor, ama SECIMI YAPAN tusun
+        # birakilmasi yine de ogrenilmek zorunda: F14 basili tutulurken snip
+        # acilir ve tus birakilinca secim biter. GetAsyncKeyState burada ise
+        # yaramaz -- LL hook'ta YUTULAN keydown Windows'un tus durumu
+        # tablosunu guncellemez, F14 hic basilmamis gorunur. Bu yuzden
+        # durumu hook'un kendisinden tutuyoruz.
+        self._watch_vk = 0
+        self._watch_down = False
+        # Arizali fare filtresi: son sol tus BASIMININ ani ve "yuttugumuz
+        # basimin BIRAKMASI da yutulsun" bayragi.
+        self._lbutton_t = 0.0
+        self._bounce_up = False
+        #: Filtre kapatilabilsin diye ayri bayrak (tepsi/menu ile acilir).
+        self.double_click_guard = True
+
+    def watch(self, vk: int) -> None:
+        """Bu tusun basili/birakildi durumunu izle (ui/snip.py yokluyor).
+
+        Baslangic durumu onek takipcisinden: eylem kuyruktan gecerken
+        kullanici tusu coktan birakmis olabilir; o zaman "basili" demek
+        secimi sonsuza dek acik birakirdi.
+        """
+        self._watch_vk = vk
+        self._watch_down = bool(vk) and vk in self.prefixes.held
+
+    def watch_held(self) -> bool:
+        """Izlenen tus hala basili mi? (ui/snip.py yokluyor.)"""
+        return self._watch_down
 
     # ---- hook thread ----
 
     def key_filter(self, event: KeyEvent) -> bool:
         """Hook thread'inde calisir. O(1): karar ver, kuyruga at, don."""
-        if event.ours or self.paused or self.ui_open:
+        if event.ours:
             return False
+        # Izlenen tusun (F14) durumu her kosulda kaydedilir: menu/filtre
+        # penceresi acikken olay asagida durdurulsa bile secimi bitiren
+        # BIRAKMA kaybolmamali. Olayin kendisi yutulmuyor.
+        if self._watch_vk and event.vk == self._watch_vk:
+            self._watch_down = event.down
+        if self.paused or self.ui_open:
+            return False
+
+        # TURKCE ASAMASI kaskaddan ve kisayol tablosundan ONCE, ama yalniz
+        # makine BOSTA ve hicbir onek basili degilken: `F15 & c` gibi bir
+        # kombo Turkce harfe yem olmasin. Kapaliyken tek bayrak kontrolu.
+        if (
+            self.turkish.enabled
+            and not self.prefixes.held
+            and self.machine.phase == Phase.IDLE
+        ):
+            char = self.turkish_keys.get(event.vk)
+            if char and not send.hard_modifier_down():
+                upper = send.caps_on() != send.shift_down()
+                swallow, actions = self.turkish.feed(char, event.down, event.t, upper)
+                if swallow:
+                    for action in actions:
+                        self._put(Run(action, key=event.vk))
+                    with contextlib.suppress(queue.Full):
+                        self.seen.put_nowait((event, True))
+                    return True
 
         # Acik menuyu Esc kapatsin. Menu klavye yakalamasini her zaman
         # alamiyor (tepsi uygulamasinin aktif penceresi yok), ama hook
@@ -143,6 +213,23 @@ class Dispatcher:
             return False
         vk, down = key
 
+        # Arizali fare: cok hizli gelen IKINCI basim yutulur. Karar burada,
+        # kaskad/kombo yollarindan ONCE: yutulan basim hicbir duruma
+        # dokunmamali, yoksa onek takipcisi ac kapali kalir.
+        if vk == VK_LBUTTON and self.double_click_guard:
+            if down:
+                gap = (event.t - self._lbutton_t) * 1000.0
+                self._lbutton_t = event.t
+                self._bounce_up = 0.0 < gap < DOUBLE_CLICK_MS
+                if self._bounce_up:
+                    self._put(Run(f"click.bounce:{gap:.0f}", key=vk))
+                    return True
+            elif self._bounce_up:
+                # Yuttugumuz basimin birakmasi: uygulamaya tek basina
+                # gitseydi "basilmadan birakildi" gibi gorunurdu.
+                self._bounce_up = False
+                return True
+
         # Gercek basimini gecirdigimiz onek (surukleme): birakmasi da gecsin.
         if not down and vk in self._passed_through:
             self._passed_through.discard(vk)
@@ -170,6 +257,26 @@ class Dispatcher:
         dongude yapiyordu.
         """
         return self.prefixes.tick(now)
+
+    @property
+    def ui_open(self) -> bool:
+        return self._ui_open
+
+    @ui_open.setter
+    def ui_open(self, state: bool) -> None:
+        """Pencere/menu acilirken ve kapanirken hayalet durumu temizler.
+
+        Bayrak acikken `key_filter` / `mouse_filter` olaylari erkenden
+        birakiyor -- BIRAKMA olaylari da dahil. F14'u basili tutup secim
+        aracini acan kullanici tusu birakinca o keyup yutuluyor ve
+        PrefixTracker F14'u sonsuza dek "basili" saniyordu: secim
+        kapandiktan sonra her tekerlek `F14 & WheelUp` sayilip sesi
+        oynatiyordu. Gecisin iki yaninda da temizlemek bunu bitirir.
+        """
+        if state == self._ui_open:
+            return
+        self._ui_open = state
+        self.reset()
 
     def reset(self) -> None:
         """Duraklatma / busy kilidini acma: hayalet durumu temizler."""
@@ -257,7 +364,14 @@ class Dispatcher:
                 if self.prefixes.is_used(vk):
                     continue  # bu basimda bir kez calisti, yeter
                 self.prefixes.combo_used(vk)  # birakilinca tap eylemi calismasin
-                self._put(Run(definition.drag_action, key=vk, desc=definition.desc))
+                # `{x}` / `{y}` yer tutuculari: eylem, suruklemenin BASLADIGI
+                # noktayi bilmek isteyebilir. F14 secimi icin sart -- pencere
+                # acilana kadar (ekran yakalama ~100 ms) imlec coktan
+                # kimildamis olur ve cerceve yanlis yerden baslardi.
+                action = definition.drag_action
+                if origin is not None and "{x}" in action:
+                    action = action.format(x=origin[0], y=origin[1])
+                self._put(Run(action, key=vk, desc=definition.desc))
                 continue
             if vk not in send.MOUSE_VK_NAMES or vk in self._passed_through:
                 continue
@@ -299,8 +413,12 @@ class Dispatcher:
         if chord is None:  # modifier'in kendisi: dokunma
             return False, []
 
-        # Onek tusu, uzerinde baska onek yokken: karari ertele.
-        if self.prefixes.is_prefix(vk) and chord.prefix is None:
+        # Onek tusu, uzerinde baska onek YOKKEN ve modifier basili
+        # DEGILKEN: karari ertele. Modifier sarti Tab/CapsLock onek olunca
+        # sart oldu -- Alt+Tab, Ctrl+Tab, Shift+Tab yutulup birakilinca
+        # gonderilseydi pencere/sekme degistirme bozulurdu. Modifierli
+        # basimda onek hic devreye girmez, tus dogrudan uygulamaya gider.
+        if self.prefixes.is_prefix(vk) and chord.prefix is None and not chord.modifiers:
             swallow = self.prefixes.key_down(vk, t)
             if swallow:
                 self._hk_swallowed.add(vk)

@@ -44,6 +44,16 @@ class ActionRunner:
         self.register("send_keys", self._send_keys)
         self.register("send_text", send.type_text)
         self.register("beep", lambda _: beep(800, 60))
+        # AHK AutoHotkey.ahk: `#a/#s/#d/#w -> MouseMove(...,"R")`,
+        # `#q -> Click("Left")`, `#e -> Click("Right")`. Klavyeyle fare.
+        self.register("mouse.move", self._mouse_move)
+        self.register("mouse.click", send.click)
+
+    @staticmethod
+    def _mouse_move(argument: str) -> None:
+        """`mouse.move:-10,0` -- imleci GORECELI oynatir (AHK "R" kipi)."""
+        dx, _, dy = argument.partition(",")
+        send.move_relative(int(dx or 0), int(dy or 0))
 
     def register(self, name: str, handler: Callable[[str], None]) -> None:
         self._commands[name] = handler

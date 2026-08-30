@@ -15,6 +15,7 @@ from cascade.dispatch import Dispatcher
 
 F13, F14, CARET, ONE = 0x7C, 0x7D, 0xDC, 0x31
 LBUTTON, F16 = 0x01, 0x7F
+CTRL = 0xA2
 
 
 def _drain(q: queue.Queue) -> list:
@@ -342,3 +343,110 @@ def test_tekerlek_kombosu_onegin_kendi_eylemini_iptal_eder():
     feed(box, F13, True, 0.0)
     feed(box, VK_WHEEL_UP, True, 0.05, momentary=True)
     assert actions(feed(box, F13, False, 0.20)) == []
+
+
+def test_modifier_basiliyken_onek_devreye_girmez():
+    """Alt+Tab / Ctrl+Tab bozulmasin: modifierli basimda onek yolu kapali.
+
+    Onek yolu acik olsaydi tus yutulur, birakilinca DUZ hali geri
+    gonderilirdi -- pencere/sekme degistirme calismazdi.
+    """
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    swallow, acts = feed(box, CARET, True, 0.01)
+    assert swallow is False
+    assert acts == []
+    assert box.prefixes.held == ()
+
+
+def test_izlenen_tusun_birakilmasi_ui_acikken_de_gorulur():
+    """F14 ile secim: ui_open acikken bile tusun BIRAKILMASI ogrenilmeli.
+
+    GetAsyncKeyState burada ise yaramiyor -- yutulan keydown Windows'un
+    tus durumu tablosunu guncellemiyor (bkz. ui/snip.py `_poll_key`).
+    """
+    from cascade.win32.hook import KeyEvent
+
+    box = make_dispatcher()
+    feed(box, CARET, True, 0.0)  # secimi baslatan tus basili
+    box.watch(CARET)
+    box.ui_open = True
+    assert box.watch_held() is True
+    box.key_filter(
+        KeyEvent(
+            vk=CARET,
+            scan=0,
+            down=False,
+            extended=False,
+            injected=False,
+            ours=False,
+            time_ms=0,
+            t=0.2,
+        )
+    )
+    assert box.watch_held() is False
+
+
+def _lclick(t: float, down: bool = True):
+    from cascade.core.mouse import WM_LBUTTONDOWN, WM_LBUTTONUP
+    from cascade.win32.hook import MouseEvent
+
+    return MouseEvent(
+        message=WM_LBUTTONDOWN if down else WM_LBUTTONUP, x=0, y=0, data=0,
+        injected=False, ours=False, time_ms=0, t=t,
+    )
+
+
+def test_arizali_farenin_cift_basimi_yutulur():
+    """AHK: `A_TimeSincePriorHotkey < 70` -> LButton yutulur.
+
+    Yipranmis mikro anahtar tek basimi iki basim yapiyor; 70 ms'nin
+    altindaki ikinci basim insan eli degil.
+    """
+    box = make_dispatcher()
+    assert box.mouse_filter(_lclick(1.00)) is False
+    assert box.mouse_filter(_lclick(1.03)) is True  # 30 ms: ariza
+    assert [a.action.split(":")[0] for a in _drain(box.actions)] == ["click.bounce"]
+    # Yutulan basimin BIRAKMASI da yutulur: uygulamaya tek basina giden bir
+    # "birakma" surukleme isini yarida biraktiriyordu.
+    assert box.mouse_filter(_lclick(1.04, down=False)) is True
+    assert box.mouse_filter(_lclick(1.40)) is False  # gercek ikinci tik
+    assert box.mouse_filter(_lclick(1.45, down=False)) is False
+
+
+def _tr_box(layout: int):
+    box = make_dispatcher()
+    box.turkish_keys = {0x43: "c"}
+    box.turkish.enabled = True
+    box.turkish.layout = layout
+    return box
+
+
+def _press(vk: int, t: float):
+    from cascade.win32.hook import KeyEvent
+
+    return KeyEvent(
+        vk=vk, scan=0, down=True, extended=False,
+        injected=False, ours=False, time_ms=0, t=t,
+    )
+
+
+def test_turkce_asamasi_harfi_yutar_ve_metin_uretir():
+    """ScrollLock acikken 'c' dispatch'in ILK asamasinda cozulur."""
+    box = _tr_box(1)
+    assert box.key_filter(_press(0x43, 0.0)) is True
+    assert [a.action for a in _drain(box.actions)] == ["send_text:c"]
+
+
+def test_turkce_asamasi_dizilim2de_haritasiz_tusa_dokunmaz():
+    """Dizilim 2'de 'c' yok (DIRECT haritasinda degil): tus serbest gecer."""
+    box = _tr_box(2)
+    assert box.key_filter(_press(0x43, 0.0)) is False
+
+
+def test_turkce_asamasi_onek_basiliyken_atlanir():
+    """Sira: onek > kaskad > Turkce. `F13 & c` Turkce harfe yem olmamali."""
+    box = _tr_box(1)
+    feed(box, F13, True, 0.0)
+    assert box.key_filter(_press(0x43, 0.1)) is False
+    assert _drain(box.actions) == []

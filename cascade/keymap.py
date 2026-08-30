@@ -13,20 +13,30 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     F13              kisa: acilir menu     basili tut: pano hizli menusu
     F14              kisa: slot menusu     surukle: ekran alani sec
     ^ (Caret)        kisa: `^` yazilir     basili tut: pano hizli menusu
+    Tab              kisa: Tab yazilir     basili tut: slot menusu (AHK cascadeTab)
+    CapsLock         kisa: kilit cevrilir  basili tut: pano menusu (AHK cascadeCaps)
+    Tab & 1 .. 0     slotlardan yapistirir (0 = slot 10)
+    CapsLock & 1..9  pano gecmisinden yapistirir
+    Ctrl+<           VSCode satir sil (Ctrl+Shift+K)
+    Win+WASD/Q/E/Y   klavyeyle fare: 10px oynat, sol/sag tik, Enter
     F13 & F14        onek kombosu -- onek YUTULUR
     ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
     F19 & LButton    onek klavyede, kombo tusu FARE dugmesi
     RButton & Wheel  sag tus basiliyken tekerlek -> ses; sag tik yutulur
     F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/gesture.py)
     ~F13 & WheelUp   basili tutup tekerlek
+    Pause            basili tut: duraklatma penceresi (AHK DialogPauseGui)
     Pause & Home     yeniden baslat (AHK: reloadScript)
     Pause & End      cikis        Pause & c   busy kilidini acar
     ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
-    ScrollLock       kaskad menusu (demo_cascade)
+    ScrollLock       kisa: Turkce ac/kapa   basili tut: dizilim 1<->2
 """
 
 from __future__ import annotations
 
+import platform
+
+from cascade.core import turkish
 from cascade.core.builder import CascadeDef, KeyBuilder, PressType
 from cascade.core.gesture import Direction, GestureTracker
 from cascade.core.hotkey import HotkeyTable
@@ -35,21 +45,34 @@ from cascade.win32 import send
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
 
+# ---- makine profili -- AHK: LoadSettings() icindeki A_ComputerName testi ----
+# AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
+# simge durumunda baslatmayi aciyordu. Burada SIMDILIK yalnizca hangi
+# profille acildigini bildiriyoruz; profile bagli acilis eylemleri
+# eklenecekse yerleri START_ACTIONS'in yanidir.
+WORK_COMPUTERS = ("LAPTOP-UTN6L5PA",)
+PROFILE_LABELS = {"work": "\U0001f3e2 Work", "home": "\U0001f3e0 Home"}
 
-def demo_cascade() -> CascadeDef:
-    """AHK'deki cascadeTab()/cascadeCaps() ile ayni sekil, zararsiz eylemlerle."""
-    return (
-        KeyBuilder("ScrollLock", short=350)
-        .main_key(PressType.SHORT, "tip_html:<b>ScrollLock</b> kisa basim \U0001f44c")
-        .main_key(PressType.MEDIUM, "beep")
-        .set_exit_on_press_type(PressType.SHORT)
-        .combo("1", "\U0001f4dd Ornek metin yaz", "send_text:cascade calisiyor ")
-        .combo("2", "\U0001f4cb Pano gecmisi", "clip.filter")
-        .combo("9", "\U0001f501 Yeniden baslat", "app.restart")
-        .combo("0", "\U0001f6d1 Cikis", "app.exit")
-        .named("ScrollLock")
-        .build()
-    )
+
+def current_profile() -> str:
+    """Bu makinenin profili: `work` ya da `home` (AHK ile ayni olcut)."""
+    name = platform.node().strip().upper()
+    return "work" if name in {item.upper() for item in WORK_COMPUTERS} else "home"
+
+
+def turkish_keys() -> dict[int, str]:
+    """Turkce eklentisinin ilgilendigi tuslar: VK -> tusun kucuk harfi.
+
+    Duzene bagli oldugu icin calisma aninda soruluyor (`^` ve `<` ile ayni
+    yontem). Bu makinede olmayan tuslar (AHK dosyasi Alman duzeninde
+    yazilmisti, `ä` gibi) sessizce listeye girmez.
+    """
+    keys: dict[int, str] = {}
+    for char in {*turkish.LONG_PRESS, *turkish.DIRECT}:
+        vk = send.vk_for_char(char)
+        if vk is not None:
+            keys[vk] = char
+    return keys
 
 
 # AHK: showF14menu() icindeki subMenuKey. F14'un kendisi sende baska is
@@ -80,6 +103,7 @@ SYSTEM_MENU = (
 
 F13_MENU = (
     ("\U0001f4cb Pano gecmisi...", "clip.filter"),
+    ("\U0001f5bc️ Pano gorselleri...", "clip.images"),
     ("\U0001f9f0 Slotlar...", "menu.slots"),
     ("\U0001f5c2️ Windows pano gecmisi", "send_key:#v"),
     None,
@@ -103,11 +127,12 @@ Windows'un kendi kisayoluyla yapilabilenler (ekran alintisi, OCR) duruyor."""
 SYS_COMMANDS_MENU = (
     ("1  Yeniden baslat", "app.restart"),
     ("2  Durum ve hatalar", "errors.show"),
-    # TODO(AHK): app_shorts.ahk -- uygulamaya ozel kisayol profilleri
-    # (Files/profiles.json). Aktif pencereye gore kisayol tablosu degistiriyordu.
-    ("3  -- Profil yoneticisi", "yok:app_shorts.ahk"),
+    # app_shorts.ahk portu: profiller Files/profiles.json'dan okunuyor,
+    # duzenleme dosyanin kendisinden (AHK'nin yonetici GUI'si port edilmedi).
+    ("3  Profilleri duzenle", "shorts.edit"),
     ("4  Olay izleyici", "app.monitor"),
     ("5  Hafiza slotlari", "memslots.start"),
+    ("g  Pano gorselleri...", "clip.images"),
     # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma
     # (Files/rec1.ahk gibi uretilmis dosyalar).
     ("6  -- Makro kaydedici", "yok:macro_recorder.ahk"),
@@ -256,7 +281,13 @@ def build_hotkeys() -> HotkeyTable:
     # basim showF14menu (slotlar) idi; secim oraya sonradan eklendi ve
     # tusun eski isini yemesin diye surukleme ile ayrildi.
     table.add("F14", "menu.slots", "kisa: slot menusu")
-    table.prefix("F14", drag_action="select.start", desc="surukle: ekran alani sec")
+    # Eylemin argumani secimi yapacak TUS: F14 basili kaldigi surece
+    # dikdortgen buyur, birakilinca secim biter (ui/snip.py). Argumansiz
+    # birakilirsa secim sol fare tusuna kalirdi -- F14 ile secmek isterken
+    # bir de fareye basmak gerekiyordu.
+    table.prefix(
+        "F14", drag_action="select.start:F14@{x},{y}", desc="surukle: ekran alani sec"
+    )
 
     # --- F13 & F15..F20: slots.json'daki slotlardan yapistir. AHK
     # handleF14'un slot kombolari (F14 secim tusu olunca F13'e tasindi).
@@ -304,6 +335,9 @@ def build_hotkeys() -> HotkeyTable:
     table.add("Backtick", "menu.sys", "sistem menusu")
 
     # --- Pause kombolari. AHK'de bunlar scriptin acil cikis yolu. ---
+    # AHK menus.ahk `DialogPauseGui`: Pause basili tutulunca duraklat +
+    # pencere (devam / kaydetmeden yeniden baslat / yeniden baslat / cikis).
+    table.prefix("Pause", hold_action="app.pause_dialog", desc="basili tut: duraklat")
     table.add("Pause & Home", "app.restart", "yeniden baslat")  # AHK: reloadScript()
     table.add("Pause & End", "app.exit", "cikis")
     table.add("Pause & c", "busy.free", "busy kilidini ac")
@@ -323,6 +357,63 @@ def build_hotkeys() -> HotkeyTable:
                 f"clip.paste:{index}",
                 "pano gecmisi 1-9" if index == 1 else "",
             )
+
+    # --- Tab: AHK cascadeTab(). Kisa basim Tab yazar (yuttugumuz tusu geri
+    # gondererek), basili tutma slot menusunu acar, rakamlar slot yukler.
+    # Modifierli basim (Alt+Tab, Ctrl+Tab, Shift+Tab) onege HIC girmez --
+    # sarti dispatch.py `_hotkey_key` koyuyor. ---
+    table.prefix("Tab", hold_action="menu.slots", desc="basili tut: slot menusu")
+    for index in range(10):
+        table.add(
+            f"Tab & {index}",
+            f"slot.paste:{index or 10}",
+            "slot 1-10" if index == 1 else "",
+        )
+
+    # --- CapsLock: AHK cascadeCaps(). Kisa basim buyuk harf kilidini cevirir
+    # (tusu yuttugumuz icin Windows kendi cevirmiyor, biz ceviriyoruz),
+    # basili tutma pano gecmisi menusu, rakamlar gecmisten yapistirir. ---
+    table.add("CapsLock", "caps.toggle", "kisa: buyuk harf kilidi")
+    table.prefix("CapsLock", hold_action="menu.clip", desc="basili tut: pano menusu")
+    for index in range(1, 10):
+        table.add(
+            f"CapsLock & {index}",
+            f"clip.paste:{index}",
+            "pano gecmisi 1-9" if index == 1 else "",
+        )
+
+    # --- Ctrl+< -> Ctrl+Shift+K (VSCode: satiri sil). `<` tusu duzene bagli
+    # (Turkce Q'da OEM_102), Caret gibi calisma aninda soruluyor. ---
+    less = send.vk_for_char("<")
+    if less is not None:
+        register_name(less, "Less")
+        table.add("^Less", "send_key:^+k", "satiri sil (VSCode)")
+
+    # --- ScrollLock: Turkce eklentisi (AHK turkish_layout_addon.ahk).
+    # Kisa basim Turkce harfleri acar/kapar, BASILI TUTMAK dizilim 1 ile 2
+    # arasinda gecer. Harflerin kendisi tabloda degil: karar dispatch'te,
+    # tusun ne kadar basili tutuldugunu bilmek gerekiyor. ---
+    table.add("ScrollLock", "turkish.toggle", "kisa: Turkce ac/kapa")
+    table.prefix(
+        "ScrollLock",
+        hold_action="turkish.layout",
+        hold_ms=600,  # AHK: `duration >= 600`
+        desc="basili tut: dizilim degistir",
+    )
+
+    # --- Klavyeyle fare (AHK AutoHotkey.ahk'nin `#a/#s/#d/#w/#q/#e/#y`
+    # satirlari). Win+WASD imleci 10 piksel oynatir, Win+Q/E tiklar,
+    # Win+Y Enter gonderir. ---
+    for spec, action, desc in (
+        ("#a", "mouse.move:-10,0", "fare sol"),
+        ("#s", "mouse.move:0,10", "fare asagi"),
+        ("#d", "mouse.move:10,0", "fare sag"),
+        ("#w", "mouse.move:0,-10", "fare yukari"),
+        ("#q", "mouse.click:left", "sol tik"),
+        ("#e", "mouse.click:right", "sag tik"),
+        ("#y", "send_key:Enter", "Enter"),
+    ):
+        table.add(spec, action, desc)
 
     return table
 

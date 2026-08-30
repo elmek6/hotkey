@@ -4,21 +4,25 @@ Basit OCR metni dogrudan panoya koyar; bu panel ise metni GOSTERIR ve
 AYARLARI barindirir. AHK'deki kural aynen korundu: **tum ayarlar burada,
 menude yalniz eylemler var.**
 
-Denetimler (AHK panelindeki sirayla):
+Denetimler:
 
-    dil          sistemde OCR yetenegi kurulu diller
     bicim        duz metin / kolonlu / tablo (ayracli)
     ayrac        tablo bicimindeki hucre ayraci -- duzenlenebilir kutu,
                  `\\t` ve `\\n` kacislariyla gorunmez karakter de yazilir
     olcek        OCR oncesi buyutme (kucuk fontlar icin)
-    gri ton      ClearType'in alt-piksel renk izini temizler
     kolon esigi  kolon ayraci sayilacak en kucuk bos dikey serit
+
+AHK'deki DIL ve GRI TON kutulari burada YOK. AHK'nin OCR sarmalayicisi
+ikisini de acikca istiyordu; Windows.Media.Ocr'in kendi API'si istemiyor:
+dili `try_create_from_user_profile_languages` kullanicinin Windows dil
+listesinden secer, gri tonlama da bizim tarafta sabit uygulanan bir on
+isleme. Kullaniciya soruldugunda dogru cevabi olmayan iki kutuydu.
 
 Hangi degisiklik neyi tetikler (AHK'deki maliyet ayrimi):
 
     bicim / ayrac / kolon esigi  ->  OCR GEREKMEZ, kelime kutulari yeniden
                                      dizilir (core/ocr_layout.py)
-    dil / olcek / gri ton        ->  yeniden OCR, ama ekran TEKRAR CEKILMEZ
+    olcek                        ->  yeniden OCR, ama ekran TEKRAR CEKILMEZ
                                      -- app.py elindeki kirpimi kullanir
 
 Secim cercevesi bu panel acikken ekranda KALIR (ui/snip.py ayar fazi):
@@ -30,7 +34,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -66,8 +69,8 @@ class OcrView(QWidget):
 
     #: "Kopyala" -- panoya yazmayi app.py yapar (pano gecmisine de dussun)
     copy_text = Signal(str)
-    #: dil / olcek / gri ton degisti: (olcek, gri ton, dil kodu)
-    reocr_requested = Signal(int, bool, str)
+    #: olcek degisti: yeniden OCR gerekiyor (yeni olcek)
+    reocr_requested = Signal(int)
     closed = Signal()
 
     def __init__(self) -> None:
@@ -93,9 +96,6 @@ class OcrView(QWidget):
         self._info.setStyleSheet("color: #8b949e;")
 
         # ---- denetimler ----
-        self._lang = QComboBox()
-        self._lang.currentIndexChanged.connect(self._on_reocr_setting)
-
         self._mode = QComboBox()
         for label, _mode in MODES:
             self._mode.addItem(label)
@@ -117,11 +117,6 @@ class OcrView(QWidget):
         self._scale.setCurrentIndex(1)  # AHK varsayilani: 2
         self._scale.currentIndexChanged.connect(self._on_reocr_setting)
 
-        self._gray = QCheckBox("Gri ton")
-        self._gray.setChecked(True)  # AHK varsayilani
-        self._gray.setToolTip("ClearType'in alt-piksel renk izini temizler")
-        self._gray.toggled.connect(self._on_reocr_setting)
-
         self._gutter = QComboBox()
         self._gutter.setEditable(True)
         for value in GUTTERS:
@@ -133,23 +128,15 @@ class OcrView(QWidget):
         grid.setHorizontalSpacing(8)
         for column, (label, widget) in enumerate(
             (
-                ("Dil", self._lang),
                 ("Bicim", self._mode),
                 ("Ayrac", self._sep),
-            )
-        ):
-            grid.addWidget(QLabel(label), 0, column * 2)
-            grid.addWidget(widget, 0, column * 2 + 1)
-        for column, (label, widget) in enumerate(
-            (
                 ("Olcek", self._scale),
                 ("Kolon esigi", self._gutter),
             )
         ):
-            grid.addWidget(QLabel(label), 1, column * 2)
-            grid.addWidget(widget, 1, column * 2 + 1)
-        grid.addWidget(self._gray, 1, 4, 1, 2)
-        grid.setColumnStretch(5, 1)
+            grid.addWidget(QLabel(label), 0, column * 2)
+            grid.addWidget(widget, 0, column * 2 + 1)
+        grid.setColumnStretch(8, 1)
 
         copy_button = QPushButton("\U0001f4cb Kopyala")
         copy_button.setDefault(True)
@@ -172,20 +159,6 @@ class OcrView(QWidget):
 
     # ---- disari ----
 
-    def set_languages(self, languages: list[tuple[str, str]], current: str = "") -> None:
-        """(etiket, dil kodu) listesi. Bir kez, ilk aciliste doldurulur."""
-        if self._lang.count() == len(languages):
-            return
-        self._loading = True
-        self._lang.clear()
-        for label, code in languages:
-            self._lang.addItem(label, code)
-        if current:
-            index = self._lang.findData(current)
-            if index >= 0:
-                self._lang.setCurrentIndex(index)
-        self._loading = False
-
     def show_result(self, words: tuple[Word, ...], lines: tuple[str, ...], ms: float) -> None:
         """Yeni OCR sonucu geldi: kutulari sakla, secili bicimle diz."""
         self._words, self._lines, self._ms = words, lines, ms
@@ -201,22 +174,14 @@ class OcrView(QWidget):
     def scale(self) -> int:
         return int(self._scale.currentData() or 2)
 
-    @property
-    def grayscale(self) -> bool:
-        return self._gray.isChecked()
-
-    @property
-    def language(self) -> str:
-        return str(self._lang.currentData() or "")
-
     # ---- ic akis ----
 
     def _on_reocr_setting(self) -> None:
-        """Dil / olcek / gri ton: yeniden OCR gerekiyor."""
+        """Olcek degisti: yeniden OCR gerekiyor."""
         if self._loading:
             return
         self.busy()
-        self.reocr_requested.emit(self.scale, self.grayscale, self.language)
+        self.reocr_requested.emit(self.scale)
 
     def _relayout(self) -> None:
         """Bicim / ayrac / kolon esigi: OCR gerekmez, kutular yeniden dizilir."""

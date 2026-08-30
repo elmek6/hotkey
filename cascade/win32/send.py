@@ -42,6 +42,25 @@ def vk_for_char(ch: str) -> int | None:
     return raw & 0xFF
 
 
+def caps_on() -> bool:
+    """Buyuk harf kilidi acik mi (AHK: `GetKeyState("CapsLock", "T")`)."""
+    return bool(user32.GetKeyState(0x14) & 1)
+
+
+def shift_down() -> bool:
+    """Iki Shift'ten biri basili mi -- Turkce dizilimi buna bakiyor."""
+    return is_down(0xA0) or is_down(0xA1)
+
+
+def hard_modifier_down() -> bool:
+    """Ctrl / Alt / Win basili mi.
+
+    Turkce eklentisi bunlara DOKUNMAZ: AHK'de de `$c::` yalnizca sade ve
+    Shift'li basimi yakaliyordu, Ctrl+C kisayolu bozulmasin diye.
+    """
+    return any(is_down(vk) for vk in (0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C))
+
+
 def is_down(vk: int) -> bool:
     """Tus su an fiziksel olarak basili mi. Gonderim oncesi modifier
     tekrarini onlemek icin: kullanici zaten Ctrl'yi tutuyorsa bizim Ctrl'yi

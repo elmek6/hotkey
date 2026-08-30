@@ -34,16 +34,22 @@ def main() -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("cascade")
 
-    # AHK: #SingleInstance Force. Iki ornek ayni anda hook kurarsa hangisinin
-    # tusu once gordugu garanti edilemez; ikinci ornek acilmaz. Yeniden
-    # baslatilan cocuk (--restart) eski ornek kilidi birakana kadar bekler.
+    # AHK: #SingleInstance Force -- "force", yani YENI ornek kazanir. Iki
+    # ornek ayni anda hook kurarsa hangisinin tusu once gordugu garanti
+    # edilemez; bu yuzden hafizadaki eski ornek once duzgunce kapatiliyor
+    # (SingleInstance devralma olayi), kilit sonra aliniyor. Yeniden
+    # baslatilan cocuk (--restart) da ayni yoldan gecer.
     restarting = RESTART_FLAG in sys.argv
     lock = SingleInstance("cascade", wait_seconds=5.0 if restarting else 0.0)
     if not lock.acquired:
-        QMessageBox.warning(None, "cascade", "cascade zaten calisiyor.")
+        QMessageBox.warning(
+            None, "cascade", "Onceki cascade kapanmadi; yenisi baslatilamadi."
+        )
         return 1
 
     cascade = Cascade(app, lock)  # referans sart: PySide6 sinyalleri zayif tutar
+    # Bizden sonra acilan ornek kilidi isterse yerimizi birakiriz.
+    lock.watch_quit(cascade.request_quit)
     try:
         return app.exec()
     finally:

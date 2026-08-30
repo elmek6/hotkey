@@ -9,17 +9,23 @@ uygulamaya kaza tiklamasi gitmez.
 **2. Ayar fazi.** Secim birakilinca:
 
     * 8 tutamac (koseler + kenar ortalari) secimi yeniden boyutlandirir
-    * ortadaki nokta cerceveyi komple tasir
+    * cercevenin ICINDEN tutup surukleyince secim tasinir (modern secim
+      araclarindaki davranis; AHK'de ortadaki nokta bu isi yapiyordu)
     * secimin disina tiklamak yeni secim baslatir
-    * yanindaki cubuktan islem secilir: Kopyala / Sakla / OCR / OCR+
+    * yanindaki cubuktan islem secilir
     * Esc iptal eder
 
 **Orutu neden yalniz 1. fazda** (AHK'deki ayni karar): OCR+ paneli acikken
-cerceve ekranda KALIYOR ve kullanici alani yeniden ayarlayabiliyor. Bu sirada
-ekrani karartmak hem altini gormeyi engellerdi hem de yakalama oncesi
-gizlenecek pencere sayisini artirirdi. Ayar fazinda pencereye MASKE
-uygulaniyor: yalniz cerceve halkasi, tutamaclar ve cubuk tikliyor, geri kalan
-her sey alttaki uygulamaya geciyor.
+cerceve ekranda KALIYOR ve alan yeniden ayarlanabiliyor. Bu sirada ekrani
+karartmak altini gormeyi engellerdi. Ayar fazinda pencereye MASKE
+uygulaniyor: yalniz secim ve cubuk tiklamalari bize gelir, geri kalan her sey
+alttaki uygulamaya gecer.
+
+**Koordinat kurali:** yakalama tamamen Win32 uzerinden, FIZIKSEL pikselde
+yapilir (win32/screen.py) ve pencere de fiziksel piksele oturtulur. Qt'nin
+mantiksal/fiziksel cevrimi hic kullanilmaz -- karisik DPI'da guvenilir
+degil. Widget koordinatlari goruntu pikseline `_scale()` orani ile
+cevrilir, boylece monitor eklense de olcek degisse de kod dogru kalir.
 
 **Yakalama neden tek cekim degil:** ilk OCR dondurulmus goruntuden yapilir
 (orutu vardi, ekran temizdi). Ayar fazinda alan degistirilirse ekran YENIDEN
@@ -30,31 +36,34 @@ OCR onu da okumaya calisir (AHK'de de ayni tuzak vardi).
 
 from __future__ import annotations
 
+import ctypes
+from ctypes import wintypes
 from enum import IntEnum
 
-from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (
-    QColor,
-    QCursor,
-    QGuiApplication,
-    QImage,
-    QPainter,
-    QPen,
-    QPixmap,
-    QRegion,
-)
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
-HANDLE_PX = 5  # tutamac karesinin yarim kenari
+from cascade.win32.screen import grab_virtual
+
+HANDLE_PX = 4  # tutamac karesinin yarim kenari
 GRIP_PX = 8  # tutamaca "isabet etti" sayilan mesafe (AHK: GRAB_TOL)
-CENTER_PX = 7  # ortadaki tasima noktasinin yaricapi
 MIN_SIZE = 8  # bundan kucuk secim "yanlislikla tikladim" sayilir (AHK: MIN_SIZE)
 GRIP_MIN = 44  # bu boyutun altinda tutamaclar ust uste biner: yalniz cerceve
 SETTLE_MS = 70  # cerceve gizlendikten sonra DWM'in temiz kareyi cizme suresi
 
 VEIL = QColor(0, 0, 0, 90)  # AHK: DIM_ALPHA 90
-BORDER = QColor(0, 174, 255)
-FILL = QColor(0, 174, 255, 26)
+# AHK'nin secim cercevesi KIRMIZIYDI (screen_ocr.ahk'deki "kirmizi cerceve"
+# notu). Ayni renk: ekranin geri kalaninda nadir, her zaman secilir.
+BORDER = QColor(220, 30, 40)
+FILL = QColor(220, 30, 40, 22)
+# Ayar fazinda secimin ici: gorunmez ama SIFIR DEGIL. Pencere katmanli
+# (WA_TranslucentBackground) oldugu icin tamamen saydam piksel fareyi alta
+# geciriyor; alfa 0 birakilirsa cercevenin ICINDEN tutup tasima calismaz.
+SESSION_FILL = QColor(0, 0, 0, 1)
+
+HWND_TOPMOST = -1
+SWP_SHOWWINDOW = 0x0040
 
 
 class Grip(IntEnum):
@@ -69,7 +78,7 @@ class Grip(IntEnum):
     BOTTOM = 6
     BOTTOM_LEFT = 7
     LEFT = 8
-    CENTER = 9  # ortadaki nokta: komple tasima
+    MOVE = 9  # cercevenin ici: komple tasima
 
 
 _CURSORS = {
@@ -81,7 +90,7 @@ _CURSORS = {
     Grip.BOTTOM: Qt.CursorShape.SizeVerCursor,
     Grip.LEFT: Qt.CursorShape.SizeHorCursor,
     Grip.RIGHT: Qt.CursorShape.SizeHorCursor,
-    Grip.CENTER: Qt.CursorShape.SizeAllCursor,
+    Grip.MOVE: Qt.CursorShape.SizeAllCursor,
 }
 
 #: (etiket, eylem kimligi) -- app.py `done` sinyalinde bu kimligi alir.
@@ -89,6 +98,7 @@ _CURSORS = {
 ACTIONS = (
     ("\U0001f4cb Kopyala", "copy"),
     ("\U0001f4be Sakla", "save"),
+    ("\U0001f5bc️ Gorsellere ekle", "clip_image"),
     ("\U0001f524 OCR", "ocr"),
     ("\U0001f9e0 OCR+", "ocr_adv"),
 )
@@ -114,14 +124,44 @@ class SnipOverlay(QWidget):
             | Qt.WindowType.Tool,
         )
         self.setMouseTracking(True)
+        # Ayar fazinda (OCR+) ekran goruntusu CIZILMEZ -- alttaki uygulama
+        # gorunmeli. Saydamlik olmadan boyanmayan alan pencerenin duz
+        # arkaplaniyla, yani BEYAZLA doluyordu.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._shot: QPixmap | None = None
-        self._dpr = 1.0
-        self._rect = QRect()  # secim, mantiksal pencere koordinati
+        self._rect = QRect()  # secim, widget koordinati
         self._grip = Grip.NONE  # su an suruklenen tutamac
         self._anchor = QPoint()  # surukleme baslangici
         self._rect_at_press = QRect()
         self._picking = False  # ilk secim suruklemesi mi
         self._session = False  # OCR+ acik: cerceve kalir, orutu kalkar
+        self._virtual = (0, 0, 0, 0)  # sanal masaustu, FIZIKSEL piksel
+        #: Yeniden yakalamadan once gizlenecek DIS pencereler (OCR paneli).
+        #: app.py doldurur; geri gosteren bir cagrilabilir dondurmeli.
+        self.hide_others = None
+        # F14 ile secim: tus BASILI oldugu surece fare hareketi dikdortgeni
+        # buyutur, tus birakilinca secim biter. Tusun durumu zamanlayiciyla
+        # yoklaniyor: pencere odakli oldugu icin tus olaylari Qt'ye degil
+        # hook'a gidiyor.
+        self._key_vk = 0
+        #: Tusun hala basili olup olmadigini soyleyen cagrilabilir. app.py
+        #: dispatcher'in izleyicisini veriyor: GetAsyncKeyState burada
+        #: yaniltiyor, cunku LL hook'ta YUTULAN keydown Windows'un tus
+        #: durumu tablosunu guncellemiyor -- F14 hic basilmamis gorunuyor ve
+        #: ilk yoklamada secim aninda bitiyordu.
+        self._key_held = None
+        #: Suruklemenin BASLADIGI fiziksel ekran noktasi. Widget
+        #: koordinatina hemen cevrilemez: `start()` icinde pencere daha yeni
+        #: yerlestirilmis olur ve `self.width()` eski degeri dondurur --
+        #: cevrim yanlis capa uretirdi. Ilk kullanimda ceviriyoruz.
+        self._key_origin: tuple[int, int] | None = None
+        #: `start()`e verilen tus ve yoklayicisi -- `repick()` bunlari
+        #: kullanir: secim bittikten sonra `_key_vk` sifirlaniyor.
+        self._start_vk = 0
+        self._start_held = None
+        self._key_timer = QTimer(self)
+        self._key_timer.setInterval(15)
+        self._key_timer.timeout.connect(self._poll_key)
 
         self._bar = QWidget(self)
         layout = QHBoxLayout(self._bar)
@@ -146,21 +186,152 @@ class SnipOverlay(QWidget):
 
     # ---- disari ----
 
-    def start(self) -> None:
-        """Ekrani dondurur ve secim fazinda acilir."""
+    def start(
+        self,
+        key_vk: int = 0,
+        origin: tuple[int, int] | None = None,
+        key_held=None,
+    ) -> None:
+        """Ekrani dondurur ve secim fazinda acilir.
+
+        `key_vk` verilirse (F14) secim O TUSLA yapilir: fare dugmesine hic
+        basilmadan hareket dikdortgeni buyutur, tus birakilinca secim
+        tamamlanir ve islem cubugu acilir. `origin` suruklemenin basladigi
+        FIZIKSEL ekran noktasidir -- cerceve oradan baslar, pencerenin
+        acildigi andaki imlec konumundan degil. Verilmezse eski davranis:
+        sol fare tusuyla surukleyerek secim.
+        """
         self._session = False
         self._rect = QRect()
         self._grip = Grip.NONE
         self._picking = False
         self._bar.hide()
         self.clearMask()
-
-        virtual = self._capture()
-        self.setGeometry(virtual)
+        self._capture()
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.show()
+        # SIRA ONEMLI: yerlestirme show()'dan SONRA. Once cagrilirsa Qt
+        # pencereyi kendi hesapladigi geometriyle gosterip uzerine yaziyor.
+        self._place()
         self.raise_()
         self.activateWindow()
+        self._key_vk = key_vk
+        self._key_held = key_held
+        # Tus secim bitince sifirlaniyor; yeniden secim (`repick`) icin
+        # hangi tusla baslandigi ayrica saklaniyor.
+        self._start_vk = key_vk
+        self._start_held = key_held
+        if key_vk:
+            # Baslangic noktasi verilmediyse imlecin su anki yeri: cagiran
+            # tarafin noktayi bilmedigi durumda secim yine de baslamali.
+            if origin is None:
+                point = wintypes.POINT()
+                ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
+                origin = (point.x, point.y)
+            self._key_origin = origin
+            self._picking = True
+            self._key_timer.start()
+
+    def _to_widget(self, screen_x: int, screen_y: int) -> QPoint:
+        """FIZIKSEL ekran noktasini widget koordinatina cevirir.
+
+        Pencere sanal masaustune fiziksel pikselde oturuyor ama Qt widget
+        koordinatlari mantiksal; oran `_scale()` ile ayni (ters yonde).
+        """
+        sx, sy = self._scale()
+        x, y, _w, _h = self._virtual
+        return QPoint(round((screen_x - x) / sx), round((screen_y - y) / sy))
+
+    def _cursor_pos(self) -> QPoint:
+        """Imlecin su anki konumu, widget koordinatinda."""
+        point = wintypes.POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
+        return self._to_widget(point.x, point.y)
+
+    def _resolve_anchor(self) -> None:
+        """Bekleyen baslangic noktasini widget koordinatina cevirir.
+
+        Ilk yoklamada yapiliyor: o an pencere yerlesmis, `self.width()`
+        gercek degeri veriyor.
+        """
+        if self._key_origin is None:
+            return
+        self._anchor = self._to_widget(*self._key_origin)
+        self._rect = QRect(self._anchor, self._anchor)
+        self._key_origin = None
+
+    def _poll_key(self) -> None:
+        """Secimi baslatan tus (F14) hala basili mi?
+
+        Tusun BIRAKMA olayi Qt'ye degil hook'a gidiyor; durumu `key_held`
+        cagrilabiliri soyluyor (dispatcher izliyor). Birakildiginda secim,
+        fare surukleme birakilmis gibi tamamlanir.
+
+        Yedek yol GetAsyncKeyState: YALNIZCA `key_held` verilmediginde.
+        Yutulan bir tusu asla "basili" gostermez, o yuzden tek basina
+        birakilirsa secim ilk yoklamada bitiyordu.
+        """
+        if not self._key_vk:
+            self._key_timer.stop()
+            return
+        held = (
+            self._key_held()
+            if self._key_held is not None
+            else bool(ctypes.windll.user32.GetAsyncKeyState(self._key_vk) & 0x8000)
+        )
+        if held:
+            self._resolve_anchor()
+            self._rect = QRect(self._anchor, self._cursor_pos())
+            self.update()
+            return
+        self._key_timer.stop()
+        self._key_vk = 0
+        self._key_held = None
+        self._key_origin = None
+        self._settle_pick()
+        # Ayar fazinda tusla yapilan yeni secim de paneli tazelemeli --
+        # fare ile alan degistirmenin (mouseReleaseEvent) karsiligi.
+        if self._session and not self._rect.isEmpty():
+            self._recapture(self._emit_rect_changed)
+
+    def _settle_pick(self) -> None:
+        """Secim suruklemesi bitti: cok kucukse iptal, degilse cubugu ac."""
+        self._picking = False
+        self._grip = Grip.NONE
+        rect = self._rect.normalized()
+        if rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
+            self._rect = QRect()
+            self._update_mask()
+            self.update()
+            return
+        self._rect = rect
+        self._place_bar()
+        self._update_mask()
+        self.update()
+
+    def repick(self, origin: tuple[int, int] | None = None) -> None:
+        """Secim ekranda dururken tusa (F14) yeniden basildi: bastan sec.
+
+        Ayar fazinda (OCR+ acikken) da calisir; maske kaldiriliyor ki yeni
+        dikdortgen tum ekranda cizilebilsin, secim bitince `_settle_pick`
+        maskeyi geri koyuyor.
+        """
+        if not self.isVisible() or not self._start_vk:
+            return
+        self._bar.hide()
+        self.clearMask()
+        self._grip = Grip.NONE
+        self._picking = True
+        self._key_vk = self._start_vk
+        self._key_held = self._start_held
+        if origin is None:
+            point = wintypes.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
+            origin = (point.x, point.y)
+        self._key_origin = origin
+        self._rect = QRect()
+        self.update()
+        self._key_timer.start()
 
     def end_session(self) -> None:
         """OCR+ paneli kapandi: cerceveyi de kaldir."""
@@ -169,51 +340,68 @@ class SnipOverlay(QWidget):
 
     # ---- ekran yakalama ----
 
-    def _capture(self) -> QRect:
-        """Tum ekranlari tek bir pixmap'e alir; sanal masaustunu doner.
+    def _capture(self) -> None:
+        """Tum ekranlari fiziksel pikselde tek karede alir."""
+        image, self._virtual = grab_virtual()
+        self._shot = QPixmap.fromImage(image) if not image.isNull() else None
 
-        Her ekran KENDI olcegiyle yakalanir ve HEDEF DIKDORTGENE cizilir.
-        Boylece farkli DPI'li monitorler dogru boyutta birlesir: eskiden
-        yakalanan pixmap'in kendi devicePixelRatio'su korundugu icin Qt onu
-        MANTIKSAL boyutunda ciziyor, goruntu olcek kadar kuculuyordu
-        ("her monitorde icerik unzoom gibi kuculuyor").
+    def _place(self) -> None:
+        """Pencereyi sanal masaustune BIREBIR oturtur.
+
+        Qt'nin `setGeometry`'si degil `SetWindowPos` kullaniliyor: Qt
+        mantiksal piksel bekler ve karisik DPI'da o cevrim tutmuyor (bu
+        makinede sanal masaustunu 3338 mantiksal sayiyor, gercegi 3840
+        fiziksel). Fiziksel dikdortgeni dogrudan vermek her monitor
+        duzeninde dogru sonuc veriyor.
         """
-        primary = QGuiApplication.primaryScreen()
-        virtual = primary.virtualGeometry()
-        self._dpr = primary.devicePixelRatio()
-
-        shot = QPixmap(
-            int(virtual.width() * self._dpr), int(virtual.height() * self._dpr)
+        x, y, width, height = self._virtual
+        if width <= 0 or height <= 0:
+            return
+        ctypes.windll.user32.SetWindowPos(
+            ctypes.c_void_p(int(self.winId())),
+            ctypes.c_void_p(HWND_TOPMOST),
+            x, y, width, height,
+            SWP_SHOWWINDOW,
         )
-        shot.fill(Qt.GlobalColor.black)
-        painter = QPainter(shot)
-        for screen in QGuiApplication.screens():
-            grab = screen.grabWindow(0)
-            grab.setDevicePixelRatio(1.0)  # gercek piksel boyutunda cizilsin
-            geometry = screen.geometry()
-            target = QRectF(
-                (geometry.x() - virtual.x()) * self._dpr,
-                (geometry.y() - virtual.y()) * self._dpr,
-                geometry.width() * self._dpr,
-                geometry.height() * self._dpr,
-            )
-            painter.drawPixmap(target, grab, QRectF(grab.rect()))
-        painter.end()
-        shot.setDevicePixelRatio(self._dpr)
-        self._shot = shot
-        return virtual
+
+    def _scale(self) -> tuple[float, float]:
+        """Widget koordinatindan goruntu pikseline cevrim orani.
+
+        Pencere sanal masaustunun tamamini kapladigi ve goruntu de o alanin
+        tamami oldugu icin oran basitce boyut bolumu. Qt'nin dpr'sine hic
+        bakilmiyor -- olcek degisse de bu oran dogru kalir.
+        """
+        if self._shot is None or not self.width() or not self.height():
+            return (1.0, 1.0)
+        return (self._shot.width() / self.width(), self._shot.height() / self.height())
 
     def _crop(self) -> QImage | None:
         """Secili alani kaynak pikselde kirpar."""
+        return self._crop_screen(self._screen_rect())
+
+    def _screen_rect(self) -> QRect:
+        """Secimin FIZIKSEL ekran dikdortgeni (sanal masaustu koordinati).
+
+        Yeniden yakalamanin dayanagi bu: widget koordinati gecici: pencere
+        gizlenip gosterildiginde Qt'nin `width()` degeri bir sonraki olay
+        dongusune kadar ESKI kalir, o an hesaplanan olcek yanlis cikar ve
+        kirpim bambaska bir yere -- cok monitorlu duzende oteki ekrana --
+        duserdi. Fiziksel dikdortgen bir kez, geometri otururken hesaplanir.
+        """
+        sx, sy = self._scale()
+        x, y, _w, _h = self._virtual
         rect = self._rect.normalized()
-        if self._shot is None or rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
-            return None
-        device = QRect(
-            int(rect.x() * self._dpr),
-            int(rect.y() * self._dpr),
-            int(rect.width() * self._dpr),
-            int(rect.height() * self._dpr),
+        return QRect(
+            round(x + rect.x() * sx), round(y + rect.y() * sy),
+            round(rect.width() * sx), round(rect.height() * sy),
         )
+
+    def _crop_screen(self, box: QRect) -> QImage | None:
+        """Fiziksel ekran dikdortgenini son karenin uzerinden kirpar."""
+        if self._shot is None or box.width() < MIN_SIZE or box.height() < MIN_SIZE:
+            return None
+        x, y, _w, _h = self._virtual
+        device = QRect(box.x() - x, box.y() - y, box.width(), box.height())
         image = self._shot.copy(device).toImage()
         image.setDevicePixelRatio(1.0)  # kaydedilen dosya gercek piksel
         return image
@@ -223,16 +411,27 @@ class SnipOverlay(QWidget):
 
         Ayar fazinda alan degistiginde gerekiyor: orutu kalkmis oldugu icin
         goruntunun uzerinde bizim cercevemiz duruyor ve kirpim ona bulasirdi.
+
+        Yalniz cerceve degil OCR PANELI de gizleniyor (`hide_others`): panel
+        ustte duran bir pencere ve secimin uzerine denk gelirse yeni kare
+        onu icerir -- OCR kendi yazdigi metni tekrar okuyup "alakasiz"
+        sonuc uretiyordu.
         """
+        # Dikdortgen HENUZ, geometri otururken fiziksel koordinata cevriliyor:
+        # gizle/goster sonrasinda widget olcegi bir sure yanlis kaliyor.
+        box = self._screen_rect()
         self.hide()
+        restore = self.hide_others() if self.hide_others is not None else None
 
         def grab() -> None:
-            virtual = self._capture()
-            self.setGeometry(virtual)
+            self._capture()
             self.show()
+            self._place()  # monitor duzeni degismis olabilir
             self.raise_()
             self._update_mask()
-            then()
+            if restore is not None:
+                restore()
+            then(box)
 
         QTimer.singleShot(SETTLE_MS, grab)
 
@@ -243,8 +442,7 @@ class SnipOverlay(QWidget):
         if image is None:
             return
         if action in KEEP_OPEN:
-            # AHK ayar fazi: orutu kalkar, cerceve ekranda kalir, tiklamalar
-            # cerceve disinda alttaki uygulamaya gecer.
+            # AHK ayar fazi: orutu kalkar, cerceve ekranda kalir.
             self._session = True
             self._update_mask()
             self.update()
@@ -257,8 +455,6 @@ class SnipOverlay(QWidget):
         rect = self._rect.normalized()
         if rect.isEmpty():
             return Grip.NONE
-        if (pos - rect.center()).manhattanLength() <= CENTER_PX + 4:
-            return Grip.CENTER
         near_l = abs(pos.x() - rect.left()) <= GRIP_PX
         near_r = abs(pos.x() - rect.right()) <= GRIP_PX
         near_t = abs(pos.y() - rect.top()) <= GRIP_PX
@@ -281,12 +477,15 @@ class SnipOverlay(QWidget):
             return Grip.LEFT
         if near_r and in_y:
             return Grip.RIGHT
+        # Kenarlarin hicbirine yakin degil ama cercevenin icinde: tasima.
+        if rect.contains(pos):
+            return Grip.MOVE
         return Grip.NONE
 
     def _apply_grip(self, pos: QPoint) -> None:
         delta = pos - self._anchor
         rect = QRect(self._rect_at_press)
-        if self._grip == Grip.CENTER:
+        if self._grip == Grip.MOVE:
             rect.translate(delta)
             # Cerceve ekran disina tasmasin: goruntusu olmayan alan kirpilamaz.
             rect.moveLeft(max(0, min(rect.left(), self.width() - rect.width())))
@@ -315,27 +514,17 @@ class SnipOverlay(QWidget):
         self._bar.raise_()
 
     def _update_mask(self) -> None:
-        """Ayar fazinda tiklanabilir bolgeyi cerceve + cubukla sinirlar.
+        """Ayar fazinda tiklanabilir bolgeyi secim + cubukla sinirlar.
 
         Maske olmasa tam ekran pencere butun tiklamalari yutardi ve OCR+
-        paneli acikken alttaki uygulamayla calisilamazdi.
+        paneli acikken alttaki uygulamayla calisilamazdi. Secimin ICI de
+        maskeye dahil: cerceve icinden tutup tasima oyle calisiyor.
         """
         if not self._session:
             self.clearMask()
             return
         rect = self._rect.normalized()
-        outer = rect.adjusted(-GRIP_PX, -GRIP_PX, GRIP_PX, GRIP_PX)
-        inner = rect.adjusted(GRIP_PX, GRIP_PX, -GRIP_PX, -GRIP_PX)
-        region = QRegion(outer)
-        if inner.width() > 0 and inner.height() > 0:
-            region = region.subtracted(QRegion(inner))
-        center = rect.center()
-        region = region.united(
-            QRegion(
-                center.x() - CENTER_PX, center.y() - CENTER_PX,
-                CENTER_PX * 2, CENTER_PX * 2, QRegion.RegionType.Ellipse,
-            )
-        )
+        region = QRegion(rect.adjusted(-GRIP_PX, -GRIP_PX, GRIP_PX, GRIP_PX))
         if self._bar.isVisible():
             region = region.united(QRegion(self._bar.geometry()))
         self.setMask(region)
@@ -364,6 +553,7 @@ class SnipOverlay(QWidget):
     def mouseMoveEvent(self, event) -> None:
         pos = event.position().toPoint()
         if self._picking:
+            self._resolve_anchor()  # F14 ile secimde capa henuz cevrilmemis olabilir
             self._rect = QRect(self._anchor, pos)
             self.update()
             return
@@ -385,24 +575,16 @@ class SnipOverlay(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         adjusted = self._grip != Grip.NONE
-        self._picking = False
-        self._grip = Grip.NONE
-        rect = self._rect.normalized()
-        if rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
-            self._rect = QRect()  # tiklama: secim yok, beklemeye devam
-            self._update_mask()
-            self.update()
+        self._settle_pick()
+        if self._rect.isEmpty():  # tiklama: secim yok, beklemeye devam
             return
-        self._rect = rect
-        self._place_bar()
-        self._update_mask()
-        self.update()
         if self._session and adjusted:
             # Alan degisti: ekrani temiz haliyle yeniden cekip paneli tazele.
             self._recapture(self._emit_rect_changed)
 
-    def _emit_rect_changed(self) -> None:
-        image = self._crop()
+    def _emit_rect_changed(self, box: QRect) -> None:
+        """Yeniden yakalama bitti: AYNI fiziksel dikdortgeni kirpip yolla."""
+        image = self._crop_screen(box)
         if image is not None:
             self.rect_changed.emit(image)
 
@@ -419,7 +601,10 @@ class SnipOverlay(QWidget):
         if not self._session:
             if self._shot is None:
                 return
-            painter.drawPixmap(0, 0, self._shot)
+            # Goruntu widget'in TAMAMINI kaplayacak sekilde ciziliyor: pencere
+            # sanal masaustune birebir oturdugu icin bu 1:1 esleme demek,
+            # Qt'nin dpr'sinden bagimsiz.
+            painter.drawPixmap(self.rect(), self._shot)
             # Karartma: secim disindaki dort serit. Secimin ici dokunulmadan
             # kalir -- kullanici ne kirpacagini oldugu gibi gorur.
             if rect.isEmpty():
@@ -444,11 +629,17 @@ class SnipOverlay(QWidget):
             painter.end()
             return
 
+        if self._session:
+            # Gorunmez dolgu: cercevenin ICI fareyi yakalasin (bkz.
+            # SESSION_FILL). Boyanmazsa katmanli pencerede tiklama alta
+            # gecer ve "ortasindan tutup tasima" calismaz.
+            painter.fillRect(rect, SESSION_FILL)
+
         painter.setPen(QPen(BORDER, 1))
         painter.drawRect(rect)
 
-        # Tutamaclar + ortadaki tasima noktasi. Ilk surukleme sirasinda
-        # gosterilmez; cok kucuk secimde ust uste binerler (AHK: GRIP_MIN).
+        # Tutamaclar. Ilk surukleme sirasinda gosterilmez; cok kucuk secimde
+        # ust uste binerler (AHK: GRIP_MIN).
         if not self._picking and min(rect.width(), rect.height()) >= GRIP_MIN:
             painter.setBrush(BORDER)
             for point in self._grip_points(rect):
@@ -456,12 +647,14 @@ class SnipOverlay(QWidget):
                     point.x() - HANDLE_PX, point.y() - HANDLE_PX,
                     HANDLE_PX * 2, HANDLE_PX * 2,
                 )
-            painter.drawEllipse(rect.center(), CENTER_PX, CENTER_PX)
 
         if not self._session:
+            sx, sy = self._scale()
             painter.setPen(QColor("#e6edf3"))
             painter.drawText(
-                rect.left(), max(14, rect.top() - 6), f"{rect.width()} x {rect.height()}"
+                rect.left(),
+                max(14, rect.top() - 6),
+                f"{round(rect.width() * sx)} x {round(rect.height() * sy)}",
             )
         painter.end()
 
@@ -477,6 +670,9 @@ class SnipOverlay(QWidget):
     def closeEvent(self, event) -> None:
         """Kapanisi app.py'ye bildir: pencere acikken kisayollar susuyordu."""
         self._session = False
+        self._key_timer.stop()
+        self._key_vk = 0
+        self._key_origin = None
         self._shot = None  # ekran goruntusu bellekte bosuna durmasin
         self._bar.hide()
         self.clearMask()

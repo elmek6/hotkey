@@ -38,6 +38,8 @@ user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 user32.GetWindowTextW.restype = ctypes.c_int
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
 user32.GetWindowTextLengthW.restype = ctypes.c_int
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetClassNameW.restype = ctypes.c_int
 user32.IsWindow.argtypes = [wintypes.HWND]
 user32.IsWindow.restype = wintypes.BOOL
 user32.SetWindowPos.argtypes = [
@@ -61,6 +63,19 @@ def window_title(hwnd: int) -> str:
         return ""
     buffer = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buffer, length + 1)
+    return buffer.value
+
+
+def window_class(hwnd: int) -> str:
+    """AHK: WinGetClass. Uygulama profilleri pencereyi bununla taniyor.
+
+    Tampon 256: Win32 sinif adi en fazla 256 karakter (RegisterClass
+    siniri), bu yuzden tek atista okumak yeterli.
+    """
+    if not hwnd:
+        return ""
+    buffer = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buffer, 256)
     return buffer.value
 
 
@@ -141,8 +156,6 @@ class WindowPins:
         self._pins.clear()
 
 
-# TODO(AHK): menus.ahk `menuAppProfile` port edilmedi -- aktif pencerenin
-#     uygulama profili ve kisayollari (app_shorts.ahk, bilincli atlandi).
 # TODO(AHK): menus.ahk `setMenuDefault` sirali kalin-oge secimi port edilmedi.
 #     AHK'de menude tek bir kalin oge vardi ve adaylar oncelik siralaniyordu
 #     (1 sabitlenmis aktif pencere, 2 profilsiz pencerede "Ekle", 3 bos "Add").
