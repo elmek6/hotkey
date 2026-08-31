@@ -274,7 +274,7 @@ SYS_COMMANDS_MENU = (
     ("2: Show stats", "errors.show"),
     # app_shorts.ahk portu: profiller Files/profiles.json'dan okunuyor,
     # duzenleme dosyanin kendisinden (AHK'nin yonetici GUI'si port edilmedi).
-    ("3: Profile manager", "shorts.edit"),
+    ("3: Profile manager", "shorts.manage"),
     ("4: Key history", "app.monitor"),
     ("5: Memory slots", "memslots.start"),
     # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma.
@@ -283,8 +283,9 @@ SYS_COMMANDS_MENU = (
     ("8: F14 menu", "menu.slots"),
     ("9: Pause script", "app.pause"),
     ("0: Exit script", "app.exit"),
-    # TODO(AHK): repository.ahk (Files/repository.json) -- kod parcasi deposu.
-    ("r. Repository GUI", "yok:repository.ahk"),
+    # repository.ahk'nin veri yarisi port edildi (cascade/repository.py);
+    # yonetici GUI'si degil -- duzenleme dosyanin kendisinden.
+    ("r. Repository (repository.md)", "repository.edit"),
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
     ("i: Incognito", "incognito.open"),
     ("a: TrayTip test", "notify:Mesaj icerigi"),
@@ -609,7 +610,7 @@ def scroll_lock_menu(layout: int) -> tuple:
     Menu yalnizca "hangi Turkce seti" sorusunu soruyor; buradan bir dizilim
     secmek Turkceyi acmaz, sadece kisa basinca hangisinin gelecegini belirler.
     """
-    rows: list[tuple] = []
+    rows: list[tuple | None] = []  # None = yatay ayrac (ui/menu.py)
     for number, (name, note) in enumerate(TURKISH_LAYOUTS, start=1):
         marks = (CHECKED,) if layout == number else ()
         rows.append((f"{name} -- {note}", f"turkish.set:{number}", *marks))

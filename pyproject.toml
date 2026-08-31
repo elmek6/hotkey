@@ -45,3 +45,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 pythonVersion = "3.13"
 include = ["cascade", "tests"]
 typeCheckingMode = "standard"
+# Sanal ortami ELLE gostermek gerekiyor: aksi halde pyright sistem
+# Python'ini kullanip PySide6/PIL/pytest'i "bulunamadi" diye isaretliyor
+# ve gercek hatalar yuzlerce sahte hatanin arasinda kayboluyor.
+venvPath = "."
+venv = ".venv"

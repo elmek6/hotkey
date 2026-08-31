@@ -16,6 +16,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
+from cascade import theme
+
 #: (etiket, sinyal adi) -- sira AHK'deki dugme sirasi.
 BUTTONS = (
     ("▶️  Devam et", "resume"),
@@ -44,7 +46,7 @@ class PauseDialog(QWidget):
         layout.setSpacing(8)
 
         title = QLabel("Program duraklatildi -- tuslar dokunulmadan geciyor.")
-        title.setStyleSheet("color: #8b949e;")
+        theme.muted(title)
         layout.addWidget(title)
 
         signals = {
@@ -64,7 +66,7 @@ class PauseDialog(QWidget):
 
         self._message = QLabel("")
         self._message.setWordWrap(True)
-        self._message.setStyleSheet("color: #f85149;")
+        self._message.setStyleSheet(f"color: {theme.DANGER};")
         self._message.hide()
         layout.addWidget(self._message)
 

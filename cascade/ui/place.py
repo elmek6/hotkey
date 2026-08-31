@@ -18,7 +18,9 @@ from PySide6.QtWidgets import QApplication, QWidget
 def center_on_cursor_screen(widget: QWidget) -> None:
     """Imlecin oldugu ekranda ortalar; ekrandan buyukse kucultup sigdirir."""
     app = QApplication.instance()
-    if app is None:
+    # `instance()` QCoreApplication soz veriyor; ekran sorulari yalniz
+    # QApplication'da var (konsol uygulamasinda ekran kavrami yok).
+    if not isinstance(app, QApplication):
         return
     screen = app.screenAt(QCursor.pos()) or app.primaryScreen()
     if screen is None:

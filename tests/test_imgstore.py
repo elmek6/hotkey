@@ -244,3 +244,35 @@ def test_crc32_ntdll_ile_ayni():
     ntdll.RtlComputeCrc32.restype = ctypes.c_uint32
     expected = ntdll.RtlComputeCrc32(0, buffer, len(data))
     assert zlib.crc32(data) & 0xFFFFFFFF == expected
+
+
+# ---- cokme onarimi ----
+
+
+def test_yetim_slot_dusurulur(tmp_path):
+    """Yazma sirasi blob -> slot -> header; COMMIT header. Cokme slot ile
+    header arasina duserse `dat_head` geri doner ve SONRAKI gorsel ayni
+    ofsete yazilir -- eski slot artik baskasinin blob'unu gosterir.
+    Blob header'indaki sahip etiketi bunu yakalamali.
+    """
+
+
+    store = ClipImageStore(tmp_path)
+    kurban = store.save_image(Image.new("RGBA", (8, 8), (255, 0, 0, 255)))
+    assert kurban >= 0
+
+    # Cokmeyi taklit et: header'i eski head'e dondur, sonra yeni gorsel yaz.
+    store.dat_head = store.slots[kurban].dat_offset
+    store.dat_used = 0
+    yeni = store.save_image(Image.new("RGBA", (8, 8), (0, 255, 0, 255)))
+    assert yeni >= 0 and yeni != kurban
+    assert store.slots[kurban].dat_offset == store.slots[yeni].dat_offset
+    store.close()
+
+    # Yeniden acilista yetim kayit dusmeli, saglam olan kalmali.
+    tekrar = ClipImageStore(tmp_path)
+    kalanlar = [record.slot for record in tekrar.records()]
+    assert kurban not in kalanlar
+    assert yeni in kalanlar
+    assert tekrar.read_png(yeni)
+    tekrar.close()

@@ -218,6 +218,40 @@ class ClipImageStore:
             self.slots[slot] = record
             self.by_hash[record.hash] = slot
 
+        self._drop_overwritten()
+
+    def _drop_overwritten(self) -> None:
+        """Blob'u BASKA bir kaydin altinda kalmis slotlari temizler.
+
+        Yazma sirasi blob -> slot -> header ve COMMIT header. Cokme slot ile
+        header arasina duserse `dat_head` eski degerine doner: bir sonraki
+        gorsel AYNI ofsete yazilir, ama once yazilan slot hala oraya
+        bakmaktadir. Sonuc iki slotun tek blob'u paylasmasi -- birinin
+        gosterdigi goruntu artik digerinin.
+
+        Kanit ucuz ve kesin: her blob'un header'inda SAHIBININ slot numarasi
+        duruyor (`_stamp_tag`). Tag tutmuyorsa kayit yetimdir. Yalniz index
+        temizlenir, ring'e dokunulmaz -- alan zaten yeni sahibinin.
+        """
+        if self._dat is None:
+            return
+        for slot, record in enumerate(self.slots):
+            if record is None:
+                continue
+            self._dat.seek(record.dat_offset)
+            head = self._dat.read(BLOB_HDR)
+            if len(head) == BLOB_HDR:
+                total, tag = _BLOB.unpack(head)
+                if tag == slot and total >= record.dat_size + BLOB_HDR:
+                    continue
+            log.warning(
+                "gorsel deposu: slot %d yetim (ofset %d baskasina ait), dusuruldu",
+                slot, record.dat_offset,
+            )
+            # stamp_pad=False: blob artik BIZIM degil, PAD damgalamak yeni
+            # sahibinin kaydini olduruerdu.
+            self._free_slot(slot, stamp_pad=False)
+
     @staticmethod
     def _parse_meta(meta: bytes, slot: int) -> ImageRecord:
         (state, type_, count, id_, ts, hash_, offset, size, w, h, bpp, created) = (

@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from cascade import theme
 from cascade.imgstore import THUMB_SIZE, ClipImageStore, ImageRecord, thumb_to_image
 from cascade.store import _from_ahk_ms
 from cascade.ui.place import center_on_cursor_screen
@@ -220,7 +221,8 @@ class ClipImages(QWidget):
 
         self.info = QLabel("")
         self.stats = QLabel("")
-        self.stats.setStyleSheet("color: #6e7681; font-size: 11px;")
+        self.stats.setStyleSheet("font-size: 11px;")
+        theme.muted(self.stats)
 
         layout = QVBoxLayout(self)
         layout.addWidget(splitter, 1)

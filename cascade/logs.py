@@ -106,6 +106,13 @@ class ErrorStore(logging.Handler):
     def subscribe(self, callback: Callable[[str, str], None]) -> None:
         self._subs.append(callback)
 
+    def unsubscribe(self, callback: Callable[[str, str], None]) -> None:
+        """Abonelikten cikar. KAPANISTA SART: `errors` modul duzeyinde tek
+        ornek, yani kapanan bir Cascade abone kalirsa olu nesnesine hata
+        akmaya devam eder (ve o nesne pencere aciyor)."""
+        with contextlib.suppress(ValueError):
+            self._subs.remove(callback)
+
     @property
     def items(self) -> tuple[ErrorRecord, ...]:
         with self._lock:

@@ -8,7 +8,7 @@ callback'inin icinde calisan kod.
 import queue
 
 from cascade.core.cascade import CascadeMachine
-from cascade.core.gesture import GestureTracker
+from cascade.core.hot_vectors import HotVectors
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import VK_WHEEL_UP, register_name
 from cascade.dispatch import Dispatcher
@@ -41,7 +41,7 @@ def make_dispatcher() -> Dispatcher:
         hotkeys=table,
         # Bos jest izleyicisi: `has()` her tusa False der, yani jest yolu
         # kapali. Jestin kendi testleri tests/test_gesture.py icinde.
-        gestures=GestureTracker(),
+        gestures=HotVectors(),
         actions=queue.Queue(),
         seen=queue.Queue(),
         menu_open=lambda: False,
@@ -163,26 +163,27 @@ def test_kombosuz_gecirgen_onek_sessiz_kalir():
 
 
 def test_basili_tutma_esikte_calisir():
-    """AHK cascadeCaret: kisa basim `^` yazar, basili tutma menu acar."""
+    """AHK cascadeCaret: kisa basim `^` yazar, basili tutma menu acar.
+
+    Esik BIRAKMA aninda olculuyor (dispatch.tick degil, PrefixTracker.key_up):
+    tus basiliyken tetiklemek jesti ortasindan kesiyordu.
+    """
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
-    assert box.tick(0.2) == []  # esik 350 ms
-    assert box.tick(0.4) == [(CARET, "menu.clip")]
+    assert actions(feed(box, CARET, False, 0.4)) == ["menu.clip"]
 
 
-def test_basili_tutma_bir_kez_calisir():
+def test_esik_altinda_birakinca_caret_yazilir():
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
-    box.tick(0.4)
-    assert box.tick(0.5) == []
+    assert actions(feed(box, CARET, False, 0.2)) != ["menu.clip"]  # esik 350 ms
 
 
 def test_basili_tutmadan_sonra_caret_yazilmaz():
-    """Menu acildiktan sonra tusu birakinca `^` ekrana dusmemeli."""
+    """Menu acilinca `^` ekrana DUSMEMELI: iki eylem birden calismasin."""
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)
-    box.tick(0.4)
-    assert actions(feed(box, CARET, False, 0.5)) == []
+    assert actions(feed(box, CARET, False, 0.4)) == ["menu.clip"]
 
 
 def test_kombo_yapilinca_basili_tutma_calismaz():
@@ -205,7 +206,7 @@ def make_drag_dispatcher() -> Dispatcher:
     return Dispatcher(
         machine=CascadeMachine(),
         hotkeys=table,
-        gestures=GestureTracker(),
+        gestures=HotVectors(),
         actions=queue.Queue(),
         seen=queue.Queue(),
         menu_open=lambda: False,
@@ -280,7 +281,7 @@ def make_dispatcher_with_cascade() -> Dispatcher:
     return Dispatcher(
         machine=CascadeMachine({f15_def.key: f15_def}),
         hotkeys=table,
-        gestures=GestureTracker(),
+        gestures=HotVectors(),
         actions=queue.Queue(),
         seen=queue.Queue(),
         menu_open=lambda: False,
@@ -293,6 +294,9 @@ class _Key:
     def __init__(self, vk: int, down: bool, t: float) -> None:
         self.vk, self.down, self.t = vk, down, t
         self.ours = False
+        #: Enjekte girdi (bizim gonderdigimiz tuslar) fiziksel sayilmaz --
+        #: dispatch.key_filter bunu okuyor.
+        self.injected = False
 
 
 def test_onek_basiliyken_kaskad_tusu_tablo_kombosu_olur():

@@ -59,6 +59,22 @@ THEME = setting(
 )
 
 
+#: Hata/uyari vurgusu. Paletten gelmiyor: her iki temada da ayni kirmizi
+#: okunuyor ve "tehlike" anlami temaya gore degismemeli.
+DANGER = "#f85149"
+
+
+def muted(widget) -> None:
+    """Ikincil metin (aciklama, sayac) -- SABIT RENK YERINE PALET ROLU.
+
+    Stylesheet'e renk yazmak temayi kirar: acikta okunan gri koyuda kaybolur
+    ve tema degisince kendiliginden guncellenmez. `PlaceholderText` rolu her
+    iki palette de tanimli ve palet degisince widget'i kendisi tazeler.
+    """
+    widget.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+    widget.setAutoFillBackground(False)
+
+
 def system_is_dark() -> bool:
     """Windows'un UYGULAMA modu koyu mu? Okunamazsa acik say."""
     return QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
@@ -66,7 +82,7 @@ def system_is_dark() -> bool:
 
 def resolve(choice: str | None = None) -> bool:
     """Ayardan "koyu mu?" sonucunu cikarir."""
-    choice = choice if choice is not None else THEME.get()
+    choice = choice if choice is not None else str(THEME.get())
     if choice == DARK:
         return True
     if choice == LIGHT:
@@ -92,9 +108,13 @@ _DARK = {
     QPalette.ColorRole.PlaceholderText: "#7d8590",
 }
 
-#: Yerel stilin adi -- koyudan acika donerken geri kurulsun diye acilista
-#: bir kez saklaniyor ("windowsvista" / "windows11").
+#: Yerel stil ve PALETI -- koyudan acika donerken geri kurulsun diye
+#: acilista bir kez saklaniyor. Paleti de saklamak sart: geri donerken
+#: `style().standardPalette()` kullanmak Windows'un GERCEK acik temasini
+#: degil stilin kitaptaki varsayilanini veriyordu (Win10'da klasik gri
+#: #d4d0c8 ve okunmaz ikincil metin).
 _native_style = ""
+_native_palette: QPalette | None = None
 
 
 def _dark_palette() -> QPalette:
@@ -114,18 +134,29 @@ def _dark_palette() -> QPalette:
 def apply(_value=None, _old=None) -> None:
     """Ayari uygular. `Setting.subscribe` imzasina uysun diye iki argumanli."""
     app = QApplication.instance()
-    if app is None:
+    # Stil ve palet QApplication'a ait; `instance()` QCoreApplication soz
+    # veriyor (konsol uygulamasinda arayuz yok).
+    if not isinstance(app, QApplication):
         return
-    global _native_style
+    global _native_style, _native_palette
     if not _native_style:
         _native_style = app.style().objectName()
+        _native_palette = QPalette(app.palette())
 
     if resolve():
         app.setStyle("Fusion")
         app.setPalette(_dark_palette())
     else:
         app.setStyle(_native_style or "Fusion")
-        app.setPalette(app.style().standardPalette())
+        palette = (
+            QPalette(_native_palette)
+            if _native_palette is not None
+            else app.style().standardPalette()
+        )
+        # `PlaceholderText` her iki palette de tanimli -- acik tarafta
+        # siyahin %50 saydami, koyu tarafta #7d8590. `muted()` bu rolu
+        # kullandigi icin ikincil yazilar iki temada da soluk kaliyor.
+        app.setPalette(palette)
 
 
 def install() -> None:

@@ -24,6 +24,7 @@ import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger("cascade.settings")
 
@@ -119,7 +120,15 @@ class Setting:
             return "float"
         return "str"
 
-    def get(self):
+    def get(self) -> Any:
+        """Ayarin o anki degeri.
+
+        Donus `Any`: bir ayarin tipi TANIMINDAN geliyor (bool/int/float/
+        str/enum) ve `Setting` bunu tip duzeyinde tasimiyor. `object`
+        dondurmek her cagri yerinde `int(...)`/`float(...)` sarmalarini
+        tip hatasi yapiyordu -- hepsi sahte, cunku `coerce` degeri zaten
+        tanimlanan tipe zorluyor.
+        """
         return self._value
 
     def is_changed(self) -> bool:

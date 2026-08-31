@@ -30,7 +30,9 @@ makro kaydedici zaten port edilmedigi icin GUI'nin yarisi bos kalirdi.
 from __future__ import annotations
 
 import codecs
+import contextlib
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -144,6 +146,54 @@ class ShortcutStore:
             if profile.matches(class_name, title):
                 return profile
         return None
+
+    # ---- yazma ----
+
+    def save(self) -> bool:
+        """Dosyayi AHK'nin bicimiyle yazar. Anahtar adlari ve BOM AYNEN.
+
+        `projectName` alani bize gereksiz ama YAZILIYOR: AHK tarafi ayni
+        dosyayi okuyor ve alani dusurmek "bu bizim dosyamiz mi" sorusunu
+        belirsiz birakirdi. BOM da ayni sebeple (AHK `FileIO.writeText`
+        koyuyor; kaldirirsak dosya elden ele gecerken degisir).
+
+        AHK dosyayi TEK PARCA yaziyordu; biz once `.tmp`e yazip yer
+        degistiriyoruz -- yarim yazimda eski dosya yerinde kalir
+        (store.py'deki diger depolarla ayni kural).
+        """
+        data = {
+            "projectName": "ProfileManager",
+            "profiles": [
+                {
+                    "profileName": profile.name,
+                    "className": profile.class_name,
+                    "title": profile.title,
+                    "shortCuts": [
+                        {
+                            "shortCutName": shortcut.name,
+                            "keyDescription": shortcut.description,
+                            "keyStrokes": list(shortcut.strokes),
+                        }
+                        for shortcut in profile.shortcuts
+                    ],
+                }
+                for profile in self.profiles
+            ],
+        }
+        path = self.path
+        temp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp.write_bytes(codecs.BOM_UTF8 + orjson.dumps(data))
+            os.replace(temp, path)
+        except OSError:
+            log.exception("%s yazilamadi", path.name)
+            with contextlib.suppress(OSError):
+                temp.unlink()
+            return False
+        return True
+
+    # ---- sorgu ----
 
     def shortcut(self, profile_name: str, index: int) -> ShortCut | None:
         """Menu maddesinin isaret ettigi kisayol (`shorts.play:Chrome/0`)."""

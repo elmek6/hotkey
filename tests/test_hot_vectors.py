@@ -6,13 +6,13 @@ Girdinin delta olmasinin sebebi: jest sirasinda imlec donduruluyor
 darbenin ne kadar ittigini soyluyor.
 """
 
-from cascade.core.gesture import Direction, GestureTracker
+from cascade.core.hot_vectors import LOCK_DIRECTION, Direction, HotVectors
 
 F13, F14 = 0x7C, 0x7D
 
 
-def tracker(step: float = 60.0) -> GestureTracker:
-    t = GestureTracker(step_px=step)
+def tracker(step: float = 60.0) -> HotVectors:
+    t = HotVectors(step_px=step)
     t.register(F13, Direction.UP, "ses+", "ses ac")
     t.register(F13, Direction.DOWN, "ses-")
     t.register(F13, Direction.LEFT, "onceki")
@@ -23,11 +23,15 @@ def tracker(step: float = 60.0) -> GestureTracker:
 # ---- yon algilama ----
 
 
-def test_esigi_gecmeden_jest_uretilmez():
+def test_esigi_gecmeden_adim_uretilmez():
+    """`fired` ADIM degil JEST BASLANGICI demek (core/hot_vectors._Active):
+    eksen kilitlenir kilitlenmez True olur, adim uretilmemis olsa bile.
+    Kilit esigi (lock_px) adim esiginden (step_px) kucuk oldugu icin 40 px
+    ekseni kilitler ama adim uretmez."""
     t = tracker()
     t.start(F13)
-    assert t.move(40, 0) == []  # 40 px, esik 60
-    assert not t.fired(F13)
+    assert t.move(40, 0) == []  # 40 px, adim esigi 60
+    assert t.fired(F13)  # ama jest basladi: onek birakilinca menu acilmaz
 
 
 def test_dort_ana_yon():
@@ -83,8 +87,20 @@ def test_eksen_kilitlenir():
     assert t.move(0, -100)[0].direction is Direction.UP
 
 
-def test_geri_hareket_adim_uretmez():
+def test_eksen_kipinde_geri_hareket_ters_yonu_calistirir():
+    """Varsayilan `LOCK_AXIS`: eksen kilitlenir, o eksenin IKI yonu de canli
+    kalir -- yukari surukleyip asagi donmek sesi kisar."""
     t = tracker()
+    t.start(F13)
+    t.move(0, -100)
+    geri = t.move(0, 100)
+    assert [e.direction for e in geri] == [Direction.DOWN]
+
+
+def test_yon_kipinde_geri_hareket_adim_uretmez():
+    """`LOCK_DIRECTION`: yalniz ilk yon calisir, geri hareket olu."""
+    t = tracker()
+    t.lock_mode = LOCK_DIRECTION
     t.start(F13)
     t.move(0, -100)
     assert t.move(0, 100) == []
@@ -92,7 +108,7 @@ def test_geri_hareket_adim_uretmez():
 
 def test_tanimsiz_yon_kilitlemez():
     """Yalniz yukari tanimliysa saga surmek jesti baslatmamali."""
-    t = GestureTracker(step_px=60.0)
+    t = HotVectors(step_px=60.0)
     t.register(F13, Direction.UP, "ses+")
     t.start(F13)
     assert t.move(200, 0) == []
@@ -109,7 +125,7 @@ def test_status_kilitlenmeden_once_mesafe_verir():
     status = t.status(F13)
     assert status.direction is None
     assert status.distance == 30
-    assert "bekliyor" in status.text
+    assert status.text == "^--v  30 px"  # eksen sembolu + ham mesafe
 
 
 def test_status_kilitten_sonra_yon_mesafe_kademe_verir():
@@ -120,8 +136,8 @@ def test_status_kilitten_sonra_yon_mesafe_kademe_verir():
     assert status.direction is Direction.UP
     assert status.steps == 2
     assert status.distance == 150
-    assert "yukari" in status.text and "2 kademe" in status.text
-    assert "ses ac" in status.text  # tanimin aciklamasi da yaziyor
+    # AHK jest ipucuyla ayni bicim: eksen sembolu + yon kodu + kademe.
+    assert status.text == "^--v UP +2  ses ac"
 
 
 def test_status_izlenmeyen_tusta_none():
@@ -156,10 +172,13 @@ def test_stop_jest_yapildiysa_true_doner():
     assert t.stop(F13) is True
 
 
-def test_stop_hareketsiz_birakmada_false_doner():
+def test_stop_titremede_false_doner():
+    """Tusa basarken imlec bir iki piksel oynar; bu jest sayilmamali --
+    `lock_px` (8 px) asilmadigi surece `stop` False doner ve onek tusunun
+    kendi eylemi (menu) calisir."""
     t = tracker()
     t.start(F13)
-    t.move(10, 0)
+    t.move(5, 0)
     assert t.stop(F13) is False
 
 

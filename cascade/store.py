@@ -81,7 +81,16 @@ def backup_file(path: Path, reason: str, copy: bool = False) -> Path | None:
     except OSError:
         log.exception("%s yedeklenemedi", path.name)
         return None
-    log.warning("%s -> %s olarak yedeklendi", path.name, target.name)
+    # CRITICAL, WARNING degil: VERI KAYBI oldu. Ne kadar kurtarildigini
+    # ancak insan bilebilir (yedegi acip bakmasi gerek) ve program bu
+    # noktada varsayilanlarla devam ediyor -- yani sessiz kalirsak
+    # kullanici slotlarinin sifirlandigini ancak F14'e basinca gorur.
+    # app._on_error_logged bu seviyede pencere aciyor.
+    log.critical(
+        "%s bozuk: yedeklendi (%s), yerine varsayilan kuruldu",
+        path.name,
+        target.name,
+    )
     return target
 
 

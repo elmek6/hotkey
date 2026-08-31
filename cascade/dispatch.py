@@ -411,8 +411,10 @@ class Dispatcher:
            uygulamaya geciyor. Tuketme YALNIZCA tekerlek cevrildiginde.
         """
         origin = self._prefix_at
-        if origin is not None and max(abs(event.x - origin[0]), abs(event.y - origin[1])) < self.drag_px:
-            return  # titreme: tusa basarken imlec bir iki piksel oynar
+        if origin is not None:
+            drift = max(abs(event.x - origin[0]), abs(event.y - origin[1]))
+            if drift < self.drag_px:
+                return  # titreme: tusa basarken imlec bir iki piksel oynar
         for vk in self.prefixes.held:
             definition = self.prefixes.definition(vk)
             if definition is not None and definition.drag_action:

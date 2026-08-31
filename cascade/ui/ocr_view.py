@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from cascade import theme
 from cascade.core.ocr_layout import (
     SEPARATORS,
     LayoutMode,
@@ -93,7 +94,7 @@ class OcrView(QWidget):
         self._edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
 
         self._info = QLabel("")
-        self._info.setStyleSheet("color: #8b949e;")
+        theme.muted(self._info)
 
         # ---- denetimler ----
         self._mode = QComboBox()

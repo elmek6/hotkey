@@ -36,7 +36,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from cascade import keymap, logs, paths, theme
+from cascade import keymap, logs, paths, repository, theme
 from cascade.actions import ActionRunner, beep
 from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
@@ -45,6 +45,7 @@ from cascade.core.keynames import key_name, vk_from_name
 from cascade.core.state import Busy, ClipboardMode
 from cascade.dispatch import Dispatcher
 from cascade.incognito import Incognito
+from cascade.repository import Repository
 from cascade.settings import SETTINGS
 from cascade.slots_ctl import SlotController
 from cascade.store import SlotStore
@@ -56,6 +57,8 @@ from cascade.ui.monitor import EventMonitor
 from cascade.ui.ocr_view import OcrView
 from cascade.ui.pause import PauseDialog
 from cascade.ui.preview import preview_html, shorten
+from cascade.ui.profiles_view import ProfilesView
+from cascade.ui.repository_view import RepositoryView
 from cascade.ui.settings_dialog import SettingsDialog
 from cascade.ui.snip import SnipOverlay
 from cascade.ui.tip import Tip
@@ -363,6 +366,19 @@ class Cascade:
         self.shorts = ShortcutStore()
         self.runner.register("shorts.play", self.play_shortcut)
         self.runner.register("shorts.edit", lambda _: self.edit_shortcuts())
+        # AHK showManagerGui portu. `shorts.manage:<ad>` verilen profili
+        # secili acar (AHK editProfileForActiveWindow ile ayni fikir).
+        self.profiles_view = ProfilesView(self.shorts)
+        self.runner.register("shorts.manage", self.open_profiles)
+
+        # repository.ahk'nin VERI yarisi (cascade/repository.py). Yonetici
+        # GUI'si henuz yok; profillerde oldugu gibi duzenleme dosyanin
+        # kendisinden -- bicim zaten bunun icin metin (bkz. repository.py).
+        self.repository = Repository(paths.REPOSITORY)
+        self.repository.load()
+        self.repository_view = RepositoryView(self.repository)
+        self.runner.register("repository.open", lambda _: self.repository_view.open())
+        self.runner.register("repository.edit", lambda _: self.edit_repository())
 
         # AHK menus.ahk `DialogPauseGui`: Pause tusu basili tutulunca acilir.
         self.pause_dialog = PauseDialog()
@@ -395,9 +411,17 @@ class Cascade:
         # Hata olunca tepsi simgesi kirmizi olsun. Hata BASKA THREAD'den
         # gelebiliyor (hook, beep), Qt'ye oradan dokunulamaz -- sinyal
         # kuyruga girip ana thread'de islenir.
+        #: Kritik hata penceresi acik mi -- ust uste acilmasin.
+        self._critical_open = False
+        #: Gosterilmeyi bekleyen kritik hatalar (bkz. _queue_critical).
+        self._critical_pending: list[str] = []
+        self._critical_scheduled = False
         self._errors = _ErrorBridge()
         self._errors.raised.connect(self._on_error_logged)
-        logs.errors.subscribe(lambda level, text: self._errors.raised.emit(level, text))
+        # Referans SAKLANIYOR: kapanista abonelikten cikmak icin gerek
+        # (bkz. _shutdown). `logs.errors` modul duzeyinde tek ornek.
+        self._error_sub = lambda level, text: self._errors.raised.emit(level, text)
+        logs.errors.subscribe(self._error_sub)
 
         # Incognito -- AHK incognito.ahk. Modulun kendi zamanlayicisi yok
         # (bkz. incognito.py "QT YOK"): saati burada kuruluyor ve yalnizca
@@ -654,14 +678,14 @@ class Cascade:
         name = window_class(hwnd)
         profile = self.shorts.find(name, window_title(hwnd))
         if profile is None:
-            return ((f"▸ Ekle ({shorten(name, 30)})", "shorts.edit"),)
+            return ((f"▸ Profil ekle ({shorten(name, 30)})", "shorts.manage"),)
         items: list = []
         for index, shortcut in enumerate(profile.shortcuts):
             label = f"▸ {shortcut.name}"
             if shortcut.description:
                 label += f" - {shortcut.description}"
             items.append((label, f"shorts.play:{profile.name}/{index}"))
-        items.append(("Profili duzenle", "shorts.edit"))
+        items.append(("Profili duzenle...", f"shorts.manage:{profile.name}"))
         return tuple(items)
 
     def _profile_label(self, profile) -> str:
@@ -690,15 +714,19 @@ class Cascade:
                     label += f" - {shortcut.description}"
                 rows.append((label, f"shorts.play:{profile.name}/{index}"))
             if not rows:
-                rows.append(("(kisayol yok)", "shorts.edit"))
+                rows.append(("(kisayol yok)", f"shorts.manage:{profile.name}"))
             # On plandaki pencerenin profili kalin.
             mark = (DEFAULT,) if profile is active else ()
             profiles.append((self._profile_label(profile), tuple(rows), "", *mark))
         if not profiles:
-            profiles.append(("(profil yok)", "shorts.edit"))
+            profiles.append(("(profil yok)", "shorts.manage"))
         profiles.append(None)
         profiles.append(("\U0001f4dd profiles.json duzenle", "shorts.edit"))
         return ("Profiller", tuple(profiles))
+
+    def open_profiles(self, argument: str = "") -> None:
+        """`shorts.manage[:<profil adi>]` -- yonetici penceresi."""
+        self.profiles_view.open(argument.strip())
 
     def play_shortcut(self, argument: str) -> None:
         """`shorts.play:Chrome/0` -- AHK `ShortCut.play()`.
@@ -717,6 +745,31 @@ class Cascade:
                 self.runner.run(f"send_key:{stroke}")
             else:
                 send.type_text(stroke)
+
+    def edit_repository(self) -> None:
+        """Kod parcasi deposunu Notepad ile acar.
+
+        Dosya yoksa ORNEK bir kayit yaziliyor: bos Notepad "hangi alanlar
+        vardi" sorusunu birakiyordu (edit_shortcuts ile ayni gerekce).
+        """
+        path = self.repository.path
+        if not path.exists():
+            paths.ensure_files_dir()
+            self.repository.add(
+                repository.Item(
+                    title="ornek",
+                    category="",
+                    text="Govdeye ne yazarsan yaz -- kayit ayraci === satiridir.",
+                    tags=["ornek"],
+                )
+            )
+            self.repository.save()
+        subprocess.Popen(["notepad.exe", str(path)])  # noqa: S603,S607
+        self.tip.show_html(
+            "📝 <b>repository.md</b><br>"
+            "<span style='color:#8b949e;'>kaydettikten sonra yeniden baslat</span>",
+            2500,
+        )
 
     def edit_shortcuts(self) -> None:
         """Profil dosyasini Notepad ile acar (AHK: yonetici GUI'si).
@@ -847,6 +900,62 @@ class Cascade:
             )
         if level == "CRITICAL":
             self.tray.notify("cascade - hata", shorten(text.strip(), 200))
+            self._queue_critical(text)
+
+    def _queue_critical(self, text: str) -> None:
+        """Kritik hatayi biriktirir; pencereyi bir SONRAKI olay turuna birakir.
+
+        Dogrudan acmak yanlisti: `on_start` uc depoyu SIRAYLA okuyor ve uc
+        dosya birden bozuksa her biri kendi penceresini aciyordu -- kullanici
+        arka arkaya uc kez "Tamam"a basiyordu. Ust uste acilmayi engelleyen
+        bayrak burada ise yaramiyor, cunku cagrilar IC ICE degil ARDISIK:
+        ilk pencere kapanmadan ikinci hata zaten olusmuyor.
+
+        `singleShot(0)` cagri yiginini bosaltiyor; acilis okumalari bittikten
+        sonra elde ne birikmisse TEK pencerede gosteriliyor. Acilista olay
+        dongusu henuz baslamamis olsa bile calisir: zamanlayici `app.exec()`
+        basladigi anda tetiklenir.
+        """
+        self._critical_pending.append(text.strip())
+        if not self._critical_scheduled:
+            self._critical_scheduled = True
+            QTimer.singleShot(0, self._flush_critical)
+
+    def _flush_critical(self) -> None:
+        """Biriken kritik hatalari TEK pencerede gosterir."""
+        self._critical_scheduled = False
+        if self._critical_open or not self._critical_pending:
+            return
+        pending, self._critical_pending = self._critical_pending, []
+        self._critical_open = True
+        try:
+            headers = [item.splitlines()[0] for item in pending if item.splitlines()]
+            box = QMessageBox(QMessageBox.Icon.Critical, "cascade - kritik hata", "")
+            note = (
+                f"Ayrinti log'da: {paths.LOG}\n"
+                "Bozuk dosyanin yedegi Files/ icinde `.bozuk-<zaman>` adiyla duruyor."
+            )
+            box = QMessageBox(QMessageBox.Icon.Critical, "cascade - kritik hata", "")
+            if len(headers) == 1:
+                box.setText(shorten(headers[0], 300))
+                box.setInformativeText(note)
+            else:
+                # Coklu bozulmada baslik SAYIYI soyluyor, govde hangileri
+                # oldugunu: "bir sey bozuldu" ile "uc dosya birden bozuldu"
+                # cok farkli iki durum.
+                box.setText(f"{len(headers)} kritik hata:")
+                bullets = "\n".join(f"• {shorten(head, 200)}" for head in headers)
+                box.setInformativeText(f"{bullets}\n\n{note}")
+            box.setDetailedText("\n\n".join(pending) + f"\n\nLog: {paths.LOG}")
+            box.exec()
+        finally:
+            self._critical_open = False
+            self._clear_error_badge()
+        # Pencere ACIKKEN yeni hata geldiyse onu da goster -- yutmak,
+        # "uc pencere" sorununu cozerken hata gizlemek olurdu.
+        if self._critical_pending and not self._critical_scheduled:
+            self._critical_scheduled = True
+            QTimer.singleShot(0, self._flush_critical)
 
     def _clear_error_badge(self) -> None:
         """Hatalar gorulmus sayilir: rozet sifirlanir, kayitlar durur."""
@@ -893,8 +1002,13 @@ class Cascade:
         spec: tuple = (("Clipboard history", self.clip.menu_items()),)
         spec += keymap.F13_MENU
         spec += (*self._shortcut_menu_items(), self._shortcut_manager_item())
-        # TEK madde, alt menu yok: pencere acilir, incognito orada yasar.
-        spec += (self._incognito_menu_item(),)
+        # Profillerden AYRI blok: ikisi de kendi penceresini acar, alt menu
+        # yok -- icerik pencerede yasiyor (AHK'de Repository de boyleydi).
+        spec += (
+            None,
+            ("📚 Repository", "repository.open"),
+            self._incognito_menu_item(),
+        )
         pins = self._pin_menu_items()
         if pins:
             spec += (None, *pins)
@@ -1324,6 +1438,9 @@ class Cascade:
     def _shutdown(self) -> None:
         """Yalniz on_exit'ten cagrilir; sirasi onemli: once zamanlayicilar,
         sonra hook, en son pencereler."""
+        # ONCE abonelikten cik: kapanirken dusen bir hata olu pencereleri
+        # canlandirmasin (kritik hata penceresi acmaya calisirdi).
+        logs.errors.unsubscribe(self._error_sub)
         self._drain_timer.stop()
         self._tick_timer.stop()
         self.clip.close()
@@ -1331,6 +1448,8 @@ class Cascade:
         self.snip.close()
         self.ocr_view.close()
         self.mem_slots.close()
+        self.repository_view.close()
+        self.profiles_view.close()
         self.pause_dialog.close()
         self.machine.reset()
         self.hook.stop()

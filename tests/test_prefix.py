@@ -54,34 +54,36 @@ def test_gorulmemis_birakma_sessiz():
 
 
 # ---- basili tutma ----
+#
+# Esik BIRAKMA aninda olculuyor, tus basiliyken degil (eski `tick` gitti).
+# Gerekcesi core/prefix.py `key_up`: jest yapmak esigi kolayca gectigi icin
+# basiliyken tetiklenen menu jestin ortasinda aciliyordu.
 
 
-def test_esik_gecilince_hold_calisir():
+def test_esik_gecilince_hold_doner():
     tracker = make()
     tracker.key_down(CARET, 0.0)
-    assert tracker.tick(0.2) == []
-    assert tracker.tick(0.35) == [(CARET, "menu.clip")]
+    assert tracker.key_up(CARET, 0.35) is Outcome.HOLD
 
 
-def test_hold_yalniz_bir_kez():
+def test_esik_altinda_tap_doner():
     tracker = make()
     tracker.key_down(CARET, 0.0)
-    tracker.tick(0.4)
-    assert tracker.tick(0.9) == []
+    assert tracker.key_up(CARET, 0.2) is Outcome.TAP
 
 
-def test_hold_sonrasi_tap_olmaz():
-    """Menu acildiktan sonra birakinca `^` ekrana yazilmamali."""
+def test_hold_sonrasi_ikinci_birakma_sessiz():
+    """Basim tuketildi: ayni tusun hayalet birakmasi tekrar HOLD uretmemeli."""
     tracker = make()
     tracker.key_down(CARET, 0.0)
-    tracker.tick(0.4)
-    assert tracker.key_up(CARET, 0.5) is Outcome.NOTHING
+    assert tracker.key_up(CARET, 0.4) is Outcome.HOLD
+    assert tracker.key_up(CARET, 0.9) is Outcome.NOTHING
 
 
-def test_hold_tanimsizsa_hicbir_sey_olmaz():
+def test_hold_tanimsizsa_uzun_basim_da_tap():
+    """F13'un hold_action'i yok: ne kadar tutulursa tutulsun TAP."""
     tracker = make()
     tracker.key_down(F13, 0.0)
-    assert tracker.tick(5.0) == []
     assert tracker.key_up(F13, 5.1) is Outcome.TAP
 
 
@@ -89,7 +91,7 @@ def test_kombo_yapilmissa_hold_calismaz():
     tracker = make()
     tracker.key_down(CARET, 0.0)
     tracker.combo_used(CARET)
-    assert tracker.tick(1.0) == []
+    assert tracker.key_up(CARET, 1.0) is Outcome.NOTHING
 
 
 def test_otomatik_tekrar_sureyi_sifirlamaz():
@@ -97,7 +99,7 @@ def test_otomatik_tekrar_sureyi_sifirlamaz():
     tracker = make()
     tracker.key_down(CARET, 0.0)
     tracker.key_down(CARET, 0.2)  # otomatik tekrar
-    assert tracker.tick(0.36) == [(CARET, "menu.clip")]
+    assert tracker.key_up(CARET, 0.36) is Outcome.HOLD
 
 
 # ---- temizlik ----
@@ -108,4 +110,4 @@ def test_reset_hayalet_tusu_temizler():
     tracker.key_down(CARET, 0.0)
     tracker.reset()
     assert tracker.held == ()
-    assert tracker.tick(9.0) == []
+    assert tracker.key_up(CARET, 9.0) is Outcome.NOTHING
