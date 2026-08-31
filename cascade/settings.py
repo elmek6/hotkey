@@ -47,6 +47,7 @@ class Category:
     LIST = "list"  # tus tus suzen liste penceresi (ui/array_filter.py)
     WINDOW = "window"
     OCR = "ocr"
+    MACRO = "macro"  # macro_recorder.ahk: Cat.Macro
 
     LABELS = {
         GENERAL: "Genel",
@@ -57,6 +58,7 @@ class Category:
         LIST: "Array filter",
         WINDOW: "Pencere",
         OCR: "OCR",
+        MACRO: "Makro",
     }
 
     @classmethod

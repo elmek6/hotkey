@@ -47,6 +47,25 @@ user32.SetWindowPos.argtypes = [
     ctypes.c_int, ctypes.c_int, wintypes.UINT,
 ]
 user32.SetWindowPos.restype = wintypes.BOOL
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.GetWindowRect.restype = wintypes.BOOL
+user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+user32.SetForegroundWindow.restype = wintypes.BOOL
+user32.IsIconic.argtypes = [wintypes.HWND]
+user32.IsIconic.restype = wintypes.BOOL
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.restype = wintypes.BOOL
+user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.ShowWindow.restype = wintypes.BOOL
+
+SW_RESTORE = 9
+
+#: EnumWindows geri cagrimi. Modul duzeyinde: ctypes tipi her cagride
+#: yeniden uretilirse cop toplayici sarmalayiciyi cagri sirasinda
+#: toplayabiliyor.
+_ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.EnumWindows.argtypes = [_ENUM_PROC, wintypes.LPARAM]
+user32.EnumWindows.restype = wintypes.BOOL
 
 
 def foreground_window() -> int:
@@ -99,6 +118,63 @@ def set_always_on_top(hwnd: int, on: bool) -> bool:
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         )
     )
+
+
+def window_rect(hwnd: int) -> tuple[int, int, int, int]:
+    """(sol, ust, sag, alt) ekran koordinati; pencere yoksa hepsi 0.
+
+    Makro kaydinda "pencereye goreli" koordinat bunun sol-ust kosesine
+    gore hesaplaniyor -- AHK `CoordMode("Mouse", "Window")` ile ayni nokta
+    (istemci alani DEGIL, pencere cercevesi).
+    """
+    if not is_window(hwnd):
+        return (0, 0, 0, 0)
+    rect = wintypes.RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return (0, 0, 0, 0)
+    return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+def activate(hwnd: int) -> bool:
+    """AHK: WinActivate. Kucultulmusse once geri acar.
+
+    `SetForegroundWindow` her cagirana izin vermiyor (Windows odak calmayi
+    kisitliyor): baska bir uygulama etkinken cagrildiginda pencere yalnizca
+    gorev cubugunda yanip soner. Makro oynatirken one cikan pencere BIZIM
+    tepsi uygulamamiz oldugu icin cogu durumda izin cikiyor.
+    """
+    if not is_window(hwnd):
+        return False
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    return bool(user32.SetForegroundWindow(hwnd))
+
+
+def find_window(cls: str = "", title: str = "") -> int:
+    """Sinifi TAM, basligi PARCA eslesen ilk gorunur pencere; yoksa 0.
+
+    AHK'nin `SetTitleMatchMode(2)` davranisi: baslik icerik olarak aranir,
+    cunku baslik uygulamaya gore degisiyor ("Adsiz - Not Defteri" bir
+    kaydetmeden sonra baska turlu yaziliyor).
+    """
+    if not cls and not title:
+        return 0
+    found = 0
+
+    @_ENUM_PROC
+    def _visit(hwnd, _lparam):
+        nonlocal found
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        if cls and window_class(hwnd) != cls:
+            return True
+        if title and title.lower() not in window_title(hwnd).lower():
+            return True
+        found = int(hwnd)
+        return False  # bulundu, taramayi bitir
+
+    user32.EnumWindows(_visit, 0)
+    return found
 
 
 @dataclass(frozen=True, slots=True)

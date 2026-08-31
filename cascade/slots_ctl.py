@@ -327,8 +327,7 @@ class SlotController:
         spec: tuple = (
             ("Unformatted paste", "send_key:^+v"),
             None,
-            # TODO(AHK): macro_recorder.ahk port edilmedi.
-            ("Macro recorder", "yok:macro_recorder.ahk"),
+            ("Macro recorder", "macro.recorder"),
             ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
             None,
             ("System", keymap.SYSTEM_MENU),

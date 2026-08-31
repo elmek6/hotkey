@@ -45,6 +45,7 @@ from cascade.core.keynames import key_name, vk_from_name
 from cascade.core.state import Busy, ClipboardMode
 from cascade.dispatch import Dispatcher
 from cascade.incognito import Incognito
+from cascade.macro_ctl import MacroController
 from cascade.repository import Repository
 from cascade.settings import SETTINGS
 from cascade.slots_ctl import SlotController
@@ -177,6 +178,11 @@ class Cascade:
             to_mem_slots=lambda text: self.mem_slots.on_clip(text),
         )
         self.clip.register(self.runner)
+
+        # Makro kaydi: olaylar asagidaki `_drain` icinden besleniyor,
+        # hook callback'ine dokunulmuyor (macro_ctl.py).
+        self.macro = MacroController(tip=self.tip.show_text)
+        self.macro.register(self.runner)
 
         # AHK clip_slot.ahk ile ayni dosya ve bicim: Files/slots.json.
         # Slotlarin butun mantigi slots_ctl.py'de; burasi yalniz baglar.
@@ -1117,6 +1123,7 @@ class Cascade:
                 event, swallowed = self.seen.get_nowait()
             except queue.Empty:
                 break
+            self.macro.feed(event)
             if showing:
                 self.monitor.add(event, swallowed)
 
@@ -1450,6 +1457,8 @@ class Cascade:
         self.mem_slots.close()
         self.repository_view.close()
         self.profiles_view.close()
+        self.macro.shutdown()
+        self.macro.view.close()
         self.pause_dialog.close()
         self.machine.reset()
         self.hook.stop()

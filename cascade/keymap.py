@@ -277,8 +277,7 @@ SYS_COMMANDS_MENU = (
     ("3: Profile manager", "shorts.manage"),
     ("4: Key history", "app.monitor"),
     ("5: Memory slots", "memslots.start"),
-    # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma.
-    ("6: -- Macro recorder", "yok:macro_recorder.ahk"),
+    ("6: Macro recorder", "macro.recorder"),
     ("7: F13 menu", "menu.f13"),
     ("8: F14 menu", "menu.slots"),
     ("9: Pause script", "app.pause"),
