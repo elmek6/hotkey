@@ -27,19 +27,20 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from cascade.win32 import menu as win32_menu
-from cascade.win32.menu import COLUMN, DEFAULT
+from cascade.win32.menu import CHECKED, COLUMN, DEFAULT
 
 # Menu tanimi: (etiket, eylem kimligi) ciftleri.
 #   * `None`            yatay ayrac
 #   * `COLUMN` ("|")    buradan sonrasi YENI KOLON (AHK: MENU_COL)
 #   * eylem yerine demet -> alt menu
 #   * `DEFAULT`         ek alanda: oge kalin cizilir (Win32 default item)
+#   * `CHECKED`         ek alanda: ogenin soluna tik isareti konur
 #   * ucuncu alan       ikon adi: `"res:243"` / `"shell:260"` (AHK menuIcon
 #                       ile ayni numaralar; renkli ikonun tek yolu, emoji
 #                       klasik menude tek renk cizilir)
 MenuSpec = tuple["tuple[str, str | tuple] | tuple[str, str, str] | str | None", ...]
 
-__all__ = ["COLUMN", "DEFAULT", "MenuSpec", "PopupMenu"]
+__all__ = ["CHECKED", "COLUMN", "DEFAULT", "MenuSpec", "PopupMenu"]
 
 
 class PopupMenu:

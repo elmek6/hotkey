@@ -50,7 +50,7 @@ from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import register_name
 from cascade.settings import Category, setting
 from cascade.win32 import send
-from cascade.win32.menu import COLUMN
+from cascade.win32.menu import CHECKED, COLUMN
 
 
 def _range(low: int, high: int):
@@ -153,6 +153,40 @@ def current_profile() -> str:
     name = platform.node().strip().upper()
     return "work" if name in {item.upper() for item in WORK_COMPUTERS} else "home"
 
+
+#: Win+WASD sanal fare tuslari. Menu de tablo da BU listeyi okuyor: iki yerde
+#: ayri liste tutulursa biri guncellenip digeri unutulur.
+VIRTUAL_MOUSE_KEYS = (
+    ("#a", "mouse.move:-10,0", "fare sol"),
+    ("#s", "mouse.move:0,10", "fare asagi"),
+    ("#d", "mouse.move:10,0", "fare sag"),
+    ("#w", "mouse.move:0,-10", "fare yukari"),
+    ("#q", "mouse.click:left", "sol tik"),
+    ("#e", "mouse.click:right", "sag tik"),
+    ("#y", "send_key:Enter", "Enter"),
+)
+
+#: Menude gorunen dizilim adlari: (ad, aciklama). Sira = dizilim numarasi.
+TURKISH_LAYOUTS = (
+    ("Tr (uzun basinca)", "c s i g o u tuslarini basili tut"),
+    ("Tr (ek tuslarla)", "harfler dogrudan Turkce basar"),
+)
+
+VIRTUAL_MOUSE_NOTE = "Win+WASD imlec, Q/E tik, Y Enter"
+
+VIRTUAL_MOUSE = setting(
+    "mouse.virtualWasd",
+    "WASD sanal fare",
+    default=False,
+    category=Category.MOUSE,
+    tags="fare klavye wasd win sanal imlec",
+    desc=(
+        "Win+WASD imleci oynatir, Win+Q/E tiklar, Win+Y Enter yollar. "
+        "KAPALIYKEN bu kombolar hic yutulmaz -- Win+D (masaustunu goster), "
+        "Win+E (Gezgin), Win+W gibi Windows kisayollari serbest kalir. "
+        "ScrollLock'u basili tutunca acilan menuden de degistirilebilir."
+    ),
+)
 
 def turkish_keys() -> dict[int, str]:
     """Turkce eklentisinin ilgilendigi tuslar: VK -> tusun kucuk harfi.
@@ -540,26 +574,55 @@ def build_hotkeys() -> HotkeyTable:
     table.add("ScrollLock", "turkish.toggle", "kisa: Turkce ac/kapa")
     table.prefix(
         "ScrollLock",
-        hold_action="turkish.layout",
+        hold_action="menu.scrolllock",
         hold_ms=600,  # AHK: `duration >= 600`
-        desc="basili tut: dizilim degistir",
+        desc="basili tut: Turkce + sanal fare menusu",
     )
 
     # --- Klavyeyle fare (AHK AutoHotkey.ahk'nin `#a/#s/#d/#w/#q/#e/#y`
-    # satirlari). Win+WASD imleci 10 piksel oynatir, Win+Q/E tiklar,
-    # Win+Y Enter gonderir. ---
-    for spec, action, desc in (
-        ("#a", "mouse.move:-10,0", "fare sol"),
-        ("#s", "mouse.move:0,10", "fare asagi"),
-        ("#d", "mouse.move:10,0", "fare sag"),
-        ("#w", "mouse.move:0,-10", "fare yukari"),
-        ("#q", "mouse.click:left", "sol tik"),
-        ("#e", "mouse.click:right", "sag tik"),
-        ("#y", "send_key:Enter", "Enter"),
-    ):
-        table.add(spec, action, desc)
+    # satirlari). KIP KAPALIYSA HIC EKLENMIYOR: tabloya girmeyen kombo
+    # yutulmaz, Win+D/Win+E gibi Windows kisayollari calismaya devam eder.
+    # Kip degisince app.py tabloyu yeniden kuruyor (`rebuild_hotkeys`). ---
+    if VIRTUAL_MOUSE.get():
+        for spec, action, desc in VIRTUAL_MOUSE_KEYS:
+            table.add(spec, action, desc)
 
     return table
+
+
+
+def scroll_lock_menu(layout: int) -> tuple:
+    """ScrollLock BASILI TUTULUNCA acilan menu.
+
+    Uc madde, iki ayri mantik:
+
+        Tr (uzun basinca)      dizilim 1 ve 2 -- BIRBIRINI DISLAR,
+        Tr (ek tuslarla)       ikisinden biri hep secili (radyo dugmesi)
+        Fare WASD tuslariyla   bagimsiz ac/kapa (onay kutusu)
+
+    Secili olan TIKLI cizilir (`CHECKED`). Kalin YOK: Win32 menusunde kalin
+    "varsayilan oge" demek ve menu basina YALNIZ BIR TANE olabiliyor --
+    ikisini birden isaretlemek istedigimiz icin (bir dizilim + acikken sanal
+    fare) kalin yaniltici olurdu, ikincisi birinciyi siliyordu.
+
+    Turkcenin KENDISI burada yok: acip kapamak ScrollLock'a KISA basmak.
+    Menu yalnizca "hangi Turkce seti" sorusunu soruyor; buradan bir dizilim
+    secmek Turkceyi acmaz, sadece kisa basinca hangisinin gelecegini belirler.
+    """
+    rows: list[tuple] = []
+    for number, (name, note) in enumerate(TURKISH_LAYOUTS, start=1):
+        marks = (CHECKED,) if layout == number else ()
+        rows.append((f"{name} -- {note}", f"turkish.set:{number}", *marks))
+    rows.append(None)
+    on = VIRTUAL_MOUSE.get()
+    rows.append(
+        (
+            "Fare WASD tuslariyla -- " + VIRTUAL_MOUSE_NOTE,
+            "vmouse.toggle",
+            *((CHECKED,) if on else ()),
+        )
+    )
+    return tuple(rows)
 
 
 def build_gestures() -> HotVectors:

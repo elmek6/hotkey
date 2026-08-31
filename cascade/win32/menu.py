@@ -39,12 +39,18 @@ COLUMN = "|"
 #: etiketle eslestirmek etiketi ikinci bir kimlik haline getiriyordu.
 DEFAULT = "<default>"
 
+#: Ek alanlara konursa oge SOLUNDA TIK isareti cizilir (Win32 MF_CHECKED).
+#: Tik ile ikon ayni alani paylasir -- tikli ogeye ikon konmaz, konursa
+#: Windows ikonu cizip tiki yutar.
+CHECKED = "<checked>"
+
 MF_STRING = 0x0000
 MF_POPUP = 0x0010
 MF_SEPARATOR = 0x0800
 MF_GRAYED = 0x0001
 MF_DISABLED = 0x0002
 MF_BYPOSITION = 0x0400
+MF_CHECKED = 0x0008
 #: Bayragi TASIYAN oge yeni bir kolonun ILK ogesi olur (AHK: MENU_COL).
 #: Win32 menusu dikeyde ekrana sigmayinca kendiliginden kolon acmaz,
 #: kaydirma oku koyar -- kolonu elle istemek gerekiyor.
@@ -286,21 +292,29 @@ def _build(spec, actions: list[str]) -> int:
             column = MF_MENUBARBREAK
             continue
         label, target, *rest = entry
-        icon = next((item for item in rest if item and item != DEFAULT), "")
+        checked = MF_CHECKED if CHECKED in rest else 0
+        icon = next(
+            (item for item in rest if item and item not in (DEFAULT, CHECKED)), ""
+        )
         if isinstance(target, tuple):
             sub = _build(target, actions)
             user32.AppendMenuW(
-                handle, MF_STRING | MF_POPUP | column, ctypes.c_void_p(sub), label
+                handle,
+                MF_STRING | MF_POPUP | column | checked,
+                ctypes.c_void_p(sub),
+                label,
             )
             if DEFAULT in rest:
                 user32.SetMenuDefaultItem(handle, position, True)
         else:
             actions.append(target)
             command = len(actions)
-            user32.AppendMenuW(handle, MF_STRING | column, ctypes.c_void_p(command), label)
+            user32.AppendMenuW(
+                handle, MF_STRING | column | checked, ctypes.c_void_p(command), label
+            )
             if DEFAULT in rest:
                 user32.SetMenuDefaultItem(handle, command, False)
-        if icon:
+        if icon and not checked:
             _set_icon(handle, position, icon)
         column = 0
         position += 1

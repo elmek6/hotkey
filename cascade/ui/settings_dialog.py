@@ -39,9 +39,27 @@ from PySide6.QtWidgets import (
 
 from cascade import paths
 from cascade.settings import SETTINGS, Category, Setting
+from cascade.ui.place import center_on_cursor_screen
 
 ALL_LABEL = "Tumu"
 
+
+#: Aciklama etiketinin en fazla genisligi. QInputDialog etiketi kendiliginden
+#: SARMAZ: uzun bir aciklama pencereyi metin tek satira sigana kadar genisletir
+#: -- iki monitore yayilan diyalog boyle olusuyordu.
+DIALOG_WIDTH = 520
+
+
+def _wrapped_dialog(parent: QWidget, title: str, label: str) -> QInputDialog:
+    """Etiketi sarmalayan QInputDialog. `getItem`/`getText` yerine bunu kur."""
+    dialog = QInputDialog(parent)
+    dialog.setWindowTitle(title)
+    dialog.setLabelText(label)
+    for child in dialog.findChildren(QLabel):
+        child.setWordWrap(True)
+        child.setMaximumWidth(DIALOG_WIDTH)
+    dialog.setMinimumWidth(DIALOG_WIDTH)
+    return dialog
 
 class SettingsDialog(QWidget):
     """Ayar penceresi. Tek ornek: app.py bunu saklayip yeniden gosteriyor."""
@@ -182,15 +200,17 @@ class SettingsDialog(QWidget):
             # Listede ETIKET gosterilir, ayara KIMLIK yazilir.
             ids = list(item.choices)
             current = ids.index(item.get()) if item.get() in ids else 0
-            label, ok = QInputDialog.getItem(
-                self, item.name, item.desc or item.key,
-                [item.label_for(one) for one in ids], current, False
-            )
-            value = ids[[item.label_for(one) for one in ids].index(label)] if ok else None
+            labels = [item.label_for(one) for one in ids]
+            dialog = _wrapped_dialog(self, item.name, item.desc or item.key)
+            dialog.setComboBoxItems(labels)
+            dialog.setTextValue(labels[current])
+            ok = bool(dialog.exec())
+            value = ids[labels.index(dialog.textValue())] if ok else None
         else:
-            value, ok = QInputDialog.getText(
-                self, item.name, item.desc or item.key, text=str(item.get())
-            )
+            dialog = _wrapped_dialog(self, item.name, item.desc or item.key)
+            dialog.setTextValue(str(item.get()))
+            ok = bool(dialog.exec())
+            value = dialog.textValue()
         if not ok:
             return
         message = item.set(value)
@@ -222,6 +242,7 @@ class SettingsDialog(QWidget):
     def show_dialog(self) -> None:
         self._fill_categories()
         self._refresh()
+        center_on_cursor_screen(self)
         self.show()
         self.raise_()
         self.activateWindow()

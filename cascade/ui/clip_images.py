@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from cascade.imgstore import THUMB_SIZE, ClipImageStore, ImageRecord, thumb_to_image
 from cascade.store import _from_ahk_ms
+from cascade.ui.place import center_on_cursor_screen
 
 log = logging.getLogger("cascade.clipimages")
 
@@ -236,6 +237,10 @@ class ClipImages(QWidget):
 
     def open(self) -> None:
         self.reload()
+        # Konumu Qt'ye birakmiyoruz: coklu monitorde Qt'nin ekran
+        # koordinatlari kayabiliyor ve pencere gorunmez bir yere
+        # aciliyor (gerekcesi ui/place.py'nin basinda).
+        center_on_cursor_screen(self)
         self.show()
         self.raise_()
         self.activateWindow()

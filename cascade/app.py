@@ -36,7 +36,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from cascade import keymap, logs, paths
+from cascade import keymap, logs, paths, theme
 from cascade.actions import ActionRunner, beep
 from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
@@ -149,6 +149,9 @@ class Cascade:
         # zorunda: birakmazsak cocuk kilidi bekler ve program saniyelerce
         # kapali kalir.
         self.lock = lock
+        # Tema, pencerelerden ONCE: palet degisimi kurulmus pencerelere
+        # de yansir ama acilista bir kez dogru kurmak daha ucuz.
+        theme.install()
         self.tip = Tip()
         self.monitor = EventMonitor()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
@@ -374,6 +377,9 @@ class Cascade:
         self.dispatcher.turkish_keys = keymap.turkish_keys()
         self.runner.register("turkish.toggle", lambda _: self.toggle_turkish())
         self.runner.register("turkish.layout", lambda _: self.switch_turkish_layout())
+        self.runner.register("turkish.set", self.set_turkish_layout)
+        self.runner.register("menu.scrolllock", lambda _: self.show_scroll_lock_menu())
+        self.runner.register("vmouse.toggle", lambda _: self.toggle_virtual_mouse())
 
         self.tray = Tray(
             VERSION,
@@ -1084,6 +1090,57 @@ class Cascade:
             f"🇹🇷 <b>Turkce dizilim: {layout}</b><br>"
             f"<span style='color:#8b949e;'>{note}</span>",
             1200,
+        )
+
+    def set_turkish_layout(self, arg: str) -> None:
+        """Menuden dizilim SECIMI -- `turkish.set:1` / `turkish.set:2`.
+
+        `switch_turkish_layout` sirayla gecerken bu dogrudan atiyor: menude
+        hangi maddeye bastigin ne olacagini belirlemeli, sira degil.
+        """
+        want = 2 if arg.strip() == "2" else 1
+        if self.dispatcher.turkish.layout != want:
+            self.dispatcher.turkish.switch_layout()
+        self.switch_turkish_layout_tip()
+
+    def switch_turkish_layout_tip(self) -> None:
+        layout = self.dispatcher.turkish.layout
+        note = "uzun basim (c s i g)" if layout == 1 else "dogrudan remap"
+        self.tip.show_html(
+            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br>"
+            f"<span style='color:#8b949e;'>{note}</span>",
+            1200,
+        )
+
+    def show_scroll_lock_menu(self) -> None:
+        """ScrollLock basili tutulunca: Turkce seti + sanal fare kipi.
+
+        Turkceyi ACIP KAPAMAK menude yok, o KISA basim (`turkish.toggle`).
+        """
+        self.menu.show(
+            keymap.scroll_lock_menu(self.dispatcher.turkish.layout),
+            title="ScrollLock",
+        )
+
+    def toggle_virtual_mouse(self) -> None:
+        """Win+WASD sanal faresini ac/kapa.
+
+        Ayari cevirmek yetmiyor: kombolar TABLODA duruyor, tablo da acilista
+        bir kez kuruluyor. Kapatinca kombonun yutulmamasi icin tabloyu
+        yeniden kurup dispatcher'a veriyoruz -- onek tanimlari degismedigi
+        icin (bu kombolarin onegi yok) PrefixTracker'a dokunulmuyor.
+        """
+        keymap.VIRTUAL_MOUSE.set(not keymap.VIRTUAL_MOUSE.get())
+        on = keymap.VIRTUAL_MOUSE.get()
+        self.dispatcher.hotkeys = keymap.build_hotkeys()
+        self.tip.show_html(
+            f"🖱️ <b>WASD sanal fare: {'acik' if on else 'kapali'}</b><br>"
+            + (
+                "<span style='color:#8b949e;'>Win+WASD imlec, Q/E tik, Y Enter</span>"
+                if on
+                else "<span style='color:#8b949e;'>Win+D / Win+E serbest</span>"
+            ),
+            1400,
         )
 
     def show_pause_dialog(self, critical: str = "") -> None:
