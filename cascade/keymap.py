@@ -62,9 +62,13 @@ VECTOR_LOCK_PX = setting(
     "hotVector.dirThreshold",
     "Yon kilidi esigi",
     default=8,
-    category=Category.MOUSE,
+    category=Category.GESTURE,
     tags="fare hassasiyet vektor jest",
-    desc="Yonun kilitlenmesi (ve jestin baslamasi) icin gereken piksel",
+    desc=(
+        "F13 basiliyken fareyi bu kadar piksel surukleyince jest BASLAR ve yon "
+        "kilitlenir. Kucuk deger: jest cabuk baslar ama yanlislikla da baslar. "
+        "Buyuk deger: baslatmak icin daha cok surukleman gerekir."
+    ),
     validate=_range(1, 100),
 )
 VECTOR_LOCK_MODE = setting(
@@ -72,9 +76,13 @@ VECTOR_LOCK_MODE = setting(
     "Jest kilidi",
     default=LOCK_AXIS,
     choices=LOCK_MODES,
-    category=Category.MOUSE,
+    category=Category.GESTURE,
     tags="fare vektor jest eksen yon kilit",
-    desc="eksen: iki yon de canli (yukari/asagi) - yon: ilk yon kilitlenir",
+    desc=(
+        "Jest baslayinca ne kilitlenir. eksen: dikey/yatay secilir, o eksenin "
+        "IKI yonu de canli kalir (yukari surukleyip sonra asagi donebilirsin). "
+        "yon: yalniz ilk yon calisir, geri hareket bir sey yapmaz."
+    ),
 )
 # Jest sirasinda imlec her olayda baslangic noktasina geri konur ve mesafe
 # `olay - baslangic` diye olculur. Kapatilirsa hareket olayi yine yutulur ama
@@ -84,9 +92,13 @@ VECTOR_FREEZE = setting(
     "hotVector.freezeCursor",
     "Jest sirasinda imleci dondur",
     default=True,
-    category=Category.MOUSE,
+    category=Category.GESTURE,
     tags="fare vektor jest imlec",
-    desc="Imlec jest boyunca yerinde durur; kapaliysa yavas hareket okunmaz",
+    desc=(
+        "Jest boyunca imlec basladigi noktada durur, ekranda gezinmez. "
+        "KAPATMA: imlec ilerlemedigi icin yavas hareket olculemez ve jest "
+        "hic tetiklenmez (docs/hot_vectors.md D-1)."
+    ),
 )
 # Titreme toleransi: tusa basarken imlec bir iki piksel oynuyor. Bu kadarlik
 # hareket "surukleme" sayilmaz. Once dispatch.py'de sabitti (DRAG_PX = 6).
@@ -94,18 +106,26 @@ VECTOR_IGNORE_PX = setting(
     "hotVector.ignorePx",
     "Yoksayilan titreme",
     default=6,
-    category=Category.MOUSE,
+    category=Category.GESTURE,
     tags="fare hassasiyet vektor jest titreme surukleme",
-    desc="Bu kadar pikselin altindaki hareket titreme sayilir, surukleme baslatmaz",
+    desc=(
+        "Tusa basarken el titrer ve imlec bir iki piksel oynar. Bu kadarlik "
+        "hareket surukleme SAYILMAZ -- F14 ile ekran alani secimi ya da sag "
+        "tus suruklemesi bosuna baslamasin diye."
+    ),
     validate=_range(0, 50),
 )
 VECTOR_STEP_PX = setting(
     "hotVector.stepSize",
     "Adim esigi",
     default=14,
-    category=Category.MOUSE,
+    category=Category.GESTURE,
     tags="fare hassasiyet vektor jest",
-    desc="Bir tetiklenme icin gereken piksel",
+    desc=(
+        "Jest basladiktan sonra her bu kadar piksel bir ADIM sayilir; eylem "
+        "adim sayisi kadar calisir (ses kac kademe artacak, buyutec ne kadar "
+        "yakinlasacak). Kucultursen jest hizlanir."
+    ),
     validate=_range(1, 400),
 )
 
@@ -195,7 +215,7 @@ F13_MENU = (
 )
 """AHK: showF13menu()'nun 1. KOLONU. Oge basina bir kod satiri degil, tek
 veri tablosu. Isimlendirme, sira ve ikon numaralari AHK ile ayni; port
-edilmemis ogeler (Repository GUI, Incognito) `´` menusunde `--` isaretli."""
+edilmemis ogeler (Repository GUI, Macro recorder) `´` menusunde `--` isaretli."""
 
 F13_MENU_TAIL: tuple = ()
 """2. kolonun SONU. Arasina app.py o anki pencereye bagli bloklari koyar:
@@ -223,8 +243,8 @@ SYS_COMMANDS_MENU = (
     ("0: Exit script", "app.exit"),
     # TODO(AHK): repository.ahk (Files/repository.json) -- kod parcasi deposu.
     ("r. Repository GUI", "yok:repository.ahk"),
-    # TODO(AHK): incognito.ahk (Files/incognito_appids.json).
-    ("i: Incognito (as)", "yok:incognito.ahk"),
+    # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
+    ("i: Incognito", "incognito.open"),
     ("a: TrayTip test", "notify:Mesaj icerigi"),
     None,
     # AHK'de olmayan, bize ozgu olanlar ayracin altinda.

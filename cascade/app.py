@@ -47,11 +47,13 @@ from cascade.core.keynames import key_name, vk_from_name
 from cascade.core.state import Busy, ClipboardMode, ClipboardState
 from cascade.dispatch import Dispatcher
 from cascade.imgstore import ClipImageStore
+from cascade.incognito import Incognito
 from cascade.settings import SETTINGS
 from cascade.store import PASSWORD_SLOT, ClipStore, SlotStore, slot_display
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clip_images import ClipImages
 from cascade.ui.clipboard import ClipboardWatcher
+from cascade.ui.incognito_badge import IncognitoBadge
 from cascade.ui.mem_slots import MemSlots
 from cascade.ui.menu import PopupMenu
 from cascade.ui.monitor import EventMonitor
@@ -105,6 +107,34 @@ def press_button(name: str) -> None:
 
 def _shorten(text: str, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+#: Ipucunda gosterilecek en fazla satir / satir basina en fazla karakter.
+TIP_LINES = 5
+TIP_WIDTH = 70
+
+
+def _preview_html(text: str, lines: int = TIP_LINES, width: int = TIP_WIDTH) -> str:
+    """Cok satirli onizleme -- KACISLANMIS HTML doner.
+
+    Ipucu QLabel'i zengin metin (bkz. ui/tip.py), yani tek satir zorunlulugu
+    yok; onceden metin `preview` ile tek satira eziliyordu ve 3 satirlik bir
+    kopya tek satir gorunuyordu. AHK'nin ToolTip'i gibi: ilk birkac satir,
+    fazlasi "… +n satir" diye ozetlenir.
+    """
+    rows = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    shown = [html.escape(_shorten(row.rstrip(), width)) for row in rows[:lines]]
+    body = "<br>".join(shown)
+    rest = len(rows) - lines
+    if rest > 0:
+        body += f"<br><span style='color:#8b949e;'>… +{rest} satir</span>"
+    return body
+
+
+class _ErrorBridge(QObject):
+    """Hata kaydini ana thread'e tasiyan kopru (level, text)."""
+
+    raised = Signal(str, str)
 
 
 class _OcrBridge(QObject):
@@ -238,6 +268,8 @@ class Cascade:
         self._quit_requested = False
         # Arizali farenin yutulan basim sayisi (AHK: KeyCounts "DoubleCount").
         self._bounce_count = 0
+        #: Tepsi rozetindeki hata sayisi -- son hata okununca sifirlanir.
+        self._error_count = 0
         # AHK: State.Script.shouldSaveOnExit. "Kaydetmeden yeniden baslat"
         # bunu indirir; kapanista pano dosyasina DOKUNULMAZ.
         self.save_on_exit = True
@@ -399,8 +431,26 @@ class Cascade:
             on_restart=self.restart,
             on_exit=self.quit,
             on_toggle_pause=self.toggle_pause,
+            on_settings=self.show_settings,
+            on_copy_error=self.copy_last_error,
         )
         self.tray.show()
+
+        # Hata olunca tepsi simgesi kirmizi olsun. Hata BASKA THREAD'den
+        # gelebiliyor (hook, beep), Qt'ye oradan dokunulamaz -- sinyal
+        # kuyruga girip ana thread'de islenir.
+        self._errors = _ErrorBridge()
+        self._errors.raised.connect(self._on_error_logged)
+        logs.errors.subscribe(lambda level, text: self._errors.raised.emit(level, text))
+
+        # Incognito -- AHK incognito.ahk. Modulun kendi zamanlayicisi yok
+        # (bkz. incognito.py "QT YOK"): saati burada kuruluyor ve yalnizca
+        # acikken donuyor.
+        self.incognito = Incognito(ask_recover=self._ask_incognito_recover)
+        self._incognito_badge: IncognitoBadge | None = None
+        self._incognito_timer = QTimer(app)
+        self._incognito_timer.timeout.connect(self.incognito.watch_tick)
+        self.runner.register("incognito.open", lambda _: self.open_incognito())
 
         # Ekran koruyucu engelleyici -- AHK script_state.ahk IdleModule.
         # `on_start` is profilinde bunu baslatiyor, o yuzden cagridan ONCE
@@ -442,10 +492,7 @@ class Cascade:
             return  # bos, cok buyuk ya da zaten en ustteki kayit
         # Sira numarasi YOK: kopyalarken listedeki yerini degil ne
         # kopyalandigini gormek istiyorsun.
-        self.tip.show_html(
-            f"📋 {html.escape(_shorten(entry.preview))}",
-            1200,
-        )
+        self.tip.show_html(f"📋 {_preview_html(entry.text)}", 1200)
 
     def _on_clip_other(self) -> None:
         """Metin disi kopya -- AHK: App.ClipImages.saveFromClipboard().
@@ -528,10 +575,9 @@ class Cascade:
                 1200,
             )
             return
-        self.tip.show_html(
-            f"\U0001f4cb <b>{index}.</b> {html.escape(_shorten(entry.preview, 40))}",
-            1200,
-        )
+        # Sira numarasi YOK, yalniz icerik -- CapsLock & 3'e basan zaten
+        # kacinci kaydi istedigini biliyor, gormek istedigi sey ne geldigi.
+        self.tip.show_html(_preview_html(entry.text), 1200)
         self.paste_text(entry.text)
 
     def show_clip_filter(self) -> None:
@@ -640,13 +686,17 @@ class Cascade:
         if not slot.content:
             self.tip.show_html(f"⚠️ <b>{html.escape(slot.name)}</b> bos", 1200)
             return
-        # Sifre slotunda ipucunda da icerik GORUNMEZ (store.slot_display).
-        self.tip.show_html(
-            f"\U0001f4e5 <b>{html.escape(slot.name)}</b> "
-            f"{html.escape(slot_display(index, slot.content, lambda t: _shorten(t, 40)))}",
-            1200,
-        )
+        self._slot_tip(index, slot.content)
         self.paste_text(slot.content, private=index == PASSWORD_SLOT)
+
+    def _slot_tip(self, index: int, content: str) -> None:
+        """Yapistirilan slotu ipucunda gosterir: YALNIZ ICERIK.
+
+        Slot adi ve numarasi yazilmiyor -- hangi tusa bastigini zaten
+        biliyorsun, gormek istedigin sey ne yapistirildigi. Sifre slotunda
+        icerik GORUNMEZ (store.slot_display).
+        """
+        self.tip.show_html(_preview_html(slot_display(index, content)), 1200)
 
     # ---- slot gruplari (AHK: clip_slot.ahk) ----
 
@@ -683,7 +733,11 @@ class Cascade:
         if not 1 <= index <= len(values) or not values[index - 1].content:
             self.tip.show_html("⚠️ <b>slot bos</b>", 1200)
             return
-        self.paste_text(values[index - 1].content, private=index == PASSWORD_SLOT)
+        slot = values[index - 1]
+        # Ipucu `paste_slot` ile ayni: Caret & 1 ve Tab & 1 yollari
+        # sessizdi, yalniz F13 kombolari ne yapistirdigini soyluyordu.
+        self._slot_tip(index, slot.content)
+        self.paste_text(slot.content, private=index == PASSWORD_SLOT)
 
     def copy_slot(self, argument: str) -> None:
         """AHK yan grup menusu: oge tiklaninca icerik PANOYA konur."""
@@ -1160,6 +1214,7 @@ class Cascade:
             f"Log dosyasi    : {paths.LOG}\n\n"
             f"{logs.recent_text(15)}",
         )
+        self._clear_error_badge()
 
     def copy_last_error(self) -> None:
         """AHK: App.ErrHandler.copyLastError()"""
@@ -1168,7 +1223,30 @@ class Cascade:
             self.tip.show_html("✅ <b>hata yok</b>", 1200)
             return
         self.clip_watcher.set_text(last.line)
-        self.tip.show_html("\U0001f4cb <b>son hata panoya kopyalandi</b>", 1500)
+        self.tip.show_html(
+            f"\U0001f4cb <b>son hata panoya kopyalandi</b><br>{_preview_html(last.line, 3)}",
+            2000,
+        )
+        self._clear_error_badge()
+
+    def _on_error_logged(self, level: str, text: str) -> None:
+        """Hata kaydedildi: tepsi rozeti HER ZAMAN yanar. Ipucu ayara bagli
+        (logs.SHOW_TIP), tepsi balonu SADECE CRITICAL'da -- her uyarida
+        balon cikarsa rahatsiz eder."""
+        self._error_count += 1
+        self.tray.set_error_count(self._error_count)
+        if logs.SHOW_TIP.get():
+            self.tip.show_html(
+                f"⚠️ <b>{html.escape(level.lower())}</b><br>{_preview_html(text, 3)}",
+                2500,
+            )
+        if level == "CRITICAL":
+            self.tray.notify("cascade - hata", _shorten(text.strip(), 200))
+
+    def _clear_error_badge(self) -> None:
+        """Hatalar gorulmus sayilir: rozet sifirlanir, kayitlar durur."""
+        self._error_count = 0
+        self.tray.set_error_count(0)
 
     def on_click_bounce(self, argument: str) -> None:
         """AHK: `#HotIf A_TimeSincePriorHotkey < 70` -> LButton yutulur.
@@ -1211,6 +1289,12 @@ class Cascade:
             items.append(("(pano gecmisi bos)", "clip.filter"))
         return tuple(items)
 
+    def _incognito_menu_item(self) -> tuple:
+        """F13 menusundeki tek satir: pencereyi acar (kapatma pencerede)."""
+        if self.incognito.active:
+            return (f"🏴‍☠️ Incognito ({self.incognito.locked_count})", "incognito.open")
+        return ("🏴‍☠️ Incognito", "incognito.open")
+
     def show_f13_menu(self) -> None:
         """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
         # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolonun basi o
@@ -1219,6 +1303,8 @@ class Cascade:
         spec: tuple = (("Clipboard history", self._clip_history_menu()),)
         spec += keymap.F13_MENU
         spec += (*self._shortcut_menu_items(), self._shortcut_manager_item())
+        # TEK madde, alt menu yok: pencere acilir, incognito orada yasar.
+        spec += (self._incognito_menu_item(),)
         pins = self._pin_menu_items()
         if pins:
             spec += (None, *pins)
@@ -1364,6 +1450,63 @@ class Cascade:
         if self._settings_dialog is None:
             self._settings_dialog = SettingsDialog()
         self._settings_dialog.show_dialog()
+
+    # ---- incognito (AHK: incognito.ahk) ----
+
+    @staticmethod
+    def _ask_incognito_recover() -> bool:
+        """Onceki oturum duzgun kapanmamis: yedek geri yuklensin mi?"""
+        answer = QMessageBox.question(
+            None,
+            "cascade - incognito",
+            "Onceki incognito oturumu duzgun kapanmamis.\n"
+            "Yedekteki Windows izleri geri yuklensin mi?\n\n"
+            "Hayir dersen o oturumun izleri SILINMIS kalir.",
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def open_incognito(self) -> None:
+        """Kisayolun/menunun tek isi: pencereyi acmak.
+
+        Pencere acilinca incognito devreye girer ve pencere kapanana kadar
+        acik kalir; kapanista temizligi disable() yapar.
+        """
+        if not self.incognito.active:
+            result = self.incognito.enable()
+            if result is None:  # _busy: onceki cagri hala suruyor
+                return
+            self._incognito_timer.start(Incognito.WATCH_PERIOD_MS)
+            kademe = "core + deep" if result.deep else "core"
+            self.tip.show_html(
+                f"🏴‍☠️ <b>incognito ACIK</b><br>"
+                f"<span style='color:#8b949e;'>{result.stores} depo ({kademe}) &nbsp;·&nbsp; "
+                f"{result.locked} dosya dondu</span>",
+                2000,
+            )
+        if self._incognito_badge is None:
+            self._incognito_badge = IncognitoBadge(self.incognito, self.close_incognito)
+        self._incognito_badge.show_badge()
+
+    def close_incognito(self) -> None:
+        """Pencerenin "Kapat"i, capraz ve Escape ayni yere gelir."""
+        result = self.incognito.disable()
+        if result is None:
+            return
+        self._incognito_timer.stop()
+        if self._incognito_badge is not None:
+            self._incognito_badge.close()
+            self._incognito_badge.deleteLater()
+            self._incognito_badge = None
+        detay = (
+            f"{result.restored} depo geri yuklendi"
+            if result.did_restore
+            else "geri yukleme KAPALI, izler kaldi"
+        )
+        self.tip.show_html(
+            f"\U0001f441️ <b>incognito kapali</b><br>"
+            f"<span style='color:#8b949e;'>{detay}</span>",
+            2000,
+        )
 
     def show_monitor(self) -> None:
         self.monitor.show()
@@ -1513,16 +1656,10 @@ class Cascade:
             self._idle_count = IDLE_TICKS
             self.dispatcher.last_physical = time.perf_counter()
             self._idle_timer.start(IDLE_INTERVAL_MS)
-        # Kisa bir acilis bildirimi. "Hangi tuslar bagli" listesi DEGIL --
-        # onu her acilista okumak istemiyorsun; sadece "ayaktayim" demesi
-        # yeter, gerisi tepsi ve F13 menusunde.
-        self.tip.show_html(
-            f"✅ <b>cascade {VERSION}</b> hazir &nbsp;·&nbsp; {label}<br>"
-            f"<span style='color:#8b949e;'>{count} pano kaydi &nbsp;·&nbsp; "
-            f"{len(self.shorts.profiles)} uygulama profili &nbsp;·&nbsp; "
-            f"F13 menu</span>",
-            2200,
-        )
+        # Kisa bir acilis bildirimi: yalniz SURUM ve PROFIL. Sayimlar (pano
+        # kaydi, uygulama profili) buradan cikarildi -- her acilista okunan
+        # bir sey degildi, log'a zaten yaziliyorlar.
+        self.tip.show_html(f"✅ <b>cascade {VERSION}</b> &nbsp;·&nbsp; {label}", 1600)
 
     def _idle_tick(self) -> None:
         """AHK IdleModule.tick(): 5 dakikada bir, kullanici 1 dakikadir
@@ -1558,6 +1695,12 @@ class Cascade:
         self._exited = True
         for action in keymap.EXIT_ACTIONS:
             self.runner.run(action)
+        # Incognito ACIK KALAMAZ: kapatmadan cikarsak jump list dosyalari
+        # kilitli, Explorer politikalari kapali kalir ve yedek diskte asili
+        # durur (bir sonraki acilista _recover_stale toplar, ama once
+        # kullanici bozuk bir Explorer'la yasar).
+        if self.incognito.active:
+            self.incognito.disable()
         SETTINGS.save(paths.SETTINGS)  # AHK ExitSettings: Settings.save()
         # AHK: ExitSettings -> _save(). Yazma basarisizsa (veri kaybi
         # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.

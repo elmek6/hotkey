@@ -58,11 +58,16 @@ from cascade.settings import Category, setting
 # ayar acikken pencere yerinde kalir, Esc ile kapatilir.
 KEEP_OPEN = setting(
     "filter.keep_open",
-    "Liste odak kaybedince kapanmasin",
+    "Array filter: odak kaybedince kapanmasin",
     default=False,
     category=Category.LIST,
-    tags="filtre liste odak kapanma",
-    desc="Baska pencereye tiklayinca filtre listesi acik kalir",
+    tags="filtre liste odak kapanma array",
+    desc=(
+        "Array filter, pano gecmisi / slot arama gibi yerlerde acilan, yazdikca "
+        "suzen liste penceresidir. Normalde baska pencereye tiklayinca kendini "
+        "kapatir. Acarsan acik kalir -- listeden secim yaparken hedef pencereye "
+        "tiklaman gerekiyorsa isine yarar."
+    ),
 )
 
 VISIBLE_ROWS = 12  # AHK: r12

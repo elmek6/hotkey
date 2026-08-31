@@ -35,6 +35,7 @@ BILEREK KAPSAM DISI (AHK tarafinda arastirildi, olculdu, elendi):
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import shutil
@@ -175,6 +176,8 @@ class Incognito:
             ]
         )
         self._last_skipped = 0
+        #: AppID -> ad tablosu; ilk sorulusta okunur (opsiyonel dosya).
+        self._app_ids: dict[str, str] | None = None
 
     # ---- durum ----
 
@@ -184,6 +187,36 @@ class Incognito:
 
     def locked_paths(self) -> list[Path]:
         return list(self.locks.paths())
+
+    def get_name(self, app_id: str) -> str:
+        """AHK `getName`: jump list AppID'sinin (hex) okunur adi.
+
+        Tablo `Files/incognito_appids.json` icinde ve OPSIYONEL -- yoksa hex
+        oldugu gibi gorunur. Windows bu esleme icin bir API vermiyor, liste
+        elle buyuyor.
+        """
+        if self._app_ids is None:
+            self._app_ids = self._load_app_ids()
+        return self._app_ids.get(app_id.lower(), app_id)
+
+    @staticmethod
+    def _load_app_ids() -> dict[str, str]:
+        path = paths.FILES / "incognito_appids.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(key).lower(): str(value) for key, value in data.items()}
+
+    def name_for_file(self, path: Path) -> str:
+        """AHK `nameForFile`: `<hex>.automaticDestinations-ms` -> uygulama adi."""
+        return self.get_name(path.stem)
+
+    def locked_names(self, limit: int = 300) -> list[str]:
+        """AHK `getLockedNames`: dondurulmus jump list dosyalarinin adlari."""
+        return [self.name_for_file(path) for path in self.locked_paths()[:limit]]
 
     # ---- kademe ----
 

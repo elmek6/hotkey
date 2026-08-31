@@ -5,7 +5,11 @@ tanidik gelsin ve ayni kisayol aliskanligi calissin.
 
     * cift tiklama  bool ise dogrudan cevirir, digerlerinde deger sorar
     * kalin satir   varsayilandan FARKLI olan ayar (AHK'de NM_CUSTOMDRAW ile
-                    yapiliyordu; Qt'de hucrenin fontu yetiyor)
+                    yapiliyordu; Qt'de hucrenin fontu yetiyor). Ad ve deger
+                    kalin, aciklama degil -- aciklama uzun ve kalin bir metin
+                    blogu satiri okunmaz yapiyor.
+    * varsayilan    ayri sutun DEGIL, deger hucresinin ipucunda -- masayi
+                    genisletmeye degmiyordu
     * arama         bosluk ile AND; arama varken kategori suzgeci devre disi
 
 Kaydetme kapanista (`Settings.save`): ekran acikken her degisiklikte diske
@@ -42,7 +46,7 @@ ALL_LABEL = "Tumu"
 class SettingsDialog(QWidget):
     """Ayar penceresi. Tek ornek: app.py bunu saklayip yeniden gosteriyor."""
 
-    COLUMNS = ("Ayar", "Deger", "Varsayilan", "Aciklama")
+    COLUMNS = ("Ayar", "Deger", "Aciklama")
 
     def __init__(self) -> None:
         super().__init__()
@@ -66,11 +70,15 @@ class SettingsDialog(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.doubleClicked.connect(lambda _index: self._edit())
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents  # aciklamalar cok satirli
+        )
         header = self.table.horizontalHeader()
-        for index, width in enumerate((240, 120, 110)):
+        for index, width in enumerate((260, 130)):
             header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(index, width)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
         self.status = QLabel()
 
@@ -129,19 +137,15 @@ class SettingsDialog(QWidget):
         self.table.setRowCount(len(items))
         changed = 0
         for row, item in enumerate(items):
-            cells = (
-                item.name,
-                self._value_text(item),
-                self._default_text(item),
-                item.desc or item.key,
-            )
+            cells = (item.name, self._value_text(item), item.desc or item.key)
+            hint = f"{item.key}\nvarsayilan: {self._default_text(item)}"
             for column, text in enumerate(cells):
                 cell = QTableWidgetItem(text)
-                if item.is_changed():
+                if column < 2 and item.is_changed():
                     font = cell.font()
-                    font.setBold(True)  # AHK: degismis satir kalin
+                    font.setBold(True)  # AHK: degismis deger kalin
                     cell.setFont(font)
-                cell.setToolTip(item.key)
+                cell.setToolTip(hint)
                 self.table.setItem(row, column, cell)
             changed += bool(item.is_changed())
         self.status.setText(f"{len(items)} ayar, {changed} degismis")

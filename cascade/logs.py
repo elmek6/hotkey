@@ -27,16 +27,34 @@ uzerinden gelen WARNING+ kayitlari da toplaniyor, boylece ActionRunner'in
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 import sys
 import threading
 import traceback
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
 from cascade import paths
+from cascade.settings import Category, setting
+
+#: Hata olunca ekranda ipucu cikarilsin mi. Tepsi rozeti HER ZAMAN yanar;
+#: bu ayar yalnizca "gozune sokulsun mu"yu belirler.
+SHOW_TIP = setting(
+    "errors.showTip",
+    "Hata olusunca tooltip ile goster",
+    default=True,
+    category=Category.GENERAL,
+    tags="hata error ipucu tooltip bildirim",
+    desc=(
+        "Bir hata olustugunda imlecin yaninda kisa bir ipucu cikar. Kapatirsan "
+        "hata yine log'a ve tepsi simgesine (kirmizi + sayac) dusmeye devam eder, "
+        "yalnizca ekrani kesmez."
+    ),
+)
 
 MAX_ERRORS = 50
 MAX_BYTES = 512 * 1024
@@ -64,6 +82,10 @@ class ErrorStore(logging.Handler):
         super().__init__(level=logging.WARNING)
         self._items: deque[ErrorRecord] = deque(maxlen=limit)
         self._lock = threading.Lock()
+        #: Yeni kayit gelince cagrilir (level, text). Hata HANGI THREAD'den
+        #: gelirse gelsin buradan haber ediliyor -- abone Qt tarafindaysa
+        #: sinyal uzerinden ana thread'e gecmek ZORUNDA.
+        self._subs: list[Callable[[str, str], None]] = []
 
     # logging.Handler
     def emit(self, record: logging.LogRecord) -> None:
@@ -77,6 +99,12 @@ class ErrorStore(logging.Handler):
             self._items.append(
                 ErrorRecord(when=datetime.now(), level=level, text=text.strip())
             )
+        for callback in tuple(self._subs):
+            with contextlib.suppress(Exception):  # abone loglamayi kirmasin
+                callback(level, text)
+
+    def subscribe(self, callback: Callable[[str, str], None]) -> None:
+        self._subs.append(callback)
 
     @property
     def items(self) -> tuple[ErrorRecord, ...]:

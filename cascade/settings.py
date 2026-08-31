@@ -6,7 +6,7 @@ Deger okuma HER ZAMAN `Setting.get()` uzerinden olmali -- kod icinde
 sabitten okunan bir yer kalirsa "ayar kaydediliyor ama etkisi yok" olur.
 
     KEEP_OPEN = setting(
-        "filter.keep_open", "Liste odak kaybedince kapanmasin",
+        "filter.keep_open", "Array filter: odak kaybedince kapanmasin",
         default=False, category=Category.LIST, tags="filtre liste odak",
     )
     if KEEP_OPEN.get(): ...
@@ -34,9 +34,11 @@ class Category:
     """AHK: `class Cat`. Ayar ekranindaki sol sutun."""
 
     GENERAL = "Genel"
+    TRAY = "Sistem tepsisi"
+    GESTURE = "Jestler"  # F13 + fare hareketi (core/hot_vectors.py)
     MOUSE = "Fare"
     CLIP = "Pano"
-    LIST = "Liste"
+    LIST = "Array filter"  # tus tus suzen liste penceresi (ui/array_filter.py)
     WINDOW = "Pencere"
     OCR = "OCR"
 
