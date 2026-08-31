@@ -30,20 +30,25 @@ PAUSED_BACKGROUND = QColor("#6e7681")
 ERROR_BACKGROUND = QColor("#da3633")
 BAR = QColor("#ffffff")
 
-#: Cift tiklama eylemleri: ayardaki metin -> Tray'in cagiracagi geri arama adi.
-DOUBLE_CLICK_ACTIONS = {
-    "Pause/Play": "pause",
-    "Reload": "restart",
-    "Settings": "settings",
-    "Event monitor": "monitor",
-    "Copy last error": "copy_error",
+#: Cift tiklama eylemleri. Ayara KIMLIK yazilir, menude ETIKET gorunur --
+#: menu metnini degistirmek kayitli secimi bozmasin.
+DOUBLE_CLICK_LABELS = {
+    "pause": "Pause/Play",
+    "restart": "Reload",
+    "settings": "Settings",
+    "monitor": "Event monitor",
+    "copy_error": "Copy last error",
 }
+#: settings.json'da duran eski (metin) degerler.
+DOUBLE_CLICK_LEGACY = {label: name for name, label in DOUBLE_CLICK_LABELS.items()}
 
 DOUBLE_CLICK = setting(
     "tray.doubleClick",
     "Tepsi simgesine cift tiklama",
-    default="Pause/Play",
-    choices=tuple(DOUBLE_CLICK_ACTIONS),
+    default="pause",
+    choices=tuple(DOUBLE_CLICK_LABELS),
+    labels=DOUBLE_CLICK_LABELS,
+    legacy=DOUBLE_CLICK_LEGACY,
     category=Category.TRAY,
     tags="tepsi tray cift tiklama simge",
     desc=(
@@ -153,8 +158,8 @@ class Tray(QSystemTrayIcon):
     def _on_activated(self, reason) -> None:
         if reason != QSystemTrayIcon.ActivationReason.DoubleClick:
             return
-        name = DOUBLE_CLICK_ACTIONS.get(str(DOUBLE_CLICK.get()), "pause")
-        self._handlers[name]()
+        name = str(DOUBLE_CLICK.get())
+        self._handlers.get(name, self._handlers["pause"])()
 
     # ---- durum ----
 

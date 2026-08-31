@@ -34,6 +34,11 @@ shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 #: Menu tanimlarinda "buradan sonrasi YENI KOLON" isareti (AHK: MENU_COL).
 COLUMN = "|"
 
+#: Ogenin ek alanlarina konursa o oge KALIN cizilir (Win32 "default item").
+#: Alt menunun eylem kimligi olmadigi icin isaret ogenin KENDISINDE tasinir;
+#: etiketle eslestirmek etiketi ikinci bir kimlik haline getiriyordu.
+DEFAULT = "<default>"
+
 MF_STRING = 0x0000
 MF_POPUP = 0x0010
 MF_SEPARATOR = 0x0800
@@ -261,7 +266,7 @@ def _set_icon(handle: int, position: int, name: str) -> None:
     user32.SetMenuItemInfoW(handle, position, True, ctypes.byref(info))
 
 
-def _build(spec, actions: list[str], default: tuple[str, ...]) -> int:
+def _build(spec, actions: list[str]) -> int:
     """Spec'i HMENU'ye cevirir. Alt menuler ozyinelemeli kurulur.
 
     Komut kimlikleri 1'den baslar (0 = "secim yapilmadi") ve `actions`
@@ -281,21 +286,19 @@ def _build(spec, actions: list[str], default: tuple[str, ...]) -> int:
             column = MF_MENUBARBREAK
             continue
         label, target, *rest = entry
-        icon = rest[0] if rest else ""
+        icon = next((item for item in rest if item and item != DEFAULT), "")
         if isinstance(target, tuple):
-            sub = _build(target, actions, default)
+            sub = _build(target, actions)
             user32.AppendMenuW(
                 handle, MF_STRING | MF_POPUP | column, ctypes.c_void_p(sub), label
             )
-            # Alt menunun eylem kimligi yok; kalin isteniyorsa ETIKETIYLE
-            # eslesiyor (AHK: `m.Default := name`) ve sirasiyla veriliyor.
-            if label in default:
+            if DEFAULT in rest:
                 user32.SetMenuDefaultItem(handle, position, True)
         else:
             actions.append(target)
             command = len(actions)
             user32.AppendMenuW(handle, MF_STRING | column, ctypes.c_void_p(command), label)
-            if target in default:
+            if DEFAULT in rest:
                 user32.SetMenuDefaultItem(handle, command, False)
         if icon:
             _set_icon(handle, position, icon)
@@ -305,17 +308,13 @@ def _build(spec, actions: list[str], default: tuple[str, ...]) -> int:
     return handle
 
 
-def track(spec, title: str = "", default: str | tuple[str, ...] = "") -> str | None:
+def track(spec, title: str = "") -> str | None:
     """Menuyu imlecin yaninda gosterir; secilen eylem kimligini dondurur.
 
     Secim yapilmadan kapatildiysa (Esc / disari tiklama) `None` doner.
     """
     actions: list[str] = []
-    # Kalin oge birden fazla olabilir -- her ALT MENUNUN kendi kalin ogesi
-    # var (Win32'de "default item" menu basina tektir): koke sabitlenen
-    # pencere, "Profiller" icinde aktif profil.
-    marks = (default,) if isinstance(default, str) else tuple(default)
-    handle = _build(spec, actions, tuple(m for m in marks if m))
+    handle = _build(spec, actions)
     if title:
         # Baslik satiri: menunun EN USTUNE, pasif oge olarak. AHK'de de
         # basliklar boyle veriliyordu (Win32 menude ayri baslik alani yok).

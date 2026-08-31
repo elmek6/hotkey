@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from cascade import paths
-from cascade.settings import SETTINGS, Setting
+from cascade.settings import SETTINGS, Category, Setting
 
 ALL_LABEL = "Tumu"
 
@@ -114,7 +114,9 @@ class SettingsDialog(QWidget):
         self.categories.clear()
         self.categories.addItem(f"{ALL_LABEL} ({len(SETTINGS.all)})")
         for name in SETTINGS.categories:
-            self.categories.addItem(f"{name} ({len(SETTINGS.tree[name])})")
+            self.categories.addItem(
+                f"{Category.label(name)} ({len(SETTINGS.tree[name])})"
+            )
         self.categories.setCurrentRow(0)
         self.categories.blockSignals(False)
 
@@ -154,13 +156,13 @@ class SettingsDialog(QWidget):
     def _value_text(item: Setting) -> str:
         if item.type_of() == "bool":
             return "✓ acik" if item.get() else "✗ kapali"
-        return str(item.get())
+        return item.label_for(item.get())
 
     @staticmethod
     def _default_text(item: Setting) -> str:
         if item.type_of() == "bool":
             return "acik" if item.default else "kapali"
-        return str(item.default)
+        return item.label_for(item.default)
 
     def _selected(self) -> Setting | None:
         row = self.table.currentRow()
@@ -177,10 +179,14 @@ class SettingsDialog(QWidget):
             self._refresh()
             return
         if item.type_of() == "enum":
-            current = list(item.choices).index(item.get()) if item.get() in item.choices else 0
-            value, ok = QInputDialog.getItem(
-                self, item.name, item.desc or item.key, list(item.choices), current, False
+            # Listede ETIKET gosterilir, ayara KIMLIK yazilir.
+            ids = list(item.choices)
+            current = ids.index(item.get()) if item.get() in ids else 0
+            label, ok = QInputDialog.getItem(
+                self, item.name, item.desc or item.key,
+                [item.label_for(one) for one in ids], current, False
             )
+            value = ids[[item.label_for(one) for one in ids].index(label)] if ok else None
         else:
             value, ok = QInputDialog.getText(
                 self, item.name, item.desc or item.key, text=str(item.get())

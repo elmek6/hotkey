@@ -49,6 +49,11 @@ class ActionRunner:
         self.register("mouse.move", self._mouse_move)
         self.register("mouse.click", send.click)
 
+    @property
+    def handlers(self) -> dict:
+        """Kayitli eylem kimlikleri -- menu/keymap denetimi icin salt okunur."""
+        return dict(self._commands)
+
     @staticmethod
     def _mouse_move(argument: str) -> None:
         """`mouse.move:-10,0` -- imleci GORECELI oynatir (AHK "R" kipi)."""

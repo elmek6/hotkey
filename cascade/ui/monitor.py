@@ -72,7 +72,6 @@ class EventMonitor(QWidget):
         # listenin dibini kovalamak gerekiyordu. Kutu isaretliyken yeni olay
         # EN USTE giriyor ve liste hic kaymiyor.
         self.newest_first = QCheckBox("Yeni ustte")
-        self.newest_first.setToolTip("Yeni olaylar listenin basina eklensin")
 
         self.stats = QLabel()
         self.stats.setFont(mono)
@@ -84,7 +83,6 @@ class EventMonitor(QWidget):
         # pencereyi kapatmak gerekiyordu. Kutu isaretliyken hook calismaya
         # devam eder, yalniz bu tablo yazmayi birakir.
         self.paused = QCheckBox("Duraklat")
-        self.paused.setToolTip("Listeye yeni olay eklenmesin")
 
         copy_row = QPushButton("Satiri kopyala")
         copy_row.clicked.connect(self._copy_row)

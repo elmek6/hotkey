@@ -59,8 +59,9 @@ DEFAULT_STEP_PX = 14.0
 DEFAULT_LOCK_PX = 8.0
 
 #: Kilit kipleri (`hotVector.lockMode`).
-LOCK_AXIS = "eksen"  # eksen kilitlenir, iki yon de canli (AHK bDir.upDown)
-LOCK_DIRECTION = "yon"  # ilk yon kilitlenir, ters yon jest boyunca olu
+#: Kimlik; ekranda gorunen adlari keymap.VECTOR_LOCK_MODE tasiyor.
+LOCK_AXIS = "axis"  # eksen kilitlenir, iki yon de canli (AHK bDir.upDown)
+LOCK_DIRECTION = "direction"  # ilk yon kilitlenir, ters yon jest boyunca olu
 LOCK_MODES = (LOCK_AXIS, LOCK_DIRECTION)
 
 

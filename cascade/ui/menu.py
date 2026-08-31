@@ -27,18 +27,19 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from cascade.win32 import menu as win32_menu
-from cascade.win32.menu import COLUMN
+from cascade.win32.menu import COLUMN, DEFAULT
 
 # Menu tanimi: (etiket, eylem kimligi) ciftleri.
 #   * `None`            yatay ayrac
 #   * `COLUMN` ("|")    buradan sonrasi YENI KOLON (AHK: MENU_COL)
 #   * eylem yerine demet -> alt menu
+#   * `DEFAULT`         ek alanda: oge kalin cizilir (Win32 default item)
 #   * ucuncu alan       ikon adi: `"res:243"` / `"shell:260"` (AHK menuIcon
 #                       ile ayni numaralar; renkli ikonun tek yolu, emoji
 #                       klasik menude tek renk cizilir)
 MenuSpec = tuple["tuple[str, str | tuple] | tuple[str, str, str] | str | None", ...]
 
-__all__ = ["COLUMN", "MenuSpec", "PopupMenu"]
+__all__ = ["COLUMN", "DEFAULT", "MenuSpec", "PopupMenu"]
 
 
 class PopupMenu:
@@ -53,19 +54,14 @@ class PopupMenu:
         self._set_ui_open = set_ui_open
         self._open = False
 
-    def show(
-        self,
-        spec: MenuSpec,
-        title: str = "",
-        default: str | tuple[str, ...] = "",
-    ) -> None:
+    def show(self, spec: MenuSpec, title: str = "") -> None:
         if self._open:  # ic ice menu acilmasin: TrackPopupMenu bloklar
             return
         self._open = True
         if self._set_ui_open is not None:
             self._set_ui_open(True)
         try:
-            action = win32_menu.track(spec, title=title, default=default)
+            action = win32_menu.track(spec, title=title)
         finally:
             self._open = False
             if self._set_ui_open is not None:

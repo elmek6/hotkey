@@ -31,16 +31,36 @@ VERSION = 1
 
 
 class Category:
-    """AHK: `class Cat`. Ayar ekranindaki sol sutun."""
+    """AHK: `class Cat`. Ayar ekranindaki sol sutun.
 
-    GENERAL = "Genel"
-    TRAY = "Sistem tepsisi"
-    GESTURE = "Jestler"  # F13 + fare hareketi (core/hot_vectors.py)
-    MOUSE = "Fare"
-    CLIP = "Pano"
-    LIST = "Array filter"  # tus tus suzen liste penceresi (ui/array_filter.py)
-    WINDOW = "Pencere"
-    OCR = "OCR"
+    Sabitler KIMLIK, `LABELS` ekranda gorunen ad. Ayrilar cunku kimlik
+    esitlik karsilastirmasinda ve `tree` anahtari olarak kullaniliyor:
+    baslik metnini degistirmek mantigi bozmamali.
+    """
+
+    GENERAL = "general"
+    TRAY = "tray"
+    GESTURE = "gesture"  # F13 + fare hareketi (core/hot_vectors.py)
+    MOUSE = "mouse"
+    CLIP = "clip"
+    LIST = "list"  # tus tus suzen liste penceresi (ui/array_filter.py)
+    WINDOW = "window"
+    OCR = "ocr"
+
+    LABELS = {
+        GENERAL: "Genel",
+        TRAY: "Sistem tepsisi",
+        GESTURE: "Jestler",
+        MOUSE: "Fare",
+        CLIP: "Pano",
+        LIST: "Array filter",
+        WINDOW: "Pencere",
+        OCR: "OCR",
+    }
+
+    @classmethod
+    def label(cls, category: str) -> str:
+        return cls.LABELS.get(category, category)
 
 
 class Setting:
@@ -56,6 +76,8 @@ class Setting:
         tags: str = "",
         desc: str = "",
         choices: tuple = (),
+        labels: dict | None = None,
+        legacy: dict | None = None,
         validate: Callable[[object], str] | None = None,
         on_change: Callable[[object, object], None] | None = None,
     ) -> None:
@@ -67,11 +89,21 @@ class Setting:
         self.tags = tags
         self.desc = desc
         self.choices = tuple(choices)
+        #: enum kimligi -> ekranda gorunen ad. Bos ise kimlik gosterilir.
+        self.labels: dict = dict(labels or {})
+        #: dosyada duran ESKI deger -> yeni kimlik. Kimlige gecmeden once
+        #: settings.json'a gorunen metin yaziliyordu; kullanicinin secimi
+        #: bir surum gecisinde varsayilana dusmesin.
+        self.legacy: dict = dict(legacy or {})
         self.validate = validate
         self._value = default
         self._subs: list[Callable[[object, object], None]] = []
         if on_change is not None:
             self._subs.append(on_change)
+
+    def label_for(self, value) -> str:
+        """enum kimliginin ekranda gorunen adi."""
+        return self.labels.get(value, str(value))
 
     def type_of(self) -> str:
         """"bool" | "enum" | "int" | "float" | "str" -- verilmemisse cikarilir."""
@@ -151,6 +183,7 @@ class Setting:
             except (TypeError, ValueError):
                 return self.default, False
         if kind == "enum":
+            value = self.legacy.get(value, value)
             return (value, True) if value in self.choices else (self.default, False)
         return str(value), True
 
@@ -248,8 +281,9 @@ class Registry:
                     item.key,
                     item.desc,
                     item.tags,
-                    item.category,
+                    Category.label(item.category),
                     *map(str, item.choices),
+                    *map(str, item.labels.values()),
                 )
             ).lower()
             if all(term in hay for term in terms):

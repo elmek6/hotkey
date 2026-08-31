@@ -39,7 +39,13 @@ import platform
 
 from cascade.core import turkish
 from cascade.core.builder import CascadeDef, KeyBuilder, PressType
-from cascade.core.hot_vectors import LOCK_AXIS, LOCK_MODES, Direction, HotVectors
+from cascade.core.hot_vectors import (
+    LOCK_AXIS,
+    LOCK_DIRECTION,
+    LOCK_MODES,
+    Direction,
+    HotVectors,
+)
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import register_name
 from cascade.settings import Category, setting
@@ -76,6 +82,8 @@ VECTOR_LOCK_MODE = setting(
     "Jest kilidi",
     default=LOCK_AXIS,
     choices=LOCK_MODES,
+    labels={LOCK_AXIS: "eksen", LOCK_DIRECTION: "yon"},
+    legacy={"eksen": LOCK_AXIS, "yon": LOCK_DIRECTION},
     category=Category.GESTURE,
     tags="fare vektor jest eksen yon kilit",
     desc=(
