@@ -78,6 +78,7 @@ class ClipboardWatcher(QObject):
 
         clipboard = QGuiApplication.clipboard()
         clipboard.dataChanged.connect(self._on_changed)
+        self._connected = True
 
     # ---- disari ----
 
@@ -105,7 +106,14 @@ class ClipboardWatcher(QObject):
         QGuiApplication.clipboard().setMimeData(data)
 
     def stop(self) -> None:
+        """Iki kez cagrilabilir (app.on_exit'in kendi notuna bak): kapanis
+        hem bizim quit'imizden hem Qt'nin aboutToQuit'inden gelebiliyor.
+        Bagli olmayan bir yuvayi cozmek Qt'de "Failed to disconnect"
+        uyarisi basiyordu; bayrakla ikinci cagri sessizce donuyor."""
         self._timer.stop()
+        if not self._connected:
+            return
+        self._connected = False
         with_clipboard = QGuiApplication.clipboard()
         if with_clipboard is not None:
             with_clipboard.dataChanged.disconnect(self._on_changed)

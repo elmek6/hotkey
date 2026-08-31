@@ -1,7 +1,7 @@
 """Kombo ve basim suresi durum makinesi. Saf Python -- Win32 import'u YOK.
 
 AHK karsiliklari:
-  Ctrl+Shift+K::        -> modifier komboları
+  Ctrl+Shift+K::        -> modifier kombolari
   Pause & Home::        -> prefix kombosu (modifier olmayan bir tus onek olur)
   kisa/orta/uzun basim  -> key_handler_cascade'in sure siniflandirmasi
 

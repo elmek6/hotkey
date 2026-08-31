@@ -294,3 +294,59 @@ def test_bos_ad_verilince_slot_varsayilan_adina_doner(tmp_path):
     store = _slot_store(tmp_path)
     store.set_slot_name("", 4, "   ")
     assert store.slots("")[3].name == "Slot 4"
+
+
+def test_olmayan_grubu_okumak_grup_yaratmaz(tmp_path):
+    """Grup acmak `add_group`in isi. Eskiden `slots()` icindeki `setdefault`
+    yuzunden, dosyada `defaultGroupName` var olmayan bir grubu gosterdiginde
+    (elle duzenleme ya da AHK tarafinda silinmis grup) o ad on bos slotla
+    uyduruluyor ve ilk `save()` onu DISKE yaziyordu."""
+    import orjson
+
+    from cascade.store import BOM, SlotStore
+
+    store = _slot_store(tmp_path)
+    store.add_group("is")
+
+    assert store.slots("yok-boyle-bir-grup") == []
+    assert store.group_names() == ["is"]
+    assert store.set_slot_content("yok-boyle-bir-grup", 1, "x") is False
+    assert store.set_slot_name("yok-boyle-bir-grup", 1, "x") is False
+
+    store.set_slot_content("", 1, "yazmayi tetikle")
+    yazilan = orjson.loads((tmp_path / "slots.json").read_bytes().lstrip(BOM))
+    assert [g["groupName"] for g in yazilan["groups"]] == ["", "is"]
+
+    # Varsayilan (adsiz) grup istisna: `load` cagrilmadan da kullanilabilir.
+    assert len(SlotStore(directory=tmp_path / "yeni").slots("")) == 10
+
+
+def test_dizgi_olmayan_slot_alani_bos_sayilir(tmp_path):
+    """`"content": null` gecen bir dosyada `str()` slotu "None" METNIYLE
+    dolduruyordu: slot dolu gorunuyor ve o metin yapistirilabiliyordu."""
+    import orjson
+
+    from cascade.store import BOM, SlotStore
+
+    (tmp_path / "slots.json").write_bytes(
+        BOM
+        + orjson.dumps(
+            {
+                "defaultGroupName": "",
+                "groups": [
+                    {
+                        "groupName": "",
+                        "values": [
+                            {"content": None, "name": None},
+                            {"content": 5, "name": 7},
+                            {"content": "gercek", "name": "Ad"},
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+    slotlar = SlotStore(directory=tmp_path).load()[""]
+    assert (slotlar[0].name, slotlar[0].content) == ("", "")
+    assert (slotlar[1].name, slotlar[1].content) == ("", "")
+    assert (slotlar[2].name, slotlar[2].content) == ("Ad", "gercek")

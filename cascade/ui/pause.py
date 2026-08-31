@@ -1,7 +1,7 @@
 """Duraklatma penceresi -- menus.ahk `DialogPauseGui` portu.
 
 AHK'de bu pencere acilir acilmaz `Suspend(1)` cagriliyordu: program
-duraklar, pencere kapanınca ya da "Play" ile devam eder. Dort dugme de
+duraklar, pencere kapaninca ya da "Play" ile devam eder. Dort dugme de
 aynen korundu; "Kaydetmeden yeniden baslat" AHK'nin
 `setShouldSaveOnExit(false) + Reload` ikilisidir -- pano dosyasi bozuk
 gorunuyorsa uzerine yazmadan yeniden baslatmaya yarar.
@@ -60,7 +60,7 @@ class PauseDialog(QWidget):
             button.setMinimumHeight(38)
             # Kapanma SIRASI onemli: once pencere kapanir, sonra sinyal --
             # "Cikis" sinyali programi kapatiyor, once o kosarsa pencere
-            # ekranda asili kalıyordu.
+            # ekranda asili kaliyordu.
             button.clicked.connect(lambda _c=False, s=signals[name]: self._fire(s))
             layout.addWidget(button)
 

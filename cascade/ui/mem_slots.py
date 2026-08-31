@@ -88,7 +88,7 @@ class DragTable(QTableWidget):
         (`application/x-qabstractitemmodeldatalist`) ve secili HUCRELERIN
         metnini koyuyor; hedef uygulama onu alinca satirin tamami
         (blok no + onizleme, sekmeli) dusuyordu. `mimeData()`
-        gecersiz kilmak yetmiyor cunku surukleme MODELDEN baslıyor.
+        gecersiz kilmak yetmiyor cunku surukleme MODELDEN basliyor.
         Notepad'den metin surukler gibi tek bir metin birakilmali.
         """
         rows = {index.row() for index in self.selectedIndexes()}
@@ -138,7 +138,6 @@ class MemSlots(QWidget):
         self.hist_index = 1
         self._slots_active = False  # AHK: activeList -- acilista gecmis aktif
         self._pending_slot: int | None = None  # `^c` bekleyen blok
-        self._loading = False  # tabloyu programla doldururken sinyal yutulur
 
         mono = QFont("Cascadia Mono")
         mono.setStyleHint(QFont.StyleHint.Monospace)
@@ -226,7 +225,6 @@ class MemSlots(QWidget):
         kullanicinin doldurdugu slotlari silmemeli. Temizlemek isteyen
         "Slotlari temizle" dugmesini kullanir.
         """
-        self.opened = True
         self.history = list(history)[:SLOT_COUNT]
         self._fill_history()
         self.select_history(1)
@@ -303,7 +301,14 @@ class MemSlots(QWidget):
                 self.select_history(self._next(self.hist_index, len(self.history)))
 
     def clear_slots(self) -> None:
-        """AHK: _clearSlots"""
+        """AHK: _clearSlots
+
+        Bekleyen `^c` istegi de DUSER: "uzun basim + temizle" sirasindan
+        sonra gelen kopyalama, temizlenmis bir bloga sessizce dolmamali.
+        (AHK'de bu durum yoktu: orada pano `ClipWait` ile bloke okunuyordu,
+        bekleyen istek diye bir ara durum olusmuyordu.)
+        """
+        self._pending_slot = None
         self.blocks = [""] * SLOT_COUNT
         for row in range(SLOT_COUNT):
             self.slot_table.item(row, 1).setText("")
@@ -335,11 +340,7 @@ class MemSlots(QWidget):
 
     def _write_slot(self, index: int, text: str) -> None:
         self.blocks[index - 1] = text
-        self._loading = True
-        try:
-            self.slot_table.item(index - 1, 1).setText(preview(text))
-        finally:
-            self._loading = False
+        self.slot_table.item(index - 1, 1).setText(preview(text))
 
     def _fill_history(self) -> None:
         """AHK: _populateHistory"""

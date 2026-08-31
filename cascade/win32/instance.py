@@ -10,7 +10,7 @@ Cocuk surec kisa bir sure kilidi bekler, hemen "zaten calisiyor" demez.
 DEVRALMA (AHK `#SingleInstance Force`): yeni ornek eskisini DUSURUR. Kilit
 alinamazsa adlandirilmis bir olay kuruluyor; calisan ornek o olayi bir
 thread'de bekliyor ve tetiklendiginde duzgunce kapaniyor (hook sokuluyor,
-pano diske yaziliyor). Sonra kilit yeni orneğe geciyor. Eskiden ikinci
+pano diske yaziliyor). Sonra kilit yeni ornege geciyor. Eskiden ikinci
 ornek "cascade zaten calisiyor" deyip cikiyordu; F5'ten yeniden
 baslatildiginda hafizadaki eski surec ayakta kaliyor ve tuslari o yiyordu.
 """

@@ -42,7 +42,7 @@ from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from cascade.core.keynames import key_name, vk_from_name
-from cascade.core.state import Busy, ClipboardMode
+from cascade.core.state import Busy
 from cascade.dispatch import Dispatcher
 from cascade.incognito import Incognito
 from cascade.macro_ctl import MacroController
@@ -662,10 +662,10 @@ class Cascade:
         title = window_title(hwnd)
         items: list = []
         if hwnd and not self.pins.has(hwnd):
-            label = shorten(title or "(baslıksiz)", 45)
+            label = shorten(title or "(basliksiz)", 45)
             items.append((f"📍 Add {label}", f"window.pin:{hwnd}"))
         for pin in self.pins.items():
-            label = shorten(pin.title or "(baslıksiz)", 45)
+            label = shorten(pin.title or "(basliksiz)", 45)
             # Uzerinde durdugun pencere zaten sabitliyse o satir kalin.
             mark = (DEFAULT,) if pin.hwnd == hwnd else ()
             items.append((f"📌 {label}", f"window.pin:{pin.hwnd}", "", *mark))
@@ -838,7 +838,7 @@ class Cascade:
         closeEvent'inde birakildi). Slotlar diske YAZILMAZ: pencere AHK'deki
         gibi oturumluk bir defter, kalici slotlar slots.json'da ayri durur.
         """
-        self.clip.state.set_mode(getattr(self, "_clip_mode_before", ClipboardMode.HISTORY))
+        self.clip.state.set_mode(self._clip_mode_before)
 
     # ---- buyutec ----
 
@@ -1205,13 +1205,8 @@ class Cascade:
 
     def switch_turkish_layout(self) -> None:
         """ScrollLock basili tutma -- AHK: dizilim 1 <-> 2."""
-        layout = self.dispatcher.turkish.switch_layout()
-        note = "uzun basim (c s i g)" if layout == 1 else "dogrudan remap"
-        self.tip.show_html(
-            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br>"
-            f"<span style='color:#8b949e;'>{note}</span>",
-            1200,
-        )
+        self.dispatcher.turkish.switch_layout()
+        self.switch_turkish_layout_tip()
 
     def set_turkish_layout(self, arg: str) -> None:
         """Menuden dizilim SECIMI -- `turkish.set:1` / `turkish.set:2`.

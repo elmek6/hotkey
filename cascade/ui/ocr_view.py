@@ -52,7 +52,6 @@ from cascade.core.ocr_layout import (
     Word,
     layout,
     separator_from_text,
-    separator_label,
 )
 
 #: AHK: GUTTERS -- kolon esigi icin hazir secenekler (duzenlenebilir kutu).
@@ -209,11 +208,6 @@ class OcrView(QWidget):
             return max(0, int(float(text)))
         except ValueError:
             return 0
-
-    def set_separator(self, value: str) -> None:
-        self._loading = True
-        self._sep.setCurrentText(separator_label(value))
-        self._loading = False
 
     def closeEvent(self, event) -> None:
         super().closeEvent(event)

@@ -87,7 +87,7 @@ class MacroController(QObject):
             return
         self._pending = False
         self.recorder.stop()
-        path = self.recorder.save(slot or getattr(self, "_slot", 1), name)
+        path = self.recorder.save(slot or self._slot, name)
         if path is None:
             self.view.set_state(False, False, "Bos kayit -- dosya yazilmadi")
             return

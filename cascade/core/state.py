@@ -87,8 +87,7 @@ class Busy:
 class ClipboardMode(IntEnum):
     """AHK: State.Clipboard -- panonun o an hangi is icin dinlendigi.
 
-    AHK'de bu bayrak sarttti cunku `OnClipboardChange` proses basina TEK
-    kez kaydedilebiliyor: pano geçmisi ile hafiza slotlari ayni callback'i
+    AHK'de bu bayrak sartti cunku `OnClipboardChange` proses basina TEK
     paylasip modla ayrisiyorlardi. Python'da o kisitlama yok -- birden cok
     dinleyici kurulabilirdi -- ama bayrak yine de dogru sey, cunku asil
     soru "kim dinliyor" degil, "kopyalanan sey NEREYE yazilsin".

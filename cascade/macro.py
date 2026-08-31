@@ -52,6 +52,7 @@ from datetime import datetime
 from pathlib import Path
 
 from cascade import paths
+from cascade.core import mouse
 from cascade.settings import Category, setting
 
 log = logging.getLogger("cascade.macro")
@@ -74,21 +75,30 @@ REC_TYPES = (KEY, MOUSE, HYBRID)
 
 #: Fare dugmesi VK'lari (`send.MOUSE_VK_NAMES` ile ayni adlar). Hook bize
 #: mesaj numarasi veriyor, kayda ADI yaziyoruz: dosya okunabilir kalsin.
+#: Sabitler `core/mouse.py`den geliyor -- orasi da saf Python, Win32
+#: ithali yok; sayilari burada ucuncu kez yazmak, birinde duzeltme
+#: yapildiginda digerlerini sessizce eskitirdi.
 MOUSE_BUTTONS = {
-    0x0201: ("left", True),
-    0x0202: ("left", False),
-    0x0204: ("right", True),
-    0x0205: ("right", False),
-    0x0207: ("middle", True),
-    0x0208: ("middle", False),
-    0x020B: ("x", True),
-    0x020C: ("x", False),
+    mouse.WM_LBUTTONDOWN: ("left", True),
+    mouse.WM_LBUTTONUP: ("left", False),
+    mouse.WM_RBUTTONDOWN: ("right", True),
+    mouse.WM_RBUTTONUP: ("right", False),
+    mouse.WM_MBUTTONDOWN: ("middle", True),
+    mouse.WM_MBUTTONUP: ("middle", False),
+    mouse.WM_XBUTTONDOWN: ("x", True),
+    mouse.WM_XBUTTONUP: ("x", False),
 }
-WM_MOUSEWHEEL = 0x020A
-WM_MOUSEHWHEEL = 0x020E
+WM_MOUSEWHEEL = mouse.WM_MOUSEWHEEL
+WM_MOUSEHWHEEL = mouse.WM_MOUSEHWHEEL
 #: `btn` -> `send.button_down/up` icin VK. "x" kaydi XButton numarasina
 #: (`data`) gore x1/x2'ye ayrilir.
-BUTTON_VK = {"left": 0x01, "right": 0x02, "middle": 0x04, "x1": 0x05, "x2": 0x06}
+BUTTON_VK = {
+    "left": mouse.VK_LBUTTON,
+    "right": mouse.VK_RBUTTON,
+    "middle": mouse.VK_MBUTTON,
+    "x1": mouse.VK_XBUTTON1,
+    "x2": mouse.VK_XBUTTON2,
+}
 
 SLOT_COUNT = setting(
     "macro.slotCount",

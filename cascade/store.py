@@ -499,7 +499,7 @@ class SlotStore:
             if not isinstance(name, str):
                 continue
             groups[name] = [
-                Slot(name=str(value.get("name", "")), content=str(value.get("content", "")))
+                Slot(name=_text(value.get("name")), content=_text(value.get("content")))
                 for value in group.get("values") or []
                 if isinstance(value, dict)
             ]
@@ -514,9 +514,24 @@ class SlotStore:
         return self.groups
 
     def slots(self, group: str = DEFAULT_GROUP) -> list[Slot]:
-        """Bir grubun slotlari; her zaman en az on tane (AHK: setContent
-        eksik slotlari yolda uretiyordu)."""
-        values = self.groups.setdefault(group, [])
+        """Bir grubun slotlari; eksikleri on'a tamamlanir (AHK: setContent
+        eksik slotlari yolda uretiyordu). Grup YOKSA bos liste doner.
+
+        Okumak grup YARATMAZ: grup acmak `add_group`in isi. Eskiden burada
+        `setdefault` vardi ve dosyadaki `defaultGroupName` var olmayan bir
+        grubu gosterdiginde (elle duzenleme ya da AHK tarafinda silinmis
+        grup) o ad on bos slotla uyduruluyor, ilk `save()` de onu diske
+        yaziyordu -- kullanicinin acmadigi grup dosyada belirir.
+
+        Varsayilan (adsiz) grup istisna: `load`/`_reset` onu her zaman
+        kurar, yani "yok" hali ancak `load()` cagrilmadan kullanmakla
+        olusur; orada bos liste dondurmek sessiz veri kaybi olurdu.
+        """
+        values = self.groups.get(group)
+        if values is None:
+            if group != DEFAULT_GROUP:
+                return []
+            values = self.groups.setdefault(group, [])
         while len(values) < SLOTS_PER_GROUP:
             values.append(Slot(name=f"Slot {len(values) + 1}", content=""))
         return values
@@ -605,6 +620,16 @@ def _merge_with_disk(memory: list[ClipEntry], disk: list[ClipEntry]) -> list[Cli
         seen.add(entry.text)
         merged.append(entry)
     return merged
+
+
+def _text(value: Any) -> str:
+    """Slot alani: yalniz dizgi kabul edilir, gerisi BOS sayilir.
+
+    `str()` ile cevirmek olmaz -- elle duzenlenmis ya da AHK'nin yazdigi
+    bir dosyada `"content": null` gecerse slot "None" METNIYLE dolar ve
+    yapistirilir. Bozuk alan bos slot demektir.
+    """
+    return value if isinstance(value, str) else ""
 
 
 def _blank_slots() -> list[Slot]:

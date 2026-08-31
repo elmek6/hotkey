@@ -10,7 +10,7 @@ gosteriyordu.
 
 **Sahip pencere sart.** TrackPopupMenu bir HWND ister ve o pencere
 foreground DEGILSE menu, disina tiklandiginda kapanmaz (bilinen Win32
-davranisi; `PostMessage(WM_NULL)` reçetesi de bunun icin). Bu yuzden 1x1
+davranisi; `PostMessage(WM_NULL)` recetesi de bunun icin). Bu yuzden 1x1
 piksel, saydam, gorev cubugunda gorunmeyen bir sahip pencere aciliyor,
 foreground yapiliyor ve menu kapaninca odak eski pencereye GERI VERILIYOR --
 menuden secilen eylem tus gonderiyorsa dogru pencereye gitmeli.
