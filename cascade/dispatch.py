@@ -26,10 +26,10 @@ from collections.abc import Callable
 
 from cascade.core.cascade import CascadeMachine, Phase, Run
 from cascade.core.combo import ComboTracker
-from cascade.core.gesture import GestureTracker
+from cascade.core.hot_vectors import HotVectors
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import key_name
-from cascade.core.mouse import WM_MOUSEMOVE, mouse_key
+from cascade.core.mouse import WM_MOUSEMOVE, MouseSeen, mouse_key
 from cascade.core.prefix import Outcome, PrefixTracker
 from cascade.core.turkish import TurkishLayout
 from cascade.win32 import send
@@ -62,7 +62,7 @@ class Dispatcher:
         self,
         machine: CascadeMachine,
         hotkeys: HotkeyTable,
-        gestures: GestureTracker,
+        gestures: HotVectors,
         actions: queue.Queue,
         seen: queue.Queue,
         menu_open: Callable[[], bool],
@@ -81,6 +81,13 @@ class Dispatcher:
         self.actions = actions
         self.seen = seen  # (olay, yutuldu mu) -> olay izleyicisi
         self._menu_open = menu_open
+        #: Cift basim icin BEKLETILEN kisa basim eylemleri:
+        #: vk -> (eylem, aciklama, calisma ani). AHK'deki
+        #: `KeyWait(key, "D T0.1")` beklemesinin karsiligi.
+        self._pending_tap: dict[int, tuple[str, str, float]] = {}
+        #: Son FIZIKSEL girdi ani (enjekte edilen girdi sayilmaz) --
+        #: AHK `A_TimeIdlePhysical`. Ekran koruyucu engelleyici kullaniyor.
+        self.last_physical = 0.0
 
         # Turkce eklentisi (AHK turkish_layout_addon.ahk). ScrollLock ile
         # acilir; hangi VK hangi harf, `turkish_keys` ile app.py'den gelir
@@ -93,6 +100,12 @@ class Dispatcher:
         self._hk_swallowed: set[int] = set()  # yuttugumuz keydown'in keyup'i
         # Jest sirasinda imlecin tutulacagi nokta ve son geri bildirim ani.
         self._freeze_at: tuple[int, int] | None = None
+        #: Jest sirasinda EN SON gorulen imlec noktasi -- fark buradan
+        #: aliniyor (bkz. `_gesture_move`).
+        self._gesture_at: tuple[int, int] | None = None
+        #: `hotVector.freezeCursor`: eski davranis (imlec her olayda
+        #: baslangica geri konur). app.py ayardan dolduruyor.
+        self.freeze_cursor = False
         self._prefix_at: tuple[int, int] | None = None
         self._tip_t = 0.0
         # Yutup beklettigimiz fare onegi surukleme oldugu anlasilinca gercek
@@ -139,6 +152,8 @@ class Dispatcher:
         # BIRAKMA kaybolmamali. Olayin kendisi yutulmuyor.
         if self._watch_vk and event.vk == self._watch_vk:
             self._watch_down = event.down
+        if not event.injected:
+            self.last_physical = event.t
         if self.paused or self.ui_open:
             return False
 
@@ -198,6 +213,8 @@ class Dispatcher:
         ComboTracker'a basim ve birakma ard arda veriliyor. Verilmezse
         WheelUp sonsuza kadar "basili" sayilir ve sonraki tuslara onek olur.
         """
+        if not event.injected:
+            self.last_physical = event.t
         if event.ours or self.paused or self.ui_open:
             return False
 
@@ -247,6 +264,13 @@ class Dispatcher:
             actions += extra
         for action in actions:
             self._put(action)
+        # Fare dugmeleri de olay izleyicisine dusuyor (klavye gibi). Hareket
+        # buraya HIC gelmiyor -- yukarida erken donuyor, yoksa liste saniyede
+        # yuzlerce satirla dolardi.
+        with contextlib.suppress(queue.Full):
+            self.seen.put_nowait(
+                (MouseSeen(vk=vk, down=down, t=event.t, x=event.x, y=event.y), swallow)
+            )
         return swallow
 
     def tick(self, now: float) -> list[tuple[int, str]]:
@@ -256,7 +280,13 @@ class Dispatcher:
         esigi yoklayan bir zamanlayici gerekiyor. AHK bunu bloke eden
         dongude yapiyordu.
         """
-        return self.prefixes.tick(now)
+        fired = self.prefixes.tick(now)
+        # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
+        for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
+            if now >= deadline:
+                del self._pending_tap[vk]
+                fired.append((vk, action))
+        return fired
 
     @property
     def ui_open(self) -> bool:
@@ -285,7 +315,9 @@ class Dispatcher:
         self.tracker.reset()
         self.gestures.reset()
         self._freeze_at = None
+        self._gesture_at = None
         self._prefix_at = None
+        self._pending_tap.clear()
         self._passed_through.clear()
         self._hk_swallowed.clear()
 
@@ -302,29 +334,49 @@ class Dispatcher:
     def _gesture_move(self, event: MouseEvent) -> bool:
         """Jest sirasindaki fare hareketi.
 
-        Imlec DONDURULUYOR: hareket olayi yutuluyor ve imlec baslangictaki
-        noktaya geri konuyor. AHK'de de jest sirasinda imlec sabitti --
-        yanlislikla bir seye tiklanmasin ve jest bitince imlec yerinde
-        kalsin diye. Yutuldugu icin mutlak konum akmaz; delta, dondurma
-        noktasina gore olculur.
+        Olcum jestin BASLADIGI noktadan, kesintisiz: her olayda bir onceki
+        noktaya gore fark alinip birikime ekleniyor.
+
+        Once imlec her olayda baslangica GERI KONUYORDU ("dondurma"). Yavas
+        hareket o yuzden hic jest baslatmiyordu: imleci geri koymak
+        Windows'un imlec hizlandirma birikimini de sifirliyor, yavas itilen
+        farenin uretecegi hareket 0 piksele yuvarlaniyor ve olay hic fark
+        tasimiyordu. Simdi imlec serbest -- hareket olayi yine YUTULUYOR
+        (tiklama, hover, surukleme olmuyor), yalniz konum akmaya devam
+        ediyor; jest bitince imlec baslangic noktasina geri konuyor
+        (`_end_gesture`). Eski davranis `hotVector.freezeCursor` ayariyla
+        geri gelir.
         """
-        anchor = self._freeze_at
-        if anchor is None:
+        origin = self._freeze_at
+        if origin is None:
             return False
-        dx = event.x - anchor[0]
-        dy = event.y - anchor[1]
-        # Kendi SetCursorPos'umuzun urettigi olay: delta sifir, isleme.
+        last = self._gesture_at or origin
+        dx = event.x - last[0]
+        dy = event.y - last[1]
         if dx or dy:
+            self._gesture_at = (event.x, event.y)
             for gesture in self.gestures.move(dx, dy):
                 self.prefixes.combo_used(gesture.prefix)
                 for _ in range(gesture.steps):
                     self._put(Run(gesture.action, key=gesture.prefix, desc=gesture.desc))
             self._gesture_tip(event.t)
-        # Yutmak cogu farede imleci zaten dondurur; surucusu kendi konumunu
-        # yazanlar icin ikinci kemer. Cagri hook thread'inde ama SendInput
-        # degil, yeniden girisli degil.
-        send.set_cursor_pos(*anchor)
+        if self.freeze_cursor:
+            # Cagri hook thread'inde ama SendInput degil, yeniden girisli degil.
+            send.set_cursor_pos(*origin)
+            self._gesture_at = origin
         return True
+
+    def _end_gesture(self) -> None:
+        """Jest bitti: imleci basladigi yere geri koy ve sayaclari birak.
+
+        Imleci geri vermek AHK'deki dondurmanin gorunur sonucuyla ayni:
+        kullanici jesti bitirdiginde imlec kalktigi yerdedir.
+        """
+        origin = self._freeze_at
+        if origin is not None and not self.freeze_cursor and self._gesture_at:
+            send.set_cursor_pos(*origin)
+        self._freeze_at = None
+        self._gesture_at = None
 
     def _gesture_tip(self, t: float) -> None:
         """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
@@ -420,13 +472,30 @@ class Dispatcher:
         # basimda onek hic devreye girmez, tus dogrudan uygulamaya gider.
         if self.prefixes.is_prefix(vk) and chord.prefix is None and not chord.modifiers:
             swallow = self.prefixes.key_down(vk, t)
+            pending = self._pending_tap.pop(vk, None)
+            if pending is not None and not chord.repeat:
+                # AHK: pressType 4. Tek basim eylemi hic calismadi -- bu
+                # basimin da kendi isi yok, birakilinca sessizce bitsin.
+                definition = self.prefixes.definition(vk)
+                self.prefixes.combo_used(vk)
+                if swallow:
+                    self._hk_swallowed.add(vk)
+                action = definition.double_action if definition else ""
+                return swallow, [Run(action, key=vk, desc="cift basim")] if action else []
             if swallow:
                 self._hk_swallowed.add(vk)
-            # Jest baslar: sayaclar sifirlanir ve imlecin donacagi nokta
-            # not edilir. Hareket olaylari bundan sonra yutulur.
-            if self.gestures.has(vk):
+            # Jest baslar: sayaclar sifirlanir ve baslangic noktasi not
+            # edilir. Hareket olaylari bundan sonra yutulur.
+            #
+            # BASILI TUTMA TEKRARI baslatmaz: F13 basili tutuldugunda Windows
+            # saniyede ~30 keydown daha uretiyor. Her biri jesti sifirdan
+            # baslatinca birikim silinip duruyordu -- ekranda "jest bekliyor /
+            # yatay kilitli / jest bekliyor..." donup hicbir adim uretmemesinin
+            # sebebi buydu.
+            if self.gestures.has(vk) and vk not in self.gestures.active:
                 self.gestures.start(vk)
                 self._freeze_at = send.cursor_pos()
+                self._gesture_at = self._freeze_at
             elif vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
                 # Surukleme olcumunun baslangic noktasi: fare onegi icin
                 # "surukleme mi tekerlek mi", F14 icin "secim mi menu mu".
@@ -459,19 +528,27 @@ class Dispatcher:
         if self.gestures.stop(vk):
             self.prefixes.key_up(vk, t)
             if not self.gestures.watching:
-                self._freeze_at = None
+                self._end_gesture()
             return was_ours, []
 
         if self.prefixes.key_up(vk, t) is Outcome.NOTHING:
             return was_ours, []  # kombo yapildi ya da basili tutma calisti
 
         if not self.gestures.watching:
-            self._freeze_at = None
+            self._end_gesture()
         if vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
             self._prefix_at = None
 
+        definition = self.prefixes.definition(vk)
         binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi
         if binding is not None:
+            if definition is not None and definition.double_action:
+                # AHK `KeyWait(key, "D T0.1")`: ikinci basim gelir mi diye
+                # beklenir. Gelmezse `tick` bu eylemi calistirir.
+                self._pending_tap[vk] = (
+                    binding.action, binding.desc, t + definition.double_ms / 1000.0
+                )
+                return was_ours, []
             return was_ours, [Run(binding.action, key=vk, desc=binding.desc)]
         if was_ours:
             # Hicbir sey olmadi: yuttugumuz tusu geri ver, `^` yazilabilsin.

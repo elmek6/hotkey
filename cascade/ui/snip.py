@@ -42,7 +42,7 @@ from enum import IntEnum
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap, QRegion
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QWidget
 
 from cascade.win32.screen import grab_virtual
 
@@ -106,6 +106,29 @@ ACTIONS = (
 #: Secildikten sonra secim cercevesinin acik kalacagi eylemler.
 KEEP_OPEN = frozenset({"ocr_adv"})
 
+#: "Alan" menusu -- KONSEPT. Hicbiri calismiyor, hicbir yere kayit yazmiyor;
+#: secilen madde ekranda "yer tutucu" ipucu gosteriyor. Amaci fikri gorunur
+#: kilmak: secilen dikdortgeni ADLI BIR ALAN olarak saklayip uzerine
+#: otomasyon (tetik + islem + cikti) baglamak. Olgunlastikca buradaki
+#: maddeler gercek islerle degistirilecek.
+AREA_MENU = (
+    ("Alan duzenle", "area.edit"),
+    ("Alani ekle", "area.add"),
+    ("Alani sil", "area.remove"),
+    None,
+    (
+        "Otomasyon",
+        (
+            ("Bu alani her F2'de resim olarak sakla", "auto.hotkey_capture"),
+            ("Her 30 sn OCR ile tara", "auto.interval_ocr"),
+            ("Icerik degisince bildir", "auto.on_change_notify"),
+            ("Metni panoya al ve CSV'ye ekle", "auto.append_csv"),
+            None,
+            ("Otomasyonlari yonet...", "auto.manage"),
+        ),
+    ),
+)
+
 
 class SnipOverlay(QWidget):
     """Tam ekran secim penceresi. Tek ornek app.py'de tutulur."""
@@ -114,6 +137,9 @@ class SnipOverlay(QWidget):
     done = Signal(str, QImage)
     #: OCR+ oturumu acikken alan degisti -- yeni kirpim
     rect_changed = Signal(QImage)
+    #: "Alan" menusunden KONSEPT bir madde secildi (AREA_MENU). Henuz is
+    #: yapmiyor: app.py bunu "yer tutucu" ipucuna ceviriyor.
+    placeholder = Signal(str)
     closed = Signal()
 
     def __init__(self) -> None:
@@ -177,6 +203,14 @@ class SnipOverlay(QWidget):
             button.setCursor(Qt.CursorShape.ArrowCursor)
             button.clicked.connect(lambda _c=False, a=action: self._finish(a))
             layout.addWidget(button)
+        # "Alan" -- konsept menusu (AREA_MENU). Dugmenin kendi menusu var,
+        # secim cercevesi ACIK KALIR: menu bir eylem degil, alan uzerinde
+        # calisacak isleri toplayacagi yer.
+        area = QPushButton("\U0001f4d0 Alan ▾", self._bar)
+        area.setCursor(Qt.CursorShape.ArrowCursor)
+        area.setMenu(self._build_area_menu())
+        layout.addWidget(area)
+
         cancel = QPushButton("✕", self._bar)
         cancel.setCursor(Qt.CursorShape.ArrowCursor)
         cancel.clicked.connect(self.close)
@@ -188,6 +222,22 @@ class SnipOverlay(QWidget):
             "QPushButton:hover { background: #444c56; }"
         )
         self._bar.hide()
+
+    def _build_area_menu(self, spec=AREA_MENU, parent=None):
+        """AREA_MENU demetini QMenu'ye cevirir. Ic ice demet -> alt menu."""
+        menu = QMenu(parent or self._bar)
+        for entry in spec:
+            if entry is None:
+                menu.addSeparator()
+                continue
+            label, target = entry
+            if isinstance(target, tuple):
+                sub = self._build_area_menu(target, menu)
+                sub.setTitle(label)
+                menu.addMenu(sub)
+            else:
+                menu.addAction(label, lambda key=target: self.placeholder.emit(key))
+        return menu
 
     # ---- disari ----
 

@@ -53,7 +53,12 @@ class PopupMenu:
         self._set_ui_open = set_ui_open
         self._open = False
 
-    def show(self, spec: MenuSpec, title: str = "", default: str = "") -> None:
+    def show(
+        self,
+        spec: MenuSpec,
+        title: str = "",
+        default: str | tuple[str, ...] = "",
+    ) -> None:
         if self._open:  # ic ice menu acilmasin: TrackPopupMenu bloklar
             return
         self._open = True

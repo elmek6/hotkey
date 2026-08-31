@@ -27,6 +27,10 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 DEFAULT_HOLD_MS = 350.0
+#: Cift basim penceresi. AHK key_handler_mouse.ahk: kisa basimdan sonra
+#: `KeyWait(key, "D T0.1")` -- 100 ms icinde ikinci basim gelirse basim
+#: turu 4 (cift) olur. Bizde de kisa basim eylemi bu kadar BEKLETILIR.
+DEFAULT_DOUBLE_MS = 180.0
 
 
 class Outcome(IntEnum):
@@ -45,6 +49,12 @@ class PrefixDef:
     passthrough: bool = False  # AHK'deki `~`
     hold_action: str = ""
     hold_ms: float = DEFAULT_HOLD_MS
+    #: AHK `EM.enableDoubleClick()`: kisa basim iki kere ust uste yapilirsa
+    #: calisir. Tanimliysa TEK basim eylemi `double_ms` kadar bekletilir --
+    #: yoksa ilk basimin menusu acilip ikinciyi yerdi (AHK'de de basim
+    #: turune ancak bu bekleme bitince karar veriliyor).
+    double_action: str = ""
+    double_ms: float = DEFAULT_DOUBLE_MS
     #: Onek basiliyken fare kimildarsa calisir (F14: ekran alani secimi).
     #: Bos ise surukleme tusun anlamini degistirmez.
     drag_action: str = ""

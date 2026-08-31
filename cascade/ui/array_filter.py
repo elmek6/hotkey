@@ -21,7 +21,8 @@ AHK'de zor olup Qt'de bedava gelen uc sey -- bilerek AHK'yi taklit etmedik:
   arama kutusuna bir olay suzgeci: Up/Down/PageUp/PageDown listeye
   iletilir, odak kutuda kalir. Pencere kapaninca suzgec de gider.
 * **Odak bekcisi.** AHK 50 ms'de bir `WinActive` yokluyordu (`WatchDog`).
-  Qt bunu olay olarak veriyor: pencere odagi kaybedince kapanir.
+  Qt bunu olay olarak veriyor: pencere odagi kaybedince kapanir --
+  `filter.keep_open` ayari (penceredeki kutu) bunu kapatabiliyor.
 * **F# etiketleri.** AHK `LVM_GETTOPINDEX` mesajini elle gonderiyordu;
   Qt'de `rowAt(0)` ayni seyi soyluyor.
 
@@ -50,6 +51,19 @@ from PySide6.QtWidgets import (
 )
 
 from cascade.core.filter import FilterItem, FilterMode, Query, apply
+from cascade.settings import Category, setting
+
+# AHK'de liste odak kaybedince KOSULSUZ kapaniyordu (WatchDog). Bazen
+# listeye bakarken baska pencereye tiklamak gerekiyor ve liste ucuyordu;
+# ayar acikken pencere yerinde kalir, Esc ile kapatilir.
+KEEP_OPEN = setting(
+    "filter.keep_open",
+    "Liste odak kaybedince kapanmasin",
+    default=False,
+    category=Category.LIST,
+    tags="filtre liste odak kapanma",
+    desc="Baska pencereye tiklayinca filtre listesi acik kalir",
+)
 
 VISIBLE_ROWS = 12  # AHK: r12
 PREVIEW_LIMIT = 120  # AHK: SubStr(content, 1, 120)
@@ -106,6 +120,12 @@ class ArrayFilter(QWidget):
 
         self.hover = QCheckBox("Fare ile onizleme")
         self.hover.setChecked(True)
+
+        # Ayarin penceredeki yuzu: kutu ile ayar ekrani ayni degeri gosterir
+        # (ayar ekrani ayrica kalici kaydeder).
+        self.keep_open = QCheckBox("Baska yere tiklayinca kapanmasin")
+        self.keep_open.setChecked(bool(KEEP_OPEN.get()))
+        self.keep_open.toggled.connect(KEEP_OPEN.set)
         self.table.setMouseTracking(True)
         self.table.viewport().setMouseTracking(True)
         self.table.viewport().installEventFilter(self)
@@ -123,7 +143,11 @@ class ArrayFilter(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.table, 1)
-        layout.addWidget(self.hover)
+        checks = QHBoxLayout()
+        checks.addWidget(self.hover)
+        checks.addWidget(self.keep_open)
+        checks.addStretch(1)
+        layout.addLayout(checks)
         layout.addWidget(self.preview)
 
         # AHK: SelectByFKey -- F1..F12 GORUNEN satirlari secer, mutlak
@@ -269,7 +293,11 @@ class ArrayFilter(QWidget):
         """AHK'nin WatchDog'u: odak baska pencereye gecince kapan.
 
         AHK 50 ms'de bir yokluyordu; Qt olayi dogrudan veriyor."""
-        if event.type() == QEvent.Type.ActivationChange and not self.isActiveWindow():
+        if (
+            event.type() == QEvent.Type.ActivationChange
+            and not self.isActiveWindow()
+            and not KEEP_OPEN.get()
+        ):
             self.close()
         super().changeEvent(event)
 

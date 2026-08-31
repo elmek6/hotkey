@@ -1,24 +1,26 @@
-"""Hafiza slotlari -- AHK'deki `Lib/memory_slots.ahk` (singleMemorySlot).
+"""Hafiza bloklari -- AHK'deki `Lib/memory_slots.ahk` (singleMemorySlot).
 
-On tane elle doldurulan slot ve panonun son on kaydi yan yana. Pencere
+On tane elle doldurulan BLOK ve panonun son on kaydi yan yana. Bu bloklarin
+`slots.json`'daki slotlarla (F14 menusu, `^`/Tab tuslari) ILGISI YOK: isim
+benzerligi yuzunden karistiriliyordu, o yuzden burada "blok" deniyor.
+Bloklar bellekte yasar -- pencere kapanip acilinca yerinde durur, diske
+hicbir sey yazilmaz ve hicbir sey silinmez. Pencere
 acikken pano MOD DEGISTIRIR (ClipboardMode.MEM_SLOTS): kopyalanan sey
 gecmise degil ilk bos slota duser. Kapaninca eski mod geri gelir.
 
 AHK'den birebir gelenler:
 
-    * on slot, ilk bos slota otomatik doldurma, dolunca basa donme
+    * on blok, ilk bos bloga otomatik doldurma, dolunca basa donme
     * "veri tekrarini kabul et" kutusu (`ignoreSameValue`)
     * iki liste ve aralarinda gezinen "aktif liste" kavrami; baslik seridi
       hangisinin aktif oldugunu renkle soyler
     * baslik seridine tiklayinca listeyi TERS cevirme
-    * cift tiklama: slot listesinde panoya kopyalar, gecmiste yapistirir
+    * cift tiklama: blok listesinde panoya kopyalar, gecmiste yapistirir
     * akilli yapistirma (`smartPaste`): orta fare tusu / `Insert` ile
       yapistirir ve siradaki kayda gecer ("Orta tus" kutusu ile kapanir);
       tus kombosuyla gelindiginde secim yerinde kalir -- AHK ile ayni ayrim
     * satiri disari surukleyip birakma (`OleDragSource`): tabloda kisaltilmis
       onizleme yazar, surukleme TAM icerigi tasir
-    * sifre slotu: 10. slot ("Slot 0") listede ve menude maskeli gorunur,
-      yapistirmasi normal calisir
 
 AHK'den AYRILAN iki yer, ikisi de mimari yuzunden:
 
@@ -27,29 +29,15 @@ AHK'den AYRILAN iki yer, ikisi de mimari yuzunden:
    CascadeMachine'de var ve F1..F10 oraya calisma aninda ekleniyor
    (keymap.py `memslots_defs`). Cift basim yerine UZUN basim kullaniliyor:
 
-        kisa  -> slotu yapistir      orta -> gecmisi yapistir
-        uzun  -> panoyu o slota kaydet
+        kisa  -> blogu yapistir      orta -> gecmisi yapistir
+        uzun  -> panoyu o bloga kaydet
 
 2. **Panoyu okuma.** AHK `SendInput("^c")` sonrasi `ClipWait` ile bloke
    okuyordu. Burada pano dinleyicisi asenkron (ui/clipboard.py): `^c`
-   gonderilir, gelen ILK metin bekleyen slota yazilir (`_pending_slot`).
-
-Slotlarin kendisi `Files/slots.json` icinde yasiyor (store.SlotStore,
-clip_slot.ahk bicimi): memory_slots.ahk her acilista sifirdan basliyordu,
-biz kalici tutuyoruz.
+   gonderilir, gelen ILK metin bekleyen bloga yazilir (`_pending_slot`).
 
 Pencere panoyu kendisi yazmaz, sinyal gonderir -- ArrayFilter'daki kural.
 
-Port EDILMEYENLER:
-
-TODO(AHK): clip_slot.ahk `showSlotsSearch` -- butun gruplarin dolu
-    slotlarinda arama. Grup yonetiminin geri kalani portlandi: yan grup
-    secimi, grup ekle/sil ve "slota kaydet" F14 menusunde (app.py
-    `_side_slot_menu`), slot adi bu penceredeki "Ad" sutununda.
-
-Bu pencere HANGI grubu gosterir: secili yan grubu (`SlotStore.
-default_group`) -- AHK'de de kaskad slotlari `defaultGroupName` uzerinden
-yukleniyordu.
 """
 
 from __future__ import annotations
@@ -59,7 +47,7 @@ from PySide6.QtGui import QDrag, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QHBoxLayout,
+    QGridLayout,
     QHeaderView,
     QLabel,
     QPushButton,
@@ -68,8 +56,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from cascade.store import PASSWORD_SLOT, slot_display
 
 SLOT_COUNT = 10  # AHK: Loop 10
 PREVIEW_LIMIT = 60  # AHK: _makePreview -> SubStr(preview, 1, 60)
@@ -83,10 +69,9 @@ class DragTable(QTableWidget):
     """Satiri disari surukleyebilen tablo -- AHK `OleDragSource.attachListView`.
 
     Tabloda KISALTILMIS onizleme yaziyor; surukleyip birakilan sey ise
-    slotun TAM icerigi olmali (AHK'de de oyleydi: `(row) => this.slots[row]`).
+    blogun TAM icerigi olmali (AHK'de de oyleydi: `(row) => this.slots[row]`).
     O yuzden mime verisi satir numarasindan uretiliyor, hucre metninden
-    degil. Sifre slotunda maske yaziyor -- surukleme gercek parolayi
-    tasir, ekranda gorunmez.
+    degil.
     """
 
     def __init__(self, columns: int, text_for_row) -> None:
@@ -102,7 +87,7 @@ class DragTable(QTableWidget):
         Qt'nin kendi suruklemesi model verisini de
         (`application/x-qabstractitemmodeldatalist`) ve secili HUCRELERIN
         metnini koyuyor; hedef uygulama onu alinca satirin tamami
-        (slot no + ad + onizleme, sekmeli) dusuyordu. `mimeData()`
+        (blok no + onizleme, sekmeli) dusuyordu. `mimeData()`
         gecersiz kilmak yetmiyor cunku surukleme MODELDEN baslıyor.
         Notepad'den metin surukler gibi tek bir metin birakilmali.
         """
@@ -128,17 +113,12 @@ def preview(text: str, limit: int = PREVIEW_LIMIT) -> str:
 
 
 class MemSlots(QWidget):
-    """Slot penceresi."""
+    """Hafiza bloklari penceresi."""
 
-    #: panoya yaz ve Ctrl+V gonder
-    #: (metin, gizli mi) -- gizli olan sifre slotudur: pano gecmisine
-    #: (bizimkine de Windows'unkine de) yazilmaz.
+    #: panoya yaz ve Ctrl+V gonder (metin, gizli mi)
     paste_text = Signal(str, bool)
-    #: panoya yaz, yapistirma
-    #: (metin, gizli mi) -- sifre slotu panoya GIZLI konur.
+    #: panoya yaz, yapistirma (metin, gizli mi)
     copy_text = Signal(str, bool)
-    #: (slot no, yeni ad) -- ad penceredeyken degistirildi (AHK setName)
-    name_changed = Signal(int, str)
     #: hedef uygulamadan Ctrl+C iste (secili metni slota alacagiz)
     grab_clip = Signal()
     #: kisa ipucu (HTML)
@@ -152,19 +132,12 @@ class MemSlots(QWidget):
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setWindowTitle("\U0001f9fe Hafiza Slotlari")
 
-        self.slots: list[str] = [""] * SLOT_COUNT
-        #: slot adlari -- clip_slot.ahk `values[i]["name"]`. Dosyadan gelir,
-        #: "Ad" sutunundan duzenlenir, dosyaya geri yazilir (AHK: setName).
-        self.names: list[str] = [f"Slot {index}" for index in range(1, SLOT_COUNT + 1)]
+        self.blocks: list[str] = [""] * SLOT_COUNT
         self.history: list[str] = []
         self.slot_index = 1  # 1 tabanli, AHK ile ayni
         self.hist_index = 1
         self._slots_active = False  # AHK: activeList -- acilista gecmis aktif
-        # Bir kez bile acildi mi. Kapanista slotlari diske yazan taraf buna
-        # bakiyor: hic acilmadiysa elimizde BOS varsayilan slotlar var ve
-        # onlari dosyaya yazmak kullanicinin slotlarini silerdi.
-        self.opened = False
-        self._pending_slot: int | None = None  # `^c` bekleyen slot
+        self._pending_slot: int | None = None  # `^c` bekleyen blok
         self._loading = False  # tabloyu programla doldururken sinyal yutulur
 
         mono = QFont("Cascadia Mono")
@@ -172,7 +145,7 @@ class MemSlots(QWidget):
 
         # AHK: fKeysEnabled -- default KAPALI. F1..F10 sistem geneli
         # kisayollar; kullanici istemeden ele gecirmiyoruz.
-        self.fkeys = QCheckBox("F1-F10:  kisa=slot  orta=gecmis  uzun=kaydet")
+        self.fkeys = QCheckBox("F1-F10:  kisa=blok  orta=gecmis  uzun=kaydet")
         self.fkeys.toggled.connect(self._on_fkeys)
 
         self.allow_repeat = QCheckBox("Veri tekrarini kabul et")
@@ -195,39 +168,28 @@ class MemSlots(QWidget):
         # Slot tablosunda UC sutun: AHK slotlarin ADINI da tutuyor
         # (clip_slot.ahk "Slot 1" / "fan ow" gibi), o ad dosyada duruyor ve
         # burada gorunmezse kullanici neyin ne oldugunu bilemez.
-        self.slot_table = self._make_table(("Slot", "Ad", "Icerik"), mono, self._slot)
+        # AHK'de slot tablosunda ad sutunu YOK: slot numarasi ve icerik.
+        # Ad hala dosyada duruyor ve F14 menusunden ("Rename ^ slot")
+        # degistiriliyor -- burada yer kaplamasinin bir faydasi yoktu.
+        self.slot_table = self._make_table(("Blok", "Icerik"), mono, self._slot)
         self.slot_table.itemSelectionChanged.connect(self._on_slot_selected)
         self.slot_table.doubleClicked.connect(lambda _index: self._slot_double())
-        # AHK `setName`: slot adi duzenlenebilir. YALNIZ "Ad" sutunu --
-        # icerik sutunu elle yazilirsa slot ile listedeki metin ayrisirdi
-        # (listede kisaltilmis onizleme var, tam icerik degil).
-        self.slot_table.setEditTriggers(
-            QAbstractItemView.EditTrigger.DoubleClicked
-            | QAbstractItemView.EditTrigger.EditKeyPressed
-        )
-        self.slot_table.itemChanged.connect(self._on_slot_item_changed)
         self.slot_table.setRowCount(SLOT_COUNT)
         for row in range(SLOT_COUNT):
             self.slot_table.setItem(row, 0, QTableWidgetItem(f"F{row + 1:02}"))
-            name_item = QTableWidgetItem(f"Slot {row + 1}")
-            name_item.setToolTip("Cift tiklayarak adini degistir")
-            self.slot_table.setItem(row, 1, name_item)
-            content_item = QTableWidgetItem("")
-            content_item.setFlags(content_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.slot_table.setItem(row, 2, content_item)
-            self.slot_table.item(row, 0).setFlags(
-                self.slot_table.item(row, 0).flags() & ~Qt.ItemFlag.ItemIsEditable
-            )
+            self.slot_table.setItem(row, 1, QTableWidgetItem(""))
 
         self.hist_table = self._make_table(("#", "Icerik"), mono, self._history_text)
         self.hist_table.itemSelectionChanged.connect(self._on_hist_selected)
         self.hist_table.doubleClicked.connect(lambda _index: self._hist_double())
 
-        top = QHBoxLayout()
-        top.addWidget(self.fkeys, 1)
-        top.addWidget(self.allow_repeat)
-        top.addWidget(self.middle_paste)
-        top.addWidget(clear_button)
+        # AHK'de bu kutular iki satir x iki kolon; tek sirada dizilince
+        # pencerenin en dar hali 900 px'e cikiyordu.
+        top = QGridLayout()
+        top.addWidget(self.fkeys, 0, 0)
+        top.addWidget(self.allow_repeat, 0, 1)
+        top.addWidget(self.middle_paste, 1, 0)
+        top.addWidget(clear_button, 1, 1)
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
@@ -236,7 +198,7 @@ class MemSlots(QWidget):
         layout.addWidget(self.hist_header)
         layout.addWidget(self.hist_table, 1)
 
-        self.resize(560, 680)
+        self.resize(460, 680)  # AHK: Show("x10 y10 w450 h650") -- dar ve uzun
         self._paint_headers()
 
     def _make_table(self, columns: tuple[str, ...], font: QFont, text_for_row) -> QTableWidget:
@@ -256,32 +218,14 @@ class MemSlots(QWidget):
 
     # ---- disari ----
 
-    def load_slots(self, values: list[tuple[str, str]]) -> None:
-        """Diskten gelen (ad, icerik) ciftleri -- store.SlotStore.
-
-        AHK'de slotlar `slots.json` icinde yasiyordu ve oturumlar arasi
-        kaliciydi; memory_slots.ahk ise her acilista sifirdan basliyordu.
-        Ikisini birlestiriyoruz: pencere ayni, icerik kalici.
-        """
-        self._loading = True
-        try:
-            for index in range(SLOT_COUNT):
-                name, content = values[index] if index < len(values) else ("", "")
-                self.names[index] = name or f"Slot {index + 1}"
-                self.slots[index] = content
-                self.slot_table.item(index, 1).setText(self.names[index])
-                self.slot_table.item(index, 2).setText(
-                    slot_display(index + 1, content, preview)
-                )
-        finally:
-            self._loading = False
-
-    def slot_values(self) -> list[tuple[str, str]]:
-        """Diske yazilacak (ad, icerik) ciftleri."""
-        return list(zip(self.names, self.slots, strict=True))
-
     def start(self, history: tuple[str, ...] | list[str]) -> None:
-        """AHK: start(). Gecmisin ilk on kaydiyla acilir."""
+        """AHK: start(). Gecmisin ilk on kaydi yuklu acilir.
+
+        Slotlarin ICERIGI KORUNUR: dosyadan gelen (ya da onceki acilista
+        doldurulan) kayitlar yerinde kalir -- pencereyi kapatip acmak
+        kullanicinin doldurdugu slotlari silmemeli. Temizlemek isteyen
+        "Slotlari temizle" dugmesini kullanir.
+        """
         self.opened = True
         self.history = list(history)[:SLOT_COUNT]
         self._fill_history()
@@ -302,9 +246,9 @@ class MemSlots(QWidget):
         if pending is not None:
             self._write_slot(pending, text)
             self.select_slot(pending)
-            self.tip.emit(f"\U0001f4be <b>Slot {pending}</b> kaydedildi")
+            self.tip.emit(f"\U0001f4be <b>Blok {pending}</b> kaydedildi")
             return
-        if not self.allow_repeat.isChecked() and text in self.slots:
+        if not self.allow_repeat.isChecked() and text in self.blocks:
             return  # AHK: _isClipInSlots
         index = self._first_free()  # AHK: dolunca basa doner, ustune yazar
         self._write_slot(index, text)
@@ -316,10 +260,10 @@ class MemSlots(QWidget):
         """Kisa basim. AHK: pasteFromSlot."""
         text = self._slot(index)
         if not text:
-            self.tip.emit(f"⚠️ <b>Slot {index}</b> bos")
+            self.tip.emit(f"⚠️ <b>Blok {index}</b> bos")
             return
         self.select_slot(index)
-        self.paste_text.emit(text, index == PASSWORD_SLOT)
+        self.paste_text.emit(text, False)
 
     def paste_history(self, index: int) -> None:
         """Orta basim. AHK: _pasteFromHistory."""
@@ -360,9 +304,9 @@ class MemSlots(QWidget):
 
     def clear_slots(self) -> None:
         """AHK: _clearSlots"""
-        self.slots = [""] * SLOT_COUNT
+        self.blocks = [""] * SLOT_COUNT
         for row in range(SLOT_COUNT):
-            self.slot_table.item(row, 2).setText("")
+            self.slot_table.item(row, 1).setText("")
         self.select_slot(1)
 
     # ---- ic yardimcilar ----
@@ -372,12 +316,12 @@ class MemSlots(QWidget):
         return self.history[row - 1] if 1 <= row <= len(self.history) else ""
 
     def _slot(self, index: int) -> str:
-        return self.slots[index - 1] if 1 <= index <= SLOT_COUNT else ""
+        return self.blocks[index - 1] if 1 <= index <= SLOT_COUNT else ""
 
     def _used_slots(self) -> int:
         """AHK: slotsLength -- sondan geriye dogru ilk dolu slot."""
         count = SLOT_COUNT
-        while count >= 1 and not self.slots[count - 1]:
+        while count >= 1 and not self.blocks[count - 1]:
             count -= 1
         return count
 
@@ -390,10 +334,10 @@ class MemSlots(QWidget):
         return index + 1 if index < limit else 1
 
     def _write_slot(self, index: int, text: str) -> None:
-        self.slots[index - 1] = text
+        self.blocks[index - 1] = text
         self._loading = True
         try:
-            self.slot_table.item(index - 1, 2).setText(slot_display(index, text, preview))
+            self.slot_table.item(index - 1, 1).setText(preview(text))
         finally:
             self._loading = False
 
@@ -435,15 +379,9 @@ class MemSlots(QWidget):
     def _reverse_slots(self) -> None:
         """AHK: _reverseSlotsOrder -- yalniz dolu kisim ters cevrilir."""
         used = self._used_slots()
-        self.slots[:used] = list(reversed(self.slots[:used]))
-        self.names[:used] = list(reversed(self.names[:used]))  # ad icerikle gitsin
+        self.blocks[:used] = list(reversed(self.blocks[:used]))
         for index in range(1, SLOT_COUNT + 1):
-            self._write_slot(index, self.slots[index - 1])
-            self._loading = True
-            try:
-                self.slot_table.item(index - 1, 1).setText(self.names[index - 1])
-            finally:
-                self._loading = False
+            self._write_slot(index, self.blocks[index - 1])
         self.select_slot(1)
 
     def _reverse_history(self) -> None:
@@ -472,32 +410,14 @@ class MemSlots(QWidget):
             self._slots_active = False
             self._paint_headers()
 
-    def _on_slot_item_changed(self, item) -> None:
-        """Ad sutunu duzenlendi: adi bellege al (diske kapanista yazilir).
-
-        Yukleme sirasinda da tetikleniyor; `load_slots` bayragi ile ayirt
-        ediliyor, yoksa dosyadan gelen ad kendini yeniden yazardi.
-        """
-        if self._loading or item.column() != 1:
-            return
-        row = item.row()
-        self.names[row] = item.text().strip() or f"Slot {row + 1}"
-        self.name_changed.emit(row + 1, self.names[row])
-
     def _slot_double(self) -> None:
         """AHK: _onSlotDoubleClick -- panoya kopyalar, yapistirmaz."""
-        if self.slot_table.currentColumn() == 1:
-            return  # ad sutunu: cift tiklama DUZENLEMEYE giriyor
         index = self.slot_table.currentRow() + 1
         text = self._slot(index)
         if not text:
             return
-        # Sifre slotunda ipucu icerigi GOSTERMEZ.
-        secret = index == PASSWORD_SLOT
-        self.copy_text.emit(text, secret)
-        self.tip.emit(
-            "\U0001f4cb kopyalandi" if secret else f"\U0001f4cb {preview(text, 40)}"
-        )
+        self.copy_text.emit(text, False)
+        self.tip.emit(f"\U0001f4cb {preview(text, 40)}")
 
     def _hist_double(self) -> None:
         """AHK: _onHistoryDoubleClick -- dogrudan yapistirir."""

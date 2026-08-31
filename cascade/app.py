@@ -47,6 +47,7 @@ from cascade.core.keynames import key_name, vk_from_name
 from cascade.core.state import Busy, ClipboardMode, ClipboardState
 from cascade.dispatch import Dispatcher
 from cascade.imgstore import ClipImageStore
+from cascade.settings import SETTINGS
 from cascade.store import PASSWORD_SLOT, ClipStore, SlotStore, slot_display
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.clip_images import ClipImages
@@ -56,6 +57,7 @@ from cascade.ui.menu import PopupMenu
 from cascade.ui.monitor import EventMonitor
 from cascade.ui.ocr_view import OcrView
 from cascade.ui.pause import PauseDialog
+from cascade.ui.settings_dialog import SettingsDialog
 from cascade.ui.snip import SnipOverlay
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
@@ -73,6 +75,11 @@ from cascade.win32.window import (
 log = logging.getLogger("cascade.app")
 
 VERSION = "0.1.0"
+
+#: Ekran koruyucu engelleyici -- AHK IdleModule: 5 dakikada bir, en cok
+#: 60 tur (5 saat) boyunca.
+IDLE_INTERVAL_MS = 5 * 60 * 1000
+IDLE_TICKS = 60
 
 VK_CAPITAL = 0x14  # buyuk harf kilidi (caps.toggle)
 VK_SCROLL = 0x91  # ScrollLock lambasi (turkish.toggle)
@@ -143,6 +150,8 @@ class Cascade:
         self.lock = lock
         self.tip = Tip()
         self.monitor = EventMonitor()
+        #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
+        self._settings_dialog: SettingsDialog | None = None
         self.runner = ActionRunner()
 
         # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
@@ -189,13 +198,6 @@ class Cascade:
         self.mem_slots.grab_clip.connect(lambda: self.runner.run("send_key:^c"))
         self.mem_slots.tip.connect(lambda body: self.tip.show_html(body, 1500))
         self.mem_slots.fkeys_toggled.connect(self._on_memslot_fkeys)
-        # Ad penceredeyken degisti: diske HEMEN yaz (AHK setName da oyleydi)
-        # -- pencere kapanmadan program kapanirsa ad kaybolmasin.
-        self.mem_slots.name_changed.connect(
-            lambda index, name: self.slot_store.set_slot_name(
-                self.slot_store.default_group, index, name
-            )
-        )
         self.mem_slots.closed.connect(self._on_memslots_closed)
 
         # F14 secim araci (ui/snip.py) + OCR koprusu. Secim acikken
@@ -229,6 +231,7 @@ class Cascade:
         self.pins = WindowPins()
 
         self.paused = False
+        self._idle_count = IDLE_TICKS  # ekran koruyucu engelleyici sayaci
         self._exited = False
         # Yeni bir ornek acildi mi (win32/instance.py devralmasi). Hook
         # disi bir thread kaldiriyor, `_tick` gorup kapatiyor.
@@ -252,6 +255,13 @@ class Cascade:
             seen=self.seen,
             menu_open=lambda: self.menu.open,
         )
+        # AHK hot_vectors.ahk `__New`: ayarlar dinleniyor. Imlec dondurma
+        # kararini dispatcher veriyor, o yuzden buradan baglaniyor.
+        self.dispatcher.freeze_cursor = bool(keymap.VECTOR_FREEZE.get())
+        keymap.VECTOR_FREEZE.subscribe(
+            lambda value, _old: setattr(self.dispatcher, "freeze_cursor", bool(value))
+        )
+
         self.hook = HookThread(
             self.events,
             key_filter=self.dispatcher.key_filter,
@@ -284,6 +294,7 @@ class Cascade:
         self.runner.register("click_then", self.click_then)
         self.runner.register("click3_then", lambda keys: self.click_then(keys, times=3))
         self.runner.register("app.monitor", lambda _: self.show_monitor())
+        self.runner.register("app.settings", lambda _: self.show_settings())
         self.runner.register("app.pause", lambda _: self.toggle_pause())
         self.runner.register("menu.clip", lambda _: self.show_clip_menu())
         self.runner.register("busy.free", lambda _: self.free_busy())
@@ -305,6 +316,8 @@ class Cascade:
         self.runner.register(
             "memslots.paste", lambda arg: self.mem_slots.smart_paste(arg == "middle")
         )
+        # AHK handleMButton pt2: yapistir + Shift+Enter.
+        self.runner.register("memslots.paste_enter", lambda _: self.memslots_paste_enter())
         # F13 & F15..F20 -- slots.json'daki slotlardan yapistirma.
         self.runner.register("slot.paste", self.paste_slot)
         # Grup yonetimi (AHK clip_slot.ahk + menus.ahk buildSideSlotMenu).
@@ -325,11 +338,24 @@ class Cascade:
         # Secim acikken tusa yeniden basmak da buraya gelir: show_snip
         # pencerenin acik oldugunu gorup bastan sectiriyor.
         self.runner.register("select.start", self.show_snip)
+        # Secim cubugundaki "Alan" menusu -- konsept. Kayit yok, is yok:
+        # ne dusundugumuz gorunsun diye ekranda duruyor.
+        self.snip.placeholder.connect(self._area_placeholder)
         # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
         # App.ScreenOcr.snipInteractive / snip("plain") idi).
         self.runner.register("select.ocr", lambda _: self.show_snip_auto("ocr"))
         self.runner.register("select.ocr_adv", lambda _: self.show_snip_auto("ocr_adv"))
         self.runner.register("menu.slots", lambda _: self.show_slots_menu())
+        # `^` basili tut -> base grubun slotlari, Tab basili tut -> yan grup.
+        self.runner.register("menu.base_slots", lambda _: self.show_base_slots_menu())
+        self.runner.register("menu.side_slots", lambda _: self.show_side_slots_menu())
+        self.runner.register("slot.paste_side", self.paste_side_slot)
+        # AHK handleLButton `.combo("F15", "Slot 10 + Enter", ...)`.
+        self.runner.register("slot.paste_enter", self.paste_slot_then_enter)
+        # AHK clip_slot.ahk `showSlotsSearch` -- F14 cift basim.
+        # TODO(AHK): repository.ahk deposu da ayni pencerede aranabilir;
+        # FilterItem listesine onun kayitlarini eklemek yeterli.
+        self.runner.register("slots.search", lambda _: self.show_slots_filter())
         # AHK: App.ClipImageDlg.show()
         self.runner.register("clip.images", lambda _: self.show_clip_images())
         # AHK menus.ahk: menuAlwaysOnTop -- pencereyi hep ustte tut.
@@ -369,6 +395,12 @@ class Cascade:
         )
         self.tray.show()
 
+        # Ekran koruyucu engelleyici -- AHK script_state.ahk IdleModule.
+        # `on_start` is profilinde bunu baslatiyor, o yuzden cagridan ONCE
+        # kuruluyor.
+        self._idle_timer = QTimer(app)
+        self._idle_timer.timeout.connect(self._idle_tick)
+
         self.hook.start()
         # Oturum kapanmasi / gorev sonlandirma da OnExit'i calistirsin.
         app.aboutToQuit.connect(self.on_exit)
@@ -381,6 +413,7 @@ class Cascade:
         self._tick_timer = QTimer(app)
         self._tick_timer.timeout.connect(self._tick)
         self._tick_timer.start(20)
+
 
     # ---- pano (ana thread) ----
 
@@ -513,13 +546,40 @@ class Cascade:
         self.dispatcher.ui_open = True
         self.filter_window.show_items(items, "Pano gecmisi")  # sayiyi pencere ekler
 
+    def show_slots_filter(self) -> None:
+        """Slotlarda arama -- AHK `showSlotsSearch`. Pano gecmisiyle AYNI
+        pencere: base grup ve (varsa) yan grup slotlari tek listede.
+
+        Sifre slotu listeye HIC girmiyor: pencere icerigi acikca gosteriyor.
+        """
+        self.slot_store.load()
+        groups = [""] + [g for g in self.slot_store.group_names() if g]
+        items: list[FilterItem] = []
+        for group in groups:
+            for index, slot in enumerate(self.slot_store.slots(group)[:10], start=1):
+                if index == PASSWORD_SLOT or not slot.content:
+                    continue
+                name = slot.name or f"Slot {index}"
+                items.append(
+                    FilterItem(
+                        name=f"{group}/{index % 10} {name}" if group else f"{index % 10} {name}",
+                        content=slot.content,
+                        key=len(items) + 1,
+                    )
+                )
+        if not items:
+            self.tip.show_html("🧰 <b>slot yok</b>", 1500)
+            return
+        self.dispatcher.ui_open = True
+        self.filter_window.show_items(tuple(items), "Slotlar")
+
     def show_clip_menu(self) -> None:
         """Pano gecmisinin hizli menusu -- AHK showQuickHistoryMenu.
 
         Filtreli listeden farki: arama yok, tek tiklamada yapistirir.
         Onek tusunu basili tutunca acilan sey bu.
         """
-        entries = self.clip_history.entries[:12]
+        entries = self.clip_history.entries[:9]
         if not entries:
             self.tip.show_html("\U0001f4cb <b>pano gecmisi bos</b>", 1500)
             return
@@ -529,7 +589,6 @@ class Cascade:
         )
         self.menu.show(
             (*spec, None, ("\U0001f50d Ara...", "clip.filter")),
-            title=f"\U0001f4cb Pano ({len(self.clip_history)})",
         )
 
     def show_clip_history(self) -> None:
@@ -590,6 +649,25 @@ class Cascade:
         group, _, index = argument.rpartition("/")
         return group, int(index) if index.isdigit() else 0
 
+    def paste_slot_then_enter(self, argument: str) -> None:
+        """`slot.paste_enter:/10` -- slotu yapistirip Enter yollar (AHK:
+        loadFromSlot + Sleep(200) + Send("{Enter}")). Enter GECIKMELI:
+        yapistirma hedefe varmadan gonderilirse bos alan onaylanir."""
+        self.paste_slot_of(argument)
+        QTimer.singleShot(220, lambda: self.runner.run("send_key:Enter"))
+
+    def paste_side_slot(self, argument: str) -> None:
+        """`Tab & 3` -- YALNIZ yan grup (defaultGroup) slotlarindan yapistirir.
+
+        Yan grup secili degilken base gruba dusmuyor: Tab kombolari secili
+        olan grubun degerini getirmeli, secim yoksa hicbir sey getirmemeli.
+        """
+        side = self.slot_store.default_group
+        if not side:
+            self.tip.show_html("🧰 <b>yan grup secili degil</b>", 1200)
+            return
+        self.paste_slot_of(f"{side}/{argument}")
+
     def paste_slot_of(self, argument: str) -> None:
         """`slot.paste_group:is/3` -- ISTENEN gruptan yapistirir."""
         group, index = self._group_slot(argument)
@@ -642,7 +720,6 @@ class Cascade:
         )
         if ok:
             self.slot_store.set_slot_name(group, index, name)
-            self._refresh_mem_slots()
 
     def new_slot_group(self) -> None:
         """AHK `promptNewGroup`: grup acar ve HEMEN yan grup olarak secer."""
@@ -661,7 +738,6 @@ class Cascade:
         self.slot_store.load()
         if not self.slot_store.set_default_group(name):
             return
-        self._refresh_mem_slots()
         self.tip.show_html(
             f"🧰 <b>{html.escape(name)}</b> secildi" if name else "🧰 yan grup yok",
             1200,
@@ -678,17 +754,17 @@ class Cascade:
             return
         self.slot_store.load()
         if self.slot_store.delete_group(name):
-            self._refresh_mem_slots()
             self.tip.show_html(f"🗑️ <b>{html.escape(name)}</b> silindi", 1500)
 
-    def _refresh_mem_slots(self) -> None:
-        """Slot penceresi acikken grup/ad degisti: pencereyi tazele."""
-        if not self.mem_slots.isVisible():
-            return
-        group = self.slot_store.slots(self.slot_store.default_group)
-        self.mem_slots.load_slots([(slot.name, slot.content) for slot in group])
-
     # ---- F14 secim araci ----
+
+    def _area_placeholder(self, key: str) -> None:
+        """"Alan" menusu maddesi secildi. Konsept: yalniz ne olacagini soyler."""
+        self.tip.show_html(
+            f"🚧 <b>{html.escape(key)}</b> — kavram asamasi<br>"
+            "<span style='color:#8b949e;'>alan kaydi ve otomasyon henuz yok</span>",
+            2000,
+        )
 
     def show_snip(self, key: str = "") -> None:
         """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir.
@@ -887,6 +963,16 @@ class Cascade:
             items.append((f"📌 {label}", f"window.pin:{pin.hwnd}"))
         return tuple(items)
 
+    def _pinned_active_label(self) -> str:
+        """On plandaki pencere SABITLIYSE menudeki satiri -- kalin yazilacak."""
+        hwnd = foreground_window()
+        if not hwnd or not self.pins.has(hwnd):
+            return ""
+        for pin in self.pins.items():
+            if pin.hwnd == hwnd:
+                return f"📌 {_shorten(pin.title or '(baslıksiz)', 45)}"
+        return ""
+
     # ---- uygulamaya ozel kisayollar (AHK: app_shorts.ahk) ----
 
     def _shortcut_menu_items(self) -> tuple:
@@ -910,6 +996,18 @@ class Cascade:
         items.append(("Profili duzenle", "shorts.edit"))
         return tuple(items)
 
+    def _profile_label(self, profile) -> str:
+        """"Profiller" alt menusundeki etiket. Kalin oge etiketle eslesiyor."""
+        hint = profile.class_name or profile.title
+        name = profile.name or "(adsiz)"
+        return f"{name} [{_shorten(hint, 24)}]" if hint else name
+
+    def _active_profile_label(self) -> str:
+        """On plandaki pencerenin profili -- yoksa bos (kalin oge olmaz)."""
+        hwnd = foreground_window()
+        profile = self.shorts.find(window_class(hwnd), window_title(hwnd))
+        return self._profile_label(profile) if profile is not None else ""
+
     def _shortcut_manager_item(self) -> tuple:
         """AHK `showManagerGui` karsiligi: TUM profiller F13 menusunde.
 
@@ -929,10 +1027,7 @@ class Cascade:
                 rows.append((label, f"shorts.play:{profile.name}/{index}"))
             if not rows:
                 rows.append(("(kisayol yok)", "shorts.edit"))
-            hint = profile.class_name or profile.title
-            name = profile.name or "(adsiz)"
-            label = f"{name} [{_shorten(hint, 24)}]" if hint else name
-            profiles.append((label, tuple(rows)))
+            profiles.append((self._profile_label(profile), tuple(rows)))
         if not profiles:
             profiles.append(("(profil yok)", "shorts.edit"))
         profiles.append(None)
@@ -978,28 +1073,29 @@ class Cascade:
 
     # ---- hafiza slotlari ----
 
+    def memslots_paste_enter(self) -> None:
+        """Orta tus UZUN basim -- AHK handleMButton pt2. Yapistirma panoya
+        yazip Ctrl+V gonderiyor (asenkron), Shift+Enter onun ARDINDAN
+        gitmeli; yoksa satir sonu yapistirmadan once dusuyor."""
+        if not self.mem_slots.isVisible():
+            return
+        self.mem_slots.smart_paste(middle=True)
+        QTimer.singleShot(160, lambda: self.runner.run("send_key:+Enter"))
+
     def show_mem_slots(self) -> None:
         """AHK: singleMemorySlot.getInstance().start()
 
         Pano modu MEM_SLOTS'a geciyor; onceki mod kapanista geri aliniyor
-        (AHK: previousState). Slotlar diskten (slots.json), gecmis listesi
-        bellekten geliyor.
+        (AHK: previousState). Bloklar BELLEKTE yasar (slots.json ile ilgisi
+        yok), gecmis listesi pano gecmisinden geliyor.
         """
         self._clip_mode_before = self.clip_state.mode
         self.clip_state.set_mem_slots()
-        self.slot_store.load()
-        group = self.slot_store.slots(self.slot_store.default_group)
-        self.mem_slots.load_slots([(slot.name, slot.content) for slot in group])
+        # Bloklar acilista SILINMEZ: bir onceki oturumda doldurulan yerinde
+        # kalir (AHK pencereyi her acilista bosaltiyordu). slots.json'daki
+        # slotlar bambaska bir sey -- F14 menusu ve `^`/Tab tuslari onlari
+        # kullaniyor, bu pencere onlara hic dokunmaz.
         self.mem_slots.start([entry.text for entry in self.clip_history.entries])
-
-    def save_mem_slots(self) -> None:
-        """Slotlari `slots.json` icine geri yazar. Dokunmadigimiz gruplar
-        oldugu gibi kalir (store.SlotStore)."""
-        group = self.slot_store.slots(self.slot_store.default_group)
-        for index, (name, content) in enumerate(self.mem_slots.slot_values()):
-            group[index].name = name
-            group[index].content = content
-        self.slot_store.save()
 
     def _on_memslot_fkeys(self, enabled: bool) -> None:
         """Slot penceresindeki kutu: F1..F10 kaskadlarini takar/soker.
@@ -1013,15 +1109,10 @@ class Cascade:
         self.machine.set_definitions(definitions)
 
     def _on_memslots_closed(self) -> None:
-        """AHK: _destroy -- slotlar diske, pano modu geri (F tuslari
-        pencerenin kendi closeEvent'inde birakildi).
-
-        Pencere hic acilmadiysa YAZMIYORUZ: elimizdeki bos varsayilan
-        slotlari dosyaya basmak kullanicinin slotlarini silerdi (kapanista
-        `_shutdown` gorunmeyen pencereyi de kapatiyor).
+        """AHK: _destroy -- pano modu geri (F tuslari pencerenin kendi
+        closeEvent'inde birakildi). Slotlar diske YAZILMAZ: pencere AHK'deki
+        gibi oturumluk bir defter, kalici slotlar slots.json'da ayri durur.
         """
-        if self.mem_slots.opened:
-            self.save_mem_slots()
         self.clip_state.set_mode(getattr(self, "_clip_mode_before", ClipboardMode.HISTORY))
 
     # ---- buyutec ----
@@ -1098,18 +1189,41 @@ class Cascade:
         """AHK: sysCommands() -- `´` tusunun menusu."""
         self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ cascade {VERSION}")
 
+    def _clip_history_menu(self) -> tuple:
+        """AHK `ClipHist.buildHistoryMenu()`: arama, son 30 kayit, temizle.
+
+        F13'te gecmis dogrudan acilan bir liste degil ALT MENU -- ogeler
+        onizlemeye kirpiliyor, tiklanan kayit yapistiriliyor.
+        """
+        items: list = [("Search on history", "clip.filter"), None]
+        for index, entry in enumerate(self.clip_history.entries[:30], start=1):
+            items.append(
+                (f"Clip {index}: {_shorten(entry.preview, 55)}", f"clip.paste:{index}")
+            )
+        if len(items) == 2:
+            items.append(("(pano gecmisi bos)", "clip.filter"))
+        return tuple(items)
+
     def show_f13_menu(self) -> None:
         """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
         # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolonun basi o
         # anki pencereye bagli bloklar, sonu sabit kuyruk -- sira AHK
         # showF13menu ile ayni.
-        spec = keymap.F13_MENU
+        spec: tuple = (("Clipboard history", self._clip_history_menu()),)
+        spec += keymap.F13_MENU
         spec += (*self._shortcut_menu_items(), self._shortcut_manager_item())
         pins = self._pin_menu_items()
         if pins:
             spec += (None, *pins)
-        spec += (None, *keymap.F13_MENU_TAIL)
-        self.menu.show(spec, title=f"cascade {VERSION}", default="clip.filter")
+        if keymap.F13_MENU_TAIL:
+            spec += (None, *keymap.F13_MENU_TAIL)
+        # Kalin ogeler: "Profiller" icinde aktif profil (AHK menuAppProfile)
+        # ve kokte, uzerinde durdugun pencere zaten sabitliyse onun satiri
+        # (AHK menuAlwaysOnTop, rank 1).
+        self.menu.show(
+            spec,
+            default=(self._active_profile_label(), self._pinned_active_label()),
+        )
 
     def _slot_items(self, group: str, action: str, prefix: str = "") -> tuple:
         """Bir grubun on slotu, menu ogesi olarak (AHK: addSlotItems).
@@ -1158,6 +1272,25 @@ class Cascade:
             )
         return tuple(items)
 
+    def show_base_slots_menu(self) -> None:
+        """`^` basili tutunca: BASE grubun (defaultGroup == "") slotlari.
+
+        Kombolarla (`^ & 1..0`) ayni kaynak, ayni sira -- menu o kombolarin
+        gorunur halinden ibaret. Sifre slotunun icerigi maskeli.
+        """
+        self.slot_store.load()
+        self.menu.show(self._slot_items("", "slot.paste_group"))
+
+    def show_side_slots_menu(self) -> None:
+        """Tab basili tutunca: SECILI yan grubun slotlari (`Tab & 1..0` ile
+        ayni kaynak). Grup secili degilse secim menusu aciliyor."""
+        self.slot_store.load()
+        side = self.slot_store.default_group
+        if not side:
+            self.menu.show(self._side_slot_menu())
+            return
+        self.menu.show(self._slot_items(side, "slot.paste_group", prefix="⇥ "))
+
     def show_slots_menu(self) -> None:
         """F14 kisa basim -- AHK `showF14menu` + `showQuickSlotsMenu`.
 
@@ -1176,8 +1309,7 @@ class Cascade:
             None,
             # TODO(AHK): macro_recorder.ahk port edilmedi.
             ("Macro recorder", "yok:macro_recorder.ahk"),
-            ("Memory clip", "memslots.start", "res:30"),  # bellek cubugu
-            ("Clipboard images", "clip.images", "res:109"),
+            ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
             None,
             ("System", keymap.SYSTEM_MENU),
             ("Special keys", keymap.SPECIAL_KEYS_MENU),
@@ -1187,10 +1319,9 @@ class Cascade:
             None,
             *self._slot_items("", "slot.paste_group"),
             None,
+            # AHK showF14menu: kolonun sonu "Save to ^ slot" -- ad degistirme
+            # ayri bir madde degil, kaydetme kutusunda soruluyor.
             ("Save to ^ slot", self._slot_items("", "slots.save")),
-            ("Rename ^ slot", self._slot_items("", "slots.rename")),
-            None,
-            ("Clipboard history", "clip.filter"),
             keymap.COLUMN,
             (f"Side slot{f' [{side}]' if side else ''}", self._side_slot_menu()),
         )
@@ -1201,7 +1332,7 @@ class Cascade:
                 None,
                 (f"Save to ⇥{side}", self._slot_items(side, "slots.save")),
             )
-        self.menu.show(spec, title=title)
+        self.menu.show(spec)
 
     def not_ported(self, module: str) -> None:
         """Menude `--` ile isaretli ogeler buraya duser."""
@@ -1220,6 +1351,12 @@ class Cascade:
         for _ in range(times):
             send.click("left")
         QTimer.singleShot(80, lambda: self.runner.run(f"send_key:{keys}"))
+
+    def show_settings(self) -> None:
+        """AHK subMenuSet "Settings" -- ayar ekrani (ui/settings_dialog.py)."""
+        if self._settings_dialog is None:
+            self._settings_dialog = SettingsDialog()
+        self._settings_dialog.show_dialog()
 
     def show_monitor(self) -> None:
         self.monitor.show()
@@ -1349,6 +1486,11 @@ class Cascade:
     def on_start(self) -> None:
         """AHK: LoadSettings() -- OnExit'in karsiti."""
         log.info("cascade %s basladi", VERSION)
+        # AHK LoadSettings: Settings.load() + applyAll(). Ayarlari OKUMAK
+        # yetmiyor, abonelere haber vermek de gerek -- yoksa moduller kod
+        # icindeki varsayilanla calismaya devam eder.
+        SETTINGS.load(paths.SETTINGS)
+        SETTINGS.apply_all()
         for action in keymap.START_ACTIONS:
             self.runner.run(action)
         count = self.clip_history.load(self.clip_store.load_entries())
@@ -1358,6 +1500,12 @@ class Cascade:
         label = keymap.PROFILE_LABELS.get(profile, profile)
         log.info("makine profili: %s (%s)", profile, platform.node())
         self.tray.setToolTip(f"cascade {VERSION} - {profile}")
+        # AHK LoadSettings: is bilgisayarinda State.Idle.enable() -- ekran
+        # koruyucu devreye girmesin diye 5 dakikada bir fareyi kimildatir.
+        if profile == "work":
+            self._idle_count = IDLE_TICKS
+            self.dispatcher.last_physical = time.perf_counter()
+            self._idle_timer.start(IDLE_INTERVAL_MS)
         # Kisa bir acilis bildirimi. "Hangi tuslar bagli" listesi DEGIL --
         # onu her acilista okumak istemiyorsun; sadece "ayaktayim" demesi
         # yeter, gerisi tepsi ve F13 menusunde.
@@ -1368,6 +1516,29 @@ class Cascade:
             f"F13 menu</span>",
             2200,
         )
+
+    def _idle_tick(self) -> None:
+        """AHK IdleModule.tick(): 5 dakikada bir, kullanici 1 dakikadir
+        FIZIKSEL olarak dokunmadiysa fareyi 1 piksel oynatir.
+
+        Fiziksel olmasi sart: kendi hareketimiz sayilsaydi sayac hic
+        dolmaz, ekran koruyucu sonsuza dek engellenirdi. Windows'un
+        GetLastInputInfo'su enjekte girdiyi de sayar, o yuzden olcum
+        hook'un kendisinden geliyor (dispatch.last_physical).
+
+        AHK gibi 60 turdan (5 saat) sonra kendini kapatir: masasindan
+        kalkip gitmis birinin ekranini sonsuza dek acik tutmuyoruz.
+        """
+        idle_ms = (time.perf_counter() - self.dispatcher.last_physical) * 1000.0
+        if idle_ms < 60_000:
+            self._idle_count = IDLE_TICKS
+            return
+        self._idle_count -= 1
+        if self._idle_count <= 0:
+            self._idle_timer.stop()
+            log.info("ekran koruyucu engelleyici durdu (%d tur doldu)", IDLE_TICKS)
+            return
+        send.move_relative(-1, -1)
 
     def on_exit(self) -> None:
         """AHK: ExitSettings() -- OnExit ile kayitli.
@@ -1380,6 +1551,7 @@ class Cascade:
         self._exited = True
         for action in keymap.EXIT_ACTIONS:
             self.runner.run(action)
+        SETTINGS.save(paths.SETTINGS)  # AHK ExitSettings: Settings.save()
         # AHK: ExitSettings -> _save(). Yazma basarisizsa (veri kaybi
         # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.
         # AHK ExitSettings: State.Window.clearAllOnTop() -- program kapaninca

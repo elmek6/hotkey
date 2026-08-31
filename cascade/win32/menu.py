@@ -261,7 +261,7 @@ def _set_icon(handle: int, position: int, name: str) -> None:
     user32.SetMenuItemInfoW(handle, position, True, ctypes.byref(info))
 
 
-def _build(spec, actions: list[str], default: str) -> int:
+def _build(spec, actions: list[str], default: tuple[str, ...]) -> int:
     """Spec'i HMENU'ye cevirir. Alt menuler ozyinelemeli kurulur.
 
     Komut kimlikleri 1'den baslar (0 = "secim yapilmadi") ve `actions`
@@ -287,11 +287,15 @@ def _build(spec, actions: list[str], default: str) -> int:
             user32.AppendMenuW(
                 handle, MF_STRING | MF_POPUP | column, ctypes.c_void_p(sub), label
             )
+            # Alt menunun eylem kimligi yok; kalin isteniyorsa ETIKETIYLE
+            # eslesiyor (AHK: `m.Default := name`) ve sirasiyla veriliyor.
+            if label in default:
+                user32.SetMenuDefaultItem(handle, position, True)
         else:
             actions.append(target)
             command = len(actions)
             user32.AppendMenuW(handle, MF_STRING | column, ctypes.c_void_p(command), label)
-            if default and target == default:
+            if target in default:
                 user32.SetMenuDefaultItem(handle, command, False)
         if icon:
             _set_icon(handle, position, icon)
@@ -301,13 +305,17 @@ def _build(spec, actions: list[str], default: str) -> int:
     return handle
 
 
-def track(spec, title: str = "", default: str = "") -> str | None:
+def track(spec, title: str = "", default: str | tuple[str, ...] = "") -> str | None:
     """Menuyu imlecin yaninda gosterir; secilen eylem kimligini dondurur.
 
     Secim yapilmadan kapatildiysa (Esc / disari tiklama) `None` doner.
     """
     actions: list[str] = []
-    handle = _build(spec, actions, default)
+    # Kalin oge birden fazla olabilir -- her ALT MENUNUN kendi kalin ogesi
+    # var (Win32'de "default item" menu basina tektir): koke sabitlenen
+    # pencere, "Profiller" icinde aktif profil.
+    marks = (default,) if isinstance(default, str) else tuple(default)
+    handle = _build(spec, actions, tuple(m for m in marks if m))
     if title:
         # Baslik satiri: menunun EN USTUNE, pasif oge olarak. AHK'de de
         # basliklar boyle veriliyordu (Win32 menude ayri baslik alani yok).

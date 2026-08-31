@@ -12,10 +12,10 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
 
     F13              kisa: acilir menu     basili tut: pano hizli menusu
     F14              kisa: slot menusu     surukle: ekran alani sec
-    ^ (Caret)        kisa: `^` yazilir     basili tut: pano hizli menusu
-    Tab              kisa: Tab yazilir     basili tut: slot menusu (AHK cascadeTab)
+    ^ (Caret)        kisa: `^` yazilir     basili tut: base grup slotlari
+    Tab              kisa: Tab yazilir     basili tut: yan grup slotlari
     CapsLock         kisa: kilit cevrilir  basili tut: pano menusu (AHK cascadeCaps)
-    Tab & 1 .. 0     slotlardan yapistirir (0 = slot 10)
+    Tab & 1 .. 0     SECILI yan gruptan yapistirir (0 = slot 10)
     CapsLock & 1..9  pano gecmisinden yapistirir
     Ctrl+<           VSCode satir sil (Ctrl+Shift+K)
     Win+WASD/Q/E/Y   klavyeyle fare: 10px oynat, sol/sag tik, Enter
@@ -23,12 +23,12 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
     F19 & LButton    onek klavyede, kombo tusu FARE dugmesi
     RButton & Wheel  sag tus basiliyken tekerlek -> ses; sag tik yutulur
-    F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/gesture.py)
+    F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/hot_vectors.py)
     ~F13 & WheelUp   basili tutup tekerlek
     Pause            basili tut: duraklatma penceresi (AHK DialogPauseGui)
     Pause & Home     yeniden baslat (AHK: reloadScript)
     Pause & End      cikis        Pause & c   busy kilidini acar
-    ^ & 1 .. 9       pano gecmisinin o kaydini yapistirir
+    ^ & 1 .. 0       base grubun (defaultGroup=='') slotunu yapistirir
     ScrollLock       kisa: Turkce ac/kapa   basili tut: dizilim 1<->2
     ~MButton/~Insert memslots penceresi acikken akilli yapistirma
 """
@@ -39,11 +39,63 @@ import platform
 
 from cascade.core import turkish
 from cascade.core.builder import CascadeDef, KeyBuilder, PressType
-from cascade.core.gesture import Direction, GestureTracker
+from cascade.core.hot_vectors import LOCK_AXIS, LOCK_MODES, Direction, HotVectors
 from cascade.core.hotkey import HotkeyTable
 from cascade.core.keynames import register_name
+from cascade.settings import Category, setting
 from cascade.win32 import send
 from cascade.win32.menu import COLUMN
+
+
+def _range(low: int, high: int):
+    """AHK Setting.validate ile ayni is: araligin disi ret gerekcesi doner."""
+    def check(value) -> str:
+        return "" if low <= value <= high else f"{low}-{high} arasi olmali"
+
+    return check
+
+
+# AHK hot_vectors.ahk: prefDirThreshold / prefStepSize. Ivme carpani
+# (prefAcceleration) PORT EDILMEDI -- AHK 3.0 da kaldirmisti, duz piksel
+# sayimi kaliyor.
+VECTOR_LOCK_PX = setting(
+    "hotVector.dirThreshold",
+    "Yon kilidi esigi",
+    default=8,
+    category=Category.MOUSE,
+    tags="fare hassasiyet vektor jest",
+    desc="Yonun kilitlenmesi (ve jestin baslamasi) icin gereken piksel",
+    validate=_range(1, 100),
+)
+VECTOR_LOCK_MODE = setting(
+    "hotVector.lockMode",
+    "Jest kilidi",
+    default=LOCK_AXIS,
+    choices=LOCK_MODES,
+    category=Category.MOUSE,
+    tags="fare vektor jest eksen yon kilit",
+    desc="eksen: iki yon de canli (yukari/asagi) - yon: ilk yon kilitlenir",
+)
+# Eski davranis: imlec her hareket olayinda jestin basladigi noktaya geri
+# konur. Yavas hareketi yiyor (imlec hizlandirma birikimi sifirlaniyor), o
+# yuzden varsayilan KAPALI -- karsilastirmak isteyen acar.
+VECTOR_FREEZE = setting(
+    "hotVector.freezeCursor",
+    "Jest sirasinda imleci dondur",
+    default=False,
+    category=Category.MOUSE,
+    tags="fare vektor jest imlec",
+    desc="Imlec her olayda baslangica geri konur (yavas hareketi yutabilir)",
+)
+VECTOR_STEP_PX = setting(
+    "hotVector.stepSize",
+    "Adim esigi",
+    default=14,
+    category=Category.MOUSE,
+    tags="fare hassasiyet vektor jest",
+    desc="Bir tetiklenme icin gereken piksel",
+    validate=_range(1, 400),
+)
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
 
@@ -92,7 +144,8 @@ SPECIAL_KEYS_MENU = (
 
 # AHK: showF14menu() icindeki subMenuSet.
 SYSTEM_MENU = (
-    ("\U0001f440 Olay izleyici...", "app.monitor"),
+    ("\U0001f440 Key history loop", "app.monitor"),
+    ("⚙️ Ayarlar...", "app.settings"),
     ("⏸️ Duraklat / Devam", "app.pause"),
     ("\U0001f513 Busy kilidini ac", "busy.free"),
     None,
@@ -109,7 +162,6 @@ SYSTEM_MENU = (
 #: kullanmiyor, o yuzden emoji hep tek renk (siyah/beyaz) cikiyor.
 F13_MENU = (
     # ---- 1. KOLON: pano, ekran goruntusu, OCR (AHK showF13menu) ----
-    ("Clipboard history", "clip.filter"),
     ("Clipboard history win", "send_key:#v", "res:243"),  # panodan pencereye
     None,
     ("Select screenshot", "send_key:#+s", "shell:260"),  # makas
@@ -121,7 +173,6 @@ F13_MENU = (
     ("OCR Basit", "select.ocr"),
     None,
     ("Clipboard images", "clip.images", "res:109"),  # gorsel
-    ("Memory slots", "menu.slots", "res:30"),  # bellek cubugu
     ("Magnifier", "magnifier.toggle"),
     # ---- 2. KOLON: aktif pencere profili, araclar, hep ustte ----
     # Kolon ayracini COLUMN ciziyor; bu yuzden 1. kolonun sonunda ayrica
@@ -134,41 +185,39 @@ F13_MENU = (
 veri tablosu. Isimlendirme, sira ve ikon numaralari AHK ile ayni; port
 edilmemis ogeler (Repository GUI, Incognito) `´` menusunde `--` isaretli."""
 
-F13_MENU_TAIL = (
-    ("Special keys", SPECIAL_KEYS_MENU),
-    ("System", SYSTEM_MENU),
-)
+F13_MENU_TAIL: tuple = ()
 """2. kolonun SONU. Arasina app.py o anki pencereye bagli bloklari koyar:
 uygulama profili + kisayollari (AHK menuAppProfile) ve hep-ustte listesi
-(AHK menuAlwaysOnTop)."""
+(AHK menuAlwaysOnTop). Special keys ve System AHK'de de yalniz F14'te.
+
+"""
 
 # AHK: sysCommands() -- `´` tusu (SC00D / VK 0xDD). Kaskad menusu olarak
 # degil acilir menu olarak veriliyor: icerigi uzun ve fare ile de secilecek.
 # Port edilmemis olanlarin basinda `--` var, tiklanabilirler ama uyari verir.
 SYS_COMMANDS_MENU = (
-    ("1  Yeniden baslat", "app.restart"),
-    ("2  Durum ve hatalar", "errors.show"),
+    ("1: Reload script", "app.restart"),
+    ("2: Show stats", "errors.show"),
     # app_shorts.ahk portu: profiller Files/profiles.json'dan okunuyor,
     # duzenleme dosyanin kendisinden (AHK'nin yonetici GUI'si port edilmedi).
-    ("3  Profilleri duzenle", "shorts.edit"),
-    ("4  Olay izleyici", "app.monitor"),
-    ("5  Hafiza slotlari", "memslots.start"),
-    ("g  Pano gorselleri...", "clip.images"),
-    # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma
-    # (Files/rec1.ahk gibi uretilmis dosyalar).
-    ("6  -- Makro kaydedici", "yok:macro_recorder.ahk"),
-    None,
-    ("7  F13 menusu", "menu.f13"),
-    ("8  Pano gecmisi...", "clip.filter"),
-    ("9  Duraklat / Devam", "app.pause"),
-    ("0  Cikis", "app.exit"),
-    None,
+    ("3: Profile manager", "shorts.edit"),
+    ("4: Key history", "app.monitor"),
+    ("5: Memory slots", "memslots.start"),
+    # TODO(AHK): macro_recorder.ahk -- tus/fare dizisi kaydedip tekrar oynatma.
+    ("6: -- Macro recorder", "yok:macro_recorder.ahk"),
+    ("7: F13 menu", "menu.f13"),
+    ("8: F14 menu", "menu.slots"),
+    ("9: Pause script", "app.pause"),
+    ("0: Exit script", "app.exit"),
     # TODO(AHK): repository.ahk (Files/repository.json) -- kod parcasi deposu.
-    ("r  -- Repository", "yok:repository.ahk"),
-    # TODO(AHK): incognito.ahk (Files/incognito_appids.json) -- secili
-    # uygulamalarda pano gecmisine hic yazmama modu.
-    ("i  -- Incognito", "yok:incognito.ahk"),
-    ("a  Tepsi balonu denemesi", "notify:Mesaj icerigi"),
+    ("r. Repository GUI", "yok:repository.ahk"),
+    # TODO(AHK): incognito.ahk (Files/incognito_appids.json).
+    ("i: Incognito (as)", "yok:incognito.ahk"),
+    ("a: TrayTip test", "notify:Mesaj icerigi"),
+    None,
+    # AHK'de olmayan, bize ozgu olanlar ayracin altinda.
+    ("Pano gecmisi...", "clip.filter"),
+    ("Pano gorselleri...", "clip.images"),
 )
 
 # ---- OnStart / OnExit -- AHK: LoadSettings() ve ExitSettings() ----
@@ -296,12 +345,22 @@ def build_hotkeys() -> HotkeyTable:
     # AHK handleF13: pt1 showF13menu, pt2 showQuickHistoryMenu. Kisa basim
     # tablodan, basili tutma prefix tanimindan geliyor.
     table.add("F13", "menu.f13", "kisa: menu")
-    table.prefix("F13", hold_action="menu.clip", desc="basili tut: pano menusu")
+    # AHK handleF13: pt1 menu, pt2 pano menusu, pt4 (CIFT basim) gecmiste
+    # arama -- `EM.enableDoubleClick()`. Cift basim tanimli oldugu icin kisa
+    # basim eylemi bir sure BEKLETILIR (bkz. core/prefix.py).
+    table.prefix(
+        "F13",
+        hold_action="menu.clip",
+        double_action="clip.filter",
+        desc="basili tut: pano menusu / cift: gecmiste ara",
+    )
     # F14 iki islevli: SURUKLERSEN ekran alani secimi baslar (ui/snip.py),
     # kimildatmadan birakirsan slot menusu acilir. AHK handleF14'te kisa
     # basim showF14menu (slotlar) idi; secim oraya sonradan eklendi ve
     # tusun eski isini yemesin diye surukleme ile ayrildi.
     table.add("F14", "menu.slots", "kisa: slot menusu")
+    # AHK handleF14 pt4: App.ClipSlot.showSlotsSearch().
+    table.prefix("F14", double_action="slots.search", desc="cift: slotlarda ara")
     # Eylemin argumani secimi yapacak TUS: F14 basili kaldigi surece
     # dikdortgen buyur, birakilinca secim biter (ui/snip.py). Argumansiz
     # birakilirsa secim sol fare tusuna kalirdi -- F14 ile secmek isterken
@@ -315,11 +374,12 @@ def build_hotkeys() -> HotkeyTable:
     # Siralama AHK ile ayni ters duzende: en yakin tus F20 = Slot 1.
     for offset, fkey in enumerate(("F20", "F19", "F18", "F17", "F16", "F15")):
         table.add(f"F13 & {fkey}", f"slot.paste:{offset + 1}", f"slot {offset + 1}")
-    # AHK key_handler_mouse.ahk: handleF13 `.combo("F14", "Magnifier", ...)`
-    # ve handleF14 `.combo("F13", ...)`. Orada ikisi de toggle'di; burada
-    # yon ayrildi -- hangi tusa ONCE bastigin kademeyi belirliyor.
-    table.add("F13 & F14", "magnifier.zoom:+", "buyutec: yakinlastir")
-    table.add("F14 & F13", "magnifier.zoom:-", "buyutec: uzaklastir")
+    # AHK key_handler_mouse.ahk: iki yonde de TOGGLE idi -- buyutulmusse
+    # %100'e doner, degilse %200'e cikar (x2 / :2). Yon ayirmayi denedik ama
+    # hangi tusa once basildigini ayirt etmek kullanicida "hep yakinlastiriyor"
+    # hissi verdi; AHK'deki tek davranisa geri donuldu.
+    table.add("F13 & F14", "magnifier.toggle", "buyutec: x2 / :2")
+    table.add("F14 & F13", "magnifier.toggle", "buyutec: x2 / :2")
 
     # --- tekerlek kombolari. AHK'de bu satirlar `~F13 & WheelUp::` diye
     # yazili; burada `~` YOK ve olmamali. AHK'de tilde gerekiyordu cunku
@@ -335,6 +395,8 @@ def build_hotkeys() -> HotkeyTable:
     # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
     # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---
     table.add("~LButton & F16", "send_key:^v", "tikla + yapistir")
+    # AHK handleLButton: F15 -> base grubun 10. slotu + Enter.
+    table.add("~LButton & F15", "slot.paste_enter:/10", "slot 10 + Enter")
     table.add("~LButton & F19", "send_keys:^a ^v Enter", "hepsini sec + yapistir")
     table.add("~LButton & F20", "send_keys:^a ^c", "hepsini kopyala")
 
@@ -371,24 +433,29 @@ def build_hotkeys() -> HotkeyTable:
         register_name(caret, "Caret")
         # AHK cascadeCaret: kisa basim `^` yazar (yuttugumuz tusu geri
         # gondererek), basili tutma menu acar, rakamlar slot yukler.
-        table.prefix("Caret", hold_action="menu.clip", desc="basili tut: pano menusu")
-        for index in range(1, 10):
+        table.prefix(
+            "Caret", hold_action="menu.base_slots", desc="basili tut: base slotlar"
+        )
+        # AHK cascadeCaret: rakamlar BASE grubun (defaultGroup == "") slotlarini
+        # yapistirir. 0 -> 10. slot, yani sifre slotu: yapistirma `private`
+        # gidiyor (AHK ignoreNextClip) -- pano gecmisine hic yazilmiyor.
+        for index in range(10):
             table.add(
                 f"Caret & {index}",
-                f"clip.paste:{index}",
-                "pano gecmisi 1-9" if index == 1 else "",
+                f"slot.paste_group:/{index or 10}",
+                "base slot 1-10" if index == 1 else "",
             )
 
     # --- Tab: AHK cascadeTab(). Kisa basim Tab yazar (yuttugumuz tusu geri
     # gondererek), basili tutma slot menusunu acar, rakamlar slot yukler.
     # Modifierli basim (Alt+Tab, Ctrl+Tab, Shift+Tab) onege HIC girmez --
     # sarti dispatch.py `_hotkey_key` koyuyor. ---
-    table.prefix("Tab", hold_action="menu.slots", desc="basili tut: slot menusu")
+    table.prefix("Tab", hold_action="menu.side_slots", desc="basili tut: yan grup")
     for index in range(10):
         table.add(
             f"Tab & {index}",
-            f"slot.paste:{index or 10}",
-            "slot 1-10" if index == 1 else "",
+            f"slot.paste_side:{index or 10}",
+            "yan grup slot 1-10" if index == 1 else "",
         )
 
     # --- CapsLock: AHK cascadeCaps(). Kisa basim buyuk harf kilidini cevirir
@@ -415,6 +482,15 @@ def build_hotkeys() -> HotkeyTable:
     # her yerde calisan tuslar, YUTULMAMALI -- eylem pencere kapaliyken
     # zaten hicbir sey yapmiyor. ---
     table.add("~MButton", "memslots.paste:middle", "memslots: akilli yapistir")
+    # AHK handleMButton pt2: uzun basim yapistirir ve Shift+Enter gonderir
+    # (liste halinde yapistirirken satir atlamak icin). Esik AHK ile ayni.
+    table.prefix(
+        "~MButton",
+        passthrough=True,
+        hold_action="memslots.paste_enter",
+        hold_ms=300,
+        desc="basili tut: akilli yapistir + Shift+Enter",
+    )
     table.add("~Insert", "memslots.paste", "memslots: akilli yapistir")
 
     # --- ScrollLock: Turkce eklentisi (AHK turkish_layout_addon.ahk).
@@ -446,20 +522,28 @@ def build_hotkeys() -> HotkeyTable:
     return table
 
 
-def build_gestures() -> GestureTracker:
-    """AHK: hgsRight.Register(...) -- ama sekil tanima degil, yon + kademe.
+def build_gestures() -> HotVectors:
+    """AHK: hot_vectors.ahk -- HotVectors.Register(bDir.upDown, callback).
 
     F13 basili tutulup fare bir yone surulunce her `step_px` piksel bir
     adim uretir; adim sayisi eylemin kac kez calisacagidir (ses kac kademe
-    artacak). Jest tetiklendiginde F13'un kendi isi iptal olur: ne menu
-    acilir ne baska kombo beklenir.
+    artacak). Yon KILITLENDIGI anda (lock_px) jest baslamis sayilir: F13
+    birakilinca ne menu acilir ne baska kombo beklenir.
 
     Dikey eksen Windows buyutecinin yakinlastirmasi, yatay eksen ses.
     Eksen bir kez kilitlendikten sonra dik yondeki hareket OKUNMAZ
-    (core/gesture.py `_lock`): hafif capraz bir hareket artik yanlis
-    eksene dusmez.
+    (core/hot_vectors.py `_lock`): hafif capraz hareket yanlis eksene
+    dusmez. Esikler ayar ekranindan (AHK: hotVector.* ayarlari).
     """
-    tracker = GestureTracker(step_px=60.0)
+    tracker = HotVectors(
+        step_px=float(VECTOR_STEP_PX.get()), lock_px=float(VECTOR_LOCK_PX.get())
+    )
+    # Ayar degisince yeni deger ANINDA gecerli olsun: tracker tek ornek,
+    # yeniden kurulmuyor (AHK'de de subscribe ile sabitler guncelleniyordu).
+    VECTOR_STEP_PX.subscribe(lambda value, _old: setattr(tracker, "step_px", float(value)))
+    VECTOR_LOCK_PX.subscribe(lambda value, _old: setattr(tracker, "lock_px", float(value)))
+    tracker.lock_mode = str(VECTOR_LOCK_MODE.get())
+    VECTOR_LOCK_MODE.subscribe(lambda value, _old: setattr(tracker, "lock_mode", str(value)))
     tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "yakinlastir")
     tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
     tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "ses +")

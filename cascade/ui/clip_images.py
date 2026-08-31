@@ -62,6 +62,13 @@ class _Preview(QWidget):
 
     Gorsel kutuya SIGIYORSA 1:1 gosterilir, sigmiyorsa sigdirilir (AHK'deki
     ayni kural) -- kucuk gorseller bosuna buyutulup bulaniklasmasin.
+
+    **1:1 GERCEKTEN 1:1.** Qt'de cizim mantiksal koordinatta; ekran %150
+    olcekliyse (dpr 1.5) mantiksal boyda cizilen gorsel donanimda 1.5 kat
+    buyutulur ve ince cizgiler bozulur. O yuzden hedef dikdortgen hep
+    `dpr`'ye BOLUNEREK veriliyor: zoom 1.0'da bir goruntu pikseli bir ekran
+    pikseli. Buyutmede yumusatma da KAPALI (nearest): 2x'te piksel dorde
+    bolunmeli, bulanmamali.
     """
 
     def __init__(self) -> None:
@@ -95,11 +102,17 @@ class _Preview(QWidget):
         self._pan = QPoint()
         self.update()
 
+    def _dpr(self) -> float:
+        """Ekranin piksel orani. Cizim mantiksal, goruntu gercek pikselde."""
+        return self.devicePixelRatioF() or 1.0
+
     def _compute_fit(self) -> float:
         if self._pixmap is None or self._pixmap.isNull():
             return 1.0
+        dpr = self._dpr()
         ratio = min(
-            self.width() / self._pixmap.width(), self.height() / self._pixmap.height()
+            self.width() * dpr / self._pixmap.width(),
+            self.height() * dpr / self._pixmap.height(),
         )
         return min(1.0, ratio)  # sigiyorsa buyutme, 1:1 birak
 
@@ -141,10 +154,15 @@ class _Preview(QWidget):
             painter.setPen(QColor("#6e7681"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "onizleme yok")
             return
-        width = max(1, round(self._pixmap.width() * self._zoom))
-        height = max(1, round(self._pixmap.height() * self._zoom))
+        dpr = self._dpr()
+        width = max(1, round(self._pixmap.width() * self._zoom / dpr))
+        height = max(1, round(self._pixmap.height() * self._zoom / dpr))
         x = (self.width() - width) // 2 + self._pan.x()
         y = (self.height() - height) // 2 + self._pan.y()
+        # Kucultmede yumusatma iyi, buyutmede kotu: 1:1 ve ustu keskin kalsin.
+        painter.setRenderHint(
+            QPainter.RenderHint.SmoothPixmapTransform, self._zoom < 1.0
+        )
         painter.drawPixmap(QRect(x, y, width, height), self._pixmap)
 
     @property

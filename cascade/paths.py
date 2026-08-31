@@ -21,6 +21,7 @@ CAPTURES = FILES / "captures"  # F14 secimi -> "Sakla" buraya PNG yazar
 # veriyi paylasabilmesi.
 CLIPS = FILES / "clipboards.bin"  # ikili bicim v2 -- store.ClipStore
 SLOTS = FILES / "slots.json"  # clip_slot.ahk bicimi -- store.SlotStore
+SETTINGS = FILES / "settings.json"  # settings.ahk bicimi -- cascade.settings
 
 # TODO(AHK): port edilmemis veri dosyalari (kaynak: _AutoHotKey/Files/)
 #   bigclips.bin   1 MB ustu kopyalar -- clip_hist.ahk buyuk metni ayri

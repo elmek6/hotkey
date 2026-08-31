@@ -20,6 +20,8 @@ Windows API'sinin degismeyen sabitleri.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from cascade.core.keynames import (
     VK_WHEEL_DOWN,
     VK_WHEEL_LEFT,
@@ -78,3 +80,22 @@ def mouse_key(message: int, data: int) -> tuple[int, bool] | None:
             return None
         return (VK_WHEEL_RIGHT if data > 0 else VK_WHEEL_LEFT, True)
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class MouseSeen:
+    """Olay izleyicisine giden fare olayi -- KeyEvent ile ayni alanlar.
+
+    Izleyici (ui/monitor.py) klavye olayini bekliyor; fare dugmeleri de
+    ayni tabloya dusebilsin diye cevrilmis bicimi burada duruyor. `scan`
+    yerine imlecin konumu tasiniyor: fare olayinda tarama kodu yok.
+    """
+
+    vk: int
+    down: bool
+    t: float
+    x: int = 0
+    y: int = 0
+    scan: int = 0
+    extended: bool = False
+    mouse: bool = True
