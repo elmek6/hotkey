@@ -37,10 +37,6 @@ from cascade.win32.hook import KeyEvent, MouseEvent
 
 VK_ESCAPE = 0x1B
 
-# Fare onegi basiliyken bu kadar piksel oynarsa "surukleme" sayilir.
-# Altinda kalan hareket titremedir; sag tik yaparken imlec bir iki piksel oynar.
-DRAG_PX = 6
-
 VK_LBUTTON = 0x01
 
 # ARIZALI FARE FILTRESI (AHK: AutoHotkey.ahk `A_TimeSincePriorHotkey < 70`).
@@ -103,9 +99,12 @@ class Dispatcher:
         #: Jest sirasinda EN SON gorulen imlec noktasi -- fark buradan
         #: aliniyor (bkz. `_gesture_move`).
         self._gesture_at: tuple[int, int] | None = None
-        #: `hotVector.freezeCursor`: eski davranis (imlec her olayda
-        #: baslangica geri konur). app.py ayardan dolduruyor.
-        self.freeze_cursor = False
+        #: `hotVector.freezeCursor`: imlec jest boyunca yerinde durur (HV-3).
+        #: app.py ayardan dolduruyor.
+        self.freeze_cursor = True
+        #: `hotVector.ignorePx`: surukleme sayilmayan titreme. Fare onegi
+        #: basiliyken imlec bir iki piksel oynar. app.py ayardan dolduruyor.
+        self.drag_px = 6
         self._prefix_at: tuple[int, int] | None = None
         self._tip_t = 0.0
         # Yutup beklettigimiz fare onegi surukleme oldugu anlasilinca gercek
@@ -274,13 +273,13 @@ class Dispatcher:
         return swallow
 
     def tick(self, now: float) -> list[tuple[int, str]]:
-        """Onek tuslarinin basili-tutma esigi -- Qt zamanlayicisi cagirir.
+        """Bekletilen kisa basim eylemleri -- Qt zamanlayicisi cagirir.
 
-        Hook thread'inde yapilamaz: tus BASILI dururken hicbir olay gelmiyor,
-        esigi yoklayan bir zamanlayici gerekiyor. AHK bunu bloke eden
-        dongude yapiyordu.
+        Basili tutma esigi ARTIK burada yoklanmiyor: basim turune tus
+        birakilinca karar veriliyor (AHK ile ayni, bkz. `PrefixTracker.key_up`).
+        Geriye yalniz cift basim penceresi kaldi.
         """
-        fired = self.prefixes.tick(now)
+        fired: list[tuple[int, str]] = []
         # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
         for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
             if now >= deadline:
@@ -316,6 +315,8 @@ class Dispatcher:
         self.gestures.reset()
         self._freeze_at = None
         self._gesture_at = None
+        self._tip_t = 0.0
+        self._put(Run("tip.hide"))
         self._prefix_at = None
         self._pending_tap.clear()
         self._passed_through.clear()
@@ -332,20 +333,13 @@ class Dispatcher:
         return definition is not None and bool(definition.drag_action)
 
     def _gesture_move(self, event: MouseEvent) -> bool:
-        """Jest sirasindaki fare hareketi.
+        """Jest sirasindaki fare hareketi (HV-3).
 
-        Olcum jestin BASLADIGI noktadan, kesintisiz: her olayda bir onceki
-        noktaya gore fark alinip birikime ekleniyor.
-
-        Once imlec her olayda baslangica GERI KONUYORDU ("dondurma"). Yavas
-        hareket o yuzden hic jest baslatmiyordu: imleci geri koymak
-        Windows'un imlec hizlandirma birikimini de sifirliyor, yavas itilen
-        farenin uretecegi hareket 0 piksele yuvarlaniyor ve olay hic fark
-        tasimiyordu. Simdi imlec serbest -- hareket olayi yine YUTULUYOR
-        (tiklama, hover, surukleme olmuyor), yalniz konum akmaya devam
-        ediyor; jest bitince imlec baslangic noktasina geri konuyor
-        (`_end_gesture`). Eski davranis `hotVector.freezeCursor` ayariyla
-        geri gelir.
+        Hareket olayi YUTULUR ve imlec her olayda baslangica geri konur, yani
+        `last` hep origin: mesafe `olay - baslangic` diye olculur. Geri
+        koymazsak imlec zaten ilerlemedigi icin ardisik olaylarin farki
+        +1/-1 diye sifirlanir ve yavas hareket esigi hic gecemez
+        (`hotVector.freezeCursor` kapatilinca gorulen bozuk davranis).
         """
         origin = self._freeze_at
         if origin is None:
@@ -355,8 +349,13 @@ class Dispatcher:
         dy = event.y - last[1]
         if dx or dy:
             self._gesture_at = (event.x, event.y)
-            for gesture in self.gestures.move(dx, dy):
-                self.prefixes.combo_used(gesture.prefix)
+            events = self.gestures.move(dx, dy)
+            for prefix in self.gestures.active:
+                # HV-14: eksen kilitlendigi an onek "kullanildi" sayilir --
+                # birakilinca ne menu acilir ne tus geri gonderilir.
+                if self.gestures.fired(prefix):
+                    self.prefixes.combo_used(prefix)
+            for gesture in events:
                 for _ in range(gesture.steps):
                     self._put(Run(gesture.action, key=gesture.prefix, desc=gesture.desc))
             self._gesture_tip(event.t)
@@ -367,16 +366,18 @@ class Dispatcher:
         return True
 
     def _end_gesture(self) -> None:
-        """Jest bitti: imleci basladigi yere geri koy ve sayaclari birak.
+        """Jest bitti: sayaclari ve ipucunu birak.
 
-        Imleci geri vermek AHK'deki dondurmanin gorunur sonucuyla ayni:
-        kullanici jesti bitirdiginde imlec kalktigi yerdedir.
+        Dondurma acikken imlec zaten baslangic noktasinda duruyor; kapaliysa
+        buradan geri konuyor.
         """
         origin = self._freeze_at
         if origin is not None and not self.freeze_cursor and self._gesture_at:
             send.set_cursor_pos(*origin)
         self._freeze_at = None
         self._gesture_at = None
+        self._tip_t = 0.0
+        self._put(Run("tip.hide"))
 
     def _gesture_tip(self, t: float) -> None:
         """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
@@ -389,7 +390,9 @@ class Dispatcher:
         self._tip_t = t
         for prefix in self.gestures.active:
             status = self.gestures.status(prefix)
-            if status is None:
+            # Eksen kilitlenene kadar gosterilecek bir sey yok: "...  5 px"
+            # bir an gorunup kayboluyor ve okunamiyordu.
+            if status is None or status.axis is None:
                 continue
             self._put(Run(f"tip:{status.text}", key=prefix))
 
@@ -408,7 +411,7 @@ class Dispatcher:
            uygulamaya geciyor. Tuketme YALNIZCA tekerlek cevrildiginde.
         """
         origin = self._prefix_at
-        if origin is not None and max(abs(event.x - origin[0]), abs(event.y - origin[1])) < DRAG_PX:
+        if origin is not None and max(abs(event.x - origin[0]), abs(event.y - origin[1])) < self.drag_px:
             return  # titreme: tusa basarken imlec bir iki piksel oynar
         for vk in self.prefixes.held:
             definition = self.prefixes.definition(vk)
@@ -531,8 +534,9 @@ class Dispatcher:
                 self._end_gesture()
             return was_ours, []
 
-        if self.prefixes.key_up(vk, t) is Outcome.NOTHING:
-            return was_ours, []  # kombo yapildi ya da basili tutma calisti
+        outcome = self.prefixes.key_up(vk, t)
+        if outcome is Outcome.NOTHING:
+            return was_ours, []  # kombo ya da surukleme yapildi
 
         if not self.gestures.watching:
             self._end_gesture()
@@ -540,6 +544,11 @@ class Dispatcher:
             self._prefix_at = None
 
         definition = self.prefixes.definition(vk)
+        if outcome is Outcome.HOLD and definition is not None:
+            # Basili tutma esigi gecildi: cift basim beklenmez (AHK'de de
+            # cift basim kontrolu yalniz KISA basimda yapiliyor).
+            return was_ours, [Run(definition.hold_action, key=vk, desc=definition.desc)]
+
         binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi
         if binding is not None:
             if definition is not None and definition.double_action:

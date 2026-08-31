@@ -76,16 +76,28 @@ VECTOR_LOCK_MODE = setting(
     tags="fare vektor jest eksen yon kilit",
     desc="eksen: iki yon de canli (yukari/asagi) - yon: ilk yon kilitlenir",
 )
-# Eski davranis: imlec her hareket olayinda jestin basladigi noktaya geri
-# konur. Yavas hareketi yiyor (imlec hizlandirma birikimi sifirlaniyor), o
-# yuzden varsayilan KAPALI -- karsilastirmak isteyen acar.
+# Jest sirasinda imlec her olayda baslangic noktasina geri konur ve mesafe
+# `olay - baslangic` diye olculur. Kapatilirsa hareket olayi yine yutulur ama
+# imlec ilerlemedigi icin ardisik olaylarin farki +1/-1 diye sifirlanir ve
+# yavas hareket esigi hic gecemez (docs/hot_vectors.md D-1).
 VECTOR_FREEZE = setting(
     "hotVector.freezeCursor",
     "Jest sirasinda imleci dondur",
-    default=False,
+    default=True,
     category=Category.MOUSE,
     tags="fare vektor jest imlec",
-    desc="Imlec her olayda baslangica geri konur (yavas hareketi yutabilir)",
+    desc="Imlec jest boyunca yerinde durur; kapaliysa yavas hareket okunmaz",
+)
+# Titreme toleransi: tusa basarken imlec bir iki piksel oynuyor. Bu kadarlik
+# hareket "surukleme" sayilmaz. Once dispatch.py'de sabitti (DRAG_PX = 6).
+VECTOR_IGNORE_PX = setting(
+    "hotVector.ignorePx",
+    "Yoksayilan titreme",
+    default=6,
+    category=Category.MOUSE,
+    tags="fare hassasiyet vektor jest titreme surukleme",
+    desc="Bu kadar pikselin altindaki hareket titreme sayilir, surukleme baslatmaz",
+    validate=_range(0, 50),
 )
 VECTOR_STEP_PX = setting(
     "hotVector.stepSize",

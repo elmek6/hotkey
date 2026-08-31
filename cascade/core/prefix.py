@@ -36,8 +36,9 @@ DEFAULT_DOUBLE_MS = 180.0
 class Outcome(IntEnum):
     """Onek tusu birakildiginda ne olacagi."""
 
-    NOTHING = 0  # kombo yapildi ya da hold calisti -- tusun kendi isi bitti
+    NOTHING = 0  # kombo/surukleme yapildi -- tusun kendi isi bitti
     TAP = 1  # tek basina kisa basim -- cagiran tap eylemini calistirir
+    HOLD = 2  # esik gecti, kombo yok -- cagiran hold eylemini calistirir
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,33 +115,25 @@ class PrefixTracker:
             self._used.add(vk)
 
     def key_up(self, vk: int, t: float) -> Outcome:
-        """Onek birakildi. Cagiran TAP'te kendi tanimini arar, yoksa tusu
-        geri gonderir."""
+        """Onek birakildi. Basim turune BURADA karar veriliyor.
+
+        AHK `KeyBuilder.getPressType(totalDuration, ...)` ile ayni: tus
+        basiliyken hicbir sey olmaz, esik karsilastirmasi birakma aninda
+        yapilir. Once esik `tick` ile basiliyken yoklaniyordu; jest yapmak
+        350 ms'yi kolayca gectigi icin pano menusu jestin ortasinda aciliyor
+        ve jesti kesiyordu (docs/hot_vectors.md D-5).
+        """
         started = self._down.pop(vk, None)
         used = vk in self._used
         self._used.discard(vk)
         if started is None or used:
             return Outcome.NOTHING
+        definition = self.defs.get(vk)
+        if definition is not None and definition.hold_action:
+            elapsed = (t - started) * 1000.0
+            if elapsed >= definition.hold_ms:
+                return Outcome.HOLD
         return Outcome.TAP
-
-    def tick(self, t: float) -> list[tuple[int, str]]:
-        """Esigi gecen onekler icin (vk, eylem) listesi. Her basimda bir kez.
-
-        Hold calistiktan sonra onek `used` sayilir: birakilinca ne tap
-        eylemi calisir ne de tus geri gonderilir -- AHK'de de basili tutup
-        menu acinca `^` yazilmiyor.
-        """
-        fired: list[tuple[int, str]] = []
-        for vk, started in self._down.items():
-            if vk in self._used:
-                continue
-            definition = self.defs.get(vk)
-            if definition is None or not definition.hold_action:
-                continue
-            if (t - started) * 1000.0 >= definition.hold_ms:
-                self._used.add(vk)
-                fired.append((vk, definition.hold_action))
-        return fired
 
     def reset(self) -> None:
         """Duraklatma / hook yeniden kurulumu sonrasi hayalet durumu temizler."""

@@ -261,6 +261,10 @@ class Cascade:
         keymap.VECTOR_FREEZE.subscribe(
             lambda value, _old: setattr(self.dispatcher, "freeze_cursor", bool(value))
         )
+        self.dispatcher.drag_px = int(keymap.VECTOR_IGNORE_PX.get())
+        keymap.VECTOR_IGNORE_PX.subscribe(
+            lambda value, _old: setattr(self.dispatcher, "drag_px", int(value))
+        )
 
         self.hook = HookThread(
             self.events,
@@ -273,6 +277,9 @@ class Cascade:
 
         # tip: imlecin yaninda 2 sn gorunup kaybolur.  notify: kalici tepsi balonu.
         self.runner.register("tip", lambda text: self.tip.show_text(text, 2000))
+        # Jest bitince ipucu da gitsin: 2 sn'lik sure jestten sonra da ekranda
+        # kaliyordu (dispatch._end_gesture).
+        self.runner.register("tip.hide", lambda _: self.tip.hide())
         self.runner.register("tip_html", lambda body: self.tip.show_html(body, 2000))
         self.runner.register("notify", lambda text: self.tray.notify("cascade", text))
         self.runner.register("app.restart", lambda _: self.restart())
