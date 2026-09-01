@@ -54,12 +54,13 @@ from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.incognito_badge import IncognitoBadge
 from cascade.ui.key_map_view import KeyMapView
 from cascade.ui.mem_slots import MemSlots
-from cascade.ui.menu import DEFAULT, PopupMenu
+from cascade.ui.menu import CHECKED, DEFAULT, PopupMenu
 from cascade.ui.monitor import EventMonitor
 from cascade.ui.ocr_view import OcrView
 from cascade.ui.pause import PauseDialog
 from cascade.ui.preview import preview_html, shorten
 from cascade.ui.profiles_view import ProfilesView
+from cascade.ui.qr_view import QrDialog
 from cascade.ui.repository_view import RepositoryView
 from cascade.ui.settings_dialog import SettingsDialog
 from cascade.ui.snip import SnipOverlay
@@ -74,6 +75,7 @@ from cascade.win32.screen import monitors
 from cascade.win32.window import (
     WindowPins,
     foreground_window,
+    topmost_windows,
     window_class,
     window_title,
 )
@@ -258,6 +260,8 @@ class Cascade:
         # AHK: State.Script.shouldSaveOnExit. "Kaydetmeden yeniden baslat"
         # bunu indirir; kapanista pano dosyasina DOKUNULMAZ.
         self.save_on_exit = True
+        #: Cikista sabitlenen pencereler birakilsin mi. `restart` kapatiyor.
+        self._release_pins_on_exit = True
 
         self.events: queue.Queue = queue.Queue(maxsize=4096)
         self.actions: queue.Queue = queue.Queue(maxsize=4096)
@@ -403,6 +407,12 @@ class Cascade:
         self.repository_view = RepositoryView(self.repository)
         self.runner.register("repository.open", lambda _: self.repository_view.open())
         self.runner.register("repository.edit", lambda _: self.edit_repository())
+
+        # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
+        # Nesne her acilista yeniden kuruluyor -- durum tasimiyor ve
+        # panodaki metin her seferinde bastan okunmali.
+        self._qr_view: QrDialog | None = None
+        self.runner.register("qr.show", lambda _: self.show_qr())
 
         # AHK menus.ahk `DialogPauseGui`: Pause tusu basili tutulunca acilir.
         self.pause_dialog = PauseDialog()
@@ -759,24 +769,37 @@ class Cascade:
             self.tip.show_html(f"\U0001f4cd <b>birakildi</b><br>{name}", 1500)
 
     def _pin_menu_items(self) -> tuple:
-        """AHK menuAlwaysOnTop: once "bu pencereyi sabitle", sonra sabitli
-        olanlar (tiklayinca birakilir).
+        """AHK menuAlwaysOnTop: once "bu pencereyi sabitle", sonra ustte
+        duran pencereler (tiklayinca birakilir).
 
-        Menu her acilista yeniden kuruluyor -- sabitli pencereler ve one cikan
-        pencere degisiyor, statik tablo bunu tasiyamaz.
+        Liste bellekten DEGIL, Windows'tan (`topmost_windows`): boylece
+        cokmus bir programin asili biraktigi pencere ve uygulamanin kendi
+        actigi "hep ustte" de menude gorunur ve buradan birakilabilir.
+        Windows kimin sabitledigini soylemedigi icin ayrimi kendi
+        sozlugumuz yapiyor -- yabancilarin yanina `(win)` yaziliyor.
+
+        Menu her acilista yeniden kuruluyor -- sabitli pencereler ve one
+        cikan pencere degisiyor, statik tablo bunu tasiyamaz. Tarama
+        olculdu: ~0.5 ms, menu acilisinda gorunmez.
         """
         self.pins.prune()
         hwnd = foreground_window()
         title = window_title(hwnd)
         items: list = []
-        if hwnd and not self.pins.has(hwnd):
+        tops = topmost_windows()
+        if hwnd and not any(top.hwnd == hwnd for top in tops):
             label = shorten(title or "(basliksiz)", 45)
-            items.append((f"📍 Add {label}", f"window.pin:{hwnd}"))
-        for pin in self.pins.items():
-            label = shorten(pin.title or "(basliksiz)", 45)
-            # Uzerinde durdugun pencere zaten sabitliyse o satir kalin.
-            mark = (DEFAULT,) if pin.hwnd == hwnd else ()
-            items.append((f"📌 {label}", f"window.pin:{pin.hwnd}", "", *mark))
+            items.append((f"Add {label}", f"window.pin:{hwnd}"))
+        for top in tops:
+            label = shorten(top.title or "(basliksiz)", 45)
+            # Bizim sabitlemediklerimiz "(win)": onlari kullanici ya da
+            # uygulamanin kendisi asmis, tiklayinca yine birakiliyorlar.
+            if not self.pins.has(top.hwnd):
+                label = f"{label}  (win)"
+            # Hepsi ustte, hepsi TIKLI -- tekrar basmak birakir. Uzerinde
+            # durdugun pencereninki ayrica kalin.
+            marks = (CHECKED, DEFAULT) if top.hwnd == hwnd else (CHECKED,)
+            items.append((label, f"window.pin:{top.hwnd}", "", *marks))
         return tuple(items)
 
     # ---- uygulamaya ozel kisayollar (AHK: app_shorts.ahk) ----
@@ -1164,6 +1187,16 @@ class Cascade:
         # DEFAULT isaretiyle geliyor; bkz. ui/menu.py.
         self.menu.show(spec)
 
+    def show_qr(self) -> None:
+        """F14 menusu > QR kod. Panodaki metinle acilir."""
+        text = QGuiApplication.clipboard().text() or ""
+        if self._qr_view is not None:
+            self._qr_view.close()
+        self._qr_view = QrDialog(text.strip())
+        self._qr_view.show()
+        self._qr_view.raise_()
+        self._qr_view.activateWindow()
+
     def not_ported(self, module: str) -> None:
         """Menude `--` ile isaretli ogeler buraya duser."""
         self.tip.show_html(
@@ -1469,12 +1502,22 @@ class Cascade:
         # -- hata bildiriminde istenen bilgi bu ucu ve acilista bir kez
         # bakip gorulebilsin diye okunacak kadar duruyor. Sayimlar (pano
         # kaydi, uygulama profili) burada yok, log'a zaten yaziliyorlar.
-        self.tip.show_html(
+        card = (
             f"✅ <b>cascade</b> &nbsp;·&nbsp; {label}<br>"
             f"<span style='color:#8b949e;'>version</span> {VERSION}<br>"
-            f"<span style='color:#8b949e;'>build</span> {build_stamp()}",
-            4000,
+            f"<span style='color:#8b949e;'>build</span> {build_stamp()}"
         )
+        # Onceki oturumdan (ya da baska programdan) ustte kalmis pencereler.
+        # Acilista bir kez soyleniyor: bizim sozlugumuz her baslangicta bos,
+        # yani bu pencereleri baska kimse hatirlamiyor.
+        stray = len(topmost_windows())
+        if stray:
+            log.info("%d pencere ustte sabitli (Windows taramasi)", stray)
+            card += (
+                f"<br><span style='color:#8b949e;'>ustte sabitli</span> "
+                f"{stray} pencere &nbsp;·&nbsp; F13 menusu"
+            )
+        self.tip.show_html(card, 4000)
 
     def _idle_tick(self) -> None:
         """AHK IdleModule.tick(): 5 dakikada bir, kullanici 1 dakikadir
@@ -1521,7 +1564,11 @@ class Cascade:
         # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.
         # AHK ExitSettings: State.Window.clearAllOnTop() -- program kapaninca
         # sabitledigimiz pencereler ustte asili kalmasin.
-        self.pins.clear_all()
+        # Yeniden baslatmada sabitler BIRAKILMIYOR: reload kullanicinin
+        # ekranini degistirmemeli, yalnizca programi tazelemeli. Cikista
+        # birakiliyor ki ekranda sahipsiz asili pencere kalmasin.
+        if self._release_pins_on_exit:
+            self.pins.clear_all()
         saved = (
             self.clip.save()
             if self.save_on_exit
@@ -1556,6 +1603,9 @@ class Cascade:
           olu debug oturumuna baglanmaya calisiyor. (launch.json'daki
           "subProcess": false ayni derdin komut satiri ayagini kapatir.)
         """
+        # SIRA: bayrak on_exit'ten ONCE. Sonda kaldigi surece hicbir ise
+        # yaramiyordu -- sabitleri birakan kod coktan kosmus oluyordu.
+        self._release_pins_on_exit = False
         self.on_exit()
         if self.lock is not None:
             self.lock.release()
@@ -1602,6 +1652,7 @@ class Cascade:
         bayrak kalkiyor; kapanisi ana thread'deki `_tick` yapiyor.
         """
         log.info("yeni ornek acildi, kapaniyoruz")
+        self._release_pins_on_exit = False
         self._quit_requested = True
 
     def quit(self) -> None:
@@ -1623,6 +1674,8 @@ class Cascade:
         self.ocr_view.close()
         self.mem_slots.close()
         self.repository_view.close()
+        if self._qr_view is not None:
+            self._qr_view.close()
         self.profiles_view.close()
         self.macro.shutdown()
         self.macro.view.close()

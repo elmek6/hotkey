@@ -11,6 +11,8 @@ dependencies = [
     "pydantic>=2.13.5",
     "pyside6>=6.11.2",
     "pywin32>=312",
+    # QR uretimi (cascade/qr.py) -- saf Python, bagimliliksiz.
+    "segno>=1.6.6",
     "watchdog>=6.0.0",
     # Windows OCR (F14 secimi). Not: pip ile kuruldu; uv.lock henuz
     # icermiyor -- bir sonraki `uv sync/add` kilidi gunceller.

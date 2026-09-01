@@ -328,6 +328,7 @@ class SlotController:
             ("Unformatted paste", "send_key:^+v"),
             None,
             ("Macro recorder", "macro.recorder"),
+            ("QR kod", "qr.show"),
             ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
             None,
             ("Area", keymap.screen_menu()),

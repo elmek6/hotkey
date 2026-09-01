@@ -4,12 +4,18 @@
 AHK'de bu is `WinGetID("A")` / `WinSetAlwaysOnTop` ile tek satirdi; burada
 karsiliklari `GetForegroundWindow` ve `SetWindowPos(HWND_TOPMOST)`.
 
-`WindowPins` sabitlenen pencereleri AKILDA TUTAR (AHK: `onTopWindows` Map).
-Sebep: Windows "bu pencere ustte mi" sorusunu ucuz cevaplamiyor -- WS_EX_TOPMOST
-okunabilir ama bizim mi sabitledigimiz yoksa uygulamanin kendisinin mi oyle
-acildigi ayirt edilemez. AHK de bu yuzden kendi listesini tutuyordu; cikista
-`clearAllOnTop` ile hepsi birakiliyor ki program kapaninca ekranda asili
-pencere kalmasin.
+Iki ayri kaynak var, ikisi de gerekli:
+
+  `topmost_windows()`  Windows'a sorar -- ekranda su an ustte duran her
+                       pencere. Ucuz (olculdu: ~0.5 ms), ama KIMIN
+                       sabitledigini soylemez.
+  `WindowPins`         BIZIM sabitlediklerimiz (AHK: `onTopWindows` Map).
+                       Ayrimi yalnizca bu saglar; menude 📌 (biz) ile
+                       📌 ... (win) (yabanci) bundan ayriliyor.
+
+Cikista `clearAllOnTop` ile bizimkiler birakiliyor ki program kapaninca
+ekranda asili pencere kalmasin -- yabancilara dokunulmuyor, onlari biz
+asmadik.
 
 Kapanmis pencereler listede olu kayit birakir; `prune` her menu acilisinda
 onlari temizliyor (AHK'de bu yoktu, olu hwnd menude gorunmeye devam ederdi).
@@ -30,7 +36,17 @@ SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
 
 WS_EX_TOPMOST = 0x00000008
+WS_EX_TOOLWINDOW = 0x00000080
 GWL_EXSTYLE = -20
+
+#: DwmGetWindowAttribute: DWMWA_CLOAKED. "Gizlenmis" pencere -- kapatilmis
+#: UWP uygulamalari acik gorunur ama ekranda yoktur, listeye girmemeli.
+DWMWA_CLOAKED = 14
+
+#: Taramada gizlenen pencere siniflari. Buyutec BIZIM yonettigimiz bir
+#: arac (win32/magnifier.py): listede yer kaplamasinin anlami yok, ustelik
+#: birakilmasi da ise yaramiyor -- Windows onu kendisi tekrar uste aliyor.
+HIDDEN_CLASSES = frozenset({"MagUIClass"})
 
 user32.GetForegroundWindow.argtypes = []
 user32.GetForegroundWindow.restype = wintypes.HWND
@@ -57,6 +73,8 @@ user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsWindowVisible.restype = wintypes.BOOL
 user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.ShowWindow.restype = wintypes.BOOL
+user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowLongW.restype = ctypes.c_long
 
 SW_RESTORE = 9
 
@@ -66,6 +84,9 @@ SW_RESTORE = 9
 _ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.EnumWindows.argtypes = [_ENUM_PROC, wintypes.LPARAM]
 user32.EnumWindows.restype = wintypes.BOOL
+
+#: Pencerenin DWM'de gizli olup olmadigini yalniz bu DLL biliyor.
+_dwmapi = ctypes.WinDLL("dwmapi")
 
 
 def foreground_window() -> int:
@@ -100,6 +121,13 @@ def window_class(hwnd: int) -> str:
 
 def is_window(hwnd: int) -> bool:
     return bool(hwnd) and bool(user32.IsWindow(hwnd))
+
+
+def is_topmost(hwnd: int) -> bool:
+    """Pencere su an ustte mi. KIMIN astigini soylemez (bkz. WindowPins)."""
+    if not is_window(hwnd):
+        return False
+    return bool(user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
 
 
 def set_always_on_top(hwnd: int, on: bool) -> bool:
@@ -183,6 +211,58 @@ class Pin:
     title: str
 
 
+def topmost_windows() -> tuple[Pin, ...]:
+    """Su anda WS_EX_TOPMOST isaretli, KULLANICIYA GORUNEN pencereler.
+
+    Kaynak Windows'un kendisi, bizim sozlugumuz degil: bir program cokup
+    pencereyi asili biraktiysa ya da kullanici uygulamanin kendi "hep
+    ustte"sini actiysa (VLC, Gorev Yoneticisi) burada gorunur -- bizim
+    listemizde ise gorunmez.
+
+    Ham liste kirli, olculdu: 253 pencerenin 52'si topmost, 51'i cop
+    (ipucu pencereleri, gorev cubugu, IME, cloaked UWP, bizim kendi tip
+    pencerelerimiz). Dort suzgec temizliyor: gorunur + basligi var +
+    DWM'de gizli degil + tool window degil.
+
+    Maliyet olculdu: tam tarama ~0.5 ms. Menu her acilista tarayabilir,
+    onbellege gerek yok.
+    """
+    found: list[Pin] = []
+
+    def visit(hwnd, _lparam):
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        if not style & WS_EX_TOPMOST or style & WS_EX_TOOLWINDOW:
+            return True
+        if not user32.IsWindowVisible(hwnd) or _is_cloaked(hwnd):
+            return True
+        if window_class(hwnd) in HIDDEN_CLASSES:
+            return True
+        title = window_title(hwnd)
+        if title:
+            found.append(Pin(int(hwnd), title))
+        return True
+
+    user32.EnumWindows(_ENUM_PROC(visit), 0)
+    return tuple(found)
+
+
+def _is_cloaked(hwnd) -> bool:
+    """DWM'ye gore pencere gizli mi. Cagri basarisizsa "gizli degil" --
+    dwmapi bu ozelligi bilmek zorunda degil, bilmiyorsa suzgec bir eleman
+    eksik calisir, patlamaz."""
+    value = ctypes.c_int(0)
+    try:
+        result = _dwmapi.DwmGetWindowAttribute(
+            wintypes.HWND(hwnd),
+            DWMWA_CLOAKED,
+            ctypes.byref(value),
+            ctypes.sizeof(value),
+        )
+    except OSError:
+        return False
+    return result == 0 and value.value != 0
+
+
 class WindowPins:
     """Bizim sabitledigimiz pencereler -- AHK `State.Window.onTopWindows`.
 
@@ -220,6 +300,12 @@ class WindowPins:
         if hwnd in self._pins:
             set_always_on_top(hwnd, False)
             del self._pins[hwnd]
+            return False
+        if is_topmost(hwnd):
+            # Baskasinin astigi pencere (menude "(win)"): dogru davranis onu
+            # BIRAKMAK. Yoksa "zaten ustte olani tekrar uste al" olur ve
+            # tiklama hicbir sey yapmamis gibi gorunur.
+            set_always_on_top(hwnd, False)
             return False
         set_always_on_top(hwnd, True)
         self._pins[hwnd] = title or window_title(hwnd)

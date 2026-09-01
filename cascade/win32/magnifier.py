@@ -41,8 +41,9 @@ import winreg
 from ctypes import wintypes
 
 from cascade.core.keynames import vk_from_name
+from cascade.settings import Category, setting
 from cascade.win32 import send
-from cascade.win32.structs import kernel32
+from cascade.win32.structs import kernel32, user32
 
 log = logging.getLogger("cascade.magnifier")
 
@@ -55,6 +56,25 @@ STEP_GAP_MS = 180  # AHK: stepGap. Olculdu: <150 ms'de tuslar yutuluyor
 WAIT_CHANGE_MS = 400  # AHK: _waitChange timeout
 MAX_STEPS = 12  # AHK: loop 12 -- sonsuz donguye karsi tur siniri
 START_WAIT_MS = 3000  # AHK: loop 30 * Sleep 100
+
+WINDOW_CLASS = "MagUIClass"  # buyutecin kendi denetim penceresi
+
+user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+user32.FindWindowW.restype = wintypes.HWND
+
+HIDE_TASKBAR = setting(
+    "magnifier.hide_taskbar",
+    "Buyutec gorev cubugunda gorunmesin",
+    default=True,
+    # Autostart ile ayni sutunda: ikisi de "program acikken sistemde ne
+    # gorunsun" sorusunun cevabi.
+    category=Category.GENERAL,
+    tags="buyutec magnifier gorev cubugu taskbar",
+    desc=(
+        "Magnify.exe surekli acik kaldigi icin gorev cubugunda bir dugme "
+        "isgal ediyor; buyutec zaten tuslarla yonetiliyor."
+    ),
+)
 
 
 class Magnifier:
@@ -187,6 +207,7 @@ class Magnifier:
         acilisinda degil: hic kullanmayan oturumda bosuna calismasin.
         Bedeli oturumdaki ilk islemin yavas olmasi."""
         if process_exists(PROCESS_NAME):
+            _apply_taskbar_visibility()
             return True
         try:
             subprocess.Popen(  # noqa: S603 -- sabit sistem araci
@@ -201,8 +222,12 @@ class Magnifier:
         while time.monotonic() < deadline:
             time.sleep(0.1)
             if process_exists(PROCESS_NAME) and _read_dword("RunningState", 0) == 1:
+                _apply_taskbar_visibility()
                 return True
-        return process_exists(PROCESS_NAME)
+        running = process_exists(PROCESS_NAME)
+        if running:
+            _apply_taskbar_visibility()
+        return running
 
 
 # ---- yardimcilar ----
@@ -213,6 +238,58 @@ def _send_zoom_key(up: bool) -> None:
     vk = vk_from_name("NumpadAdd" if up else "NumpadSub")
     if vk is not None:
         send.tap(vk, 0x5B)  # LWin
+
+
+def _apply_taskbar_visibility() -> None:
+    """Ayar aciksa buyutecin gorev cubugu dugmesini kaldirir.
+
+    `WS_EX_TOOLWINDOW` yolu DENENDI ve calismiyor: Magnify.exe baska bir
+    surec (ve UIAccess'li), `SetWindowLongW` sessizce basarisiz oluyor,
+    exstyle degismeden kaliyor. Calisan yol kabuga sormak: `ITaskbarList
+    ::DeleteTab` surec sinirini asabiliyor.
+
+    Etki KALICI DEGIL -- buyutec kapanip acilirsa dugme geri gelir, o
+    yuzden her `_ensure_running` cagrisinda tekrar uygulaniyor. Ayar
+    kapatilinca dugmeyi geri koymuyoruz; ayar bir SONRAKI acilista
+    gecerli olur (`AddTab` calisan pencereyi kabuga yeniden tanitmak icin
+    guvenilir degil).
+    """
+    if not HIDE_TASKBAR.get():
+        return
+    hwnd = user32.FindWindowW(WINDOW_CLASS, None)
+    if not hwnd:
+        return
+    try:
+        _taskbar_delete_tab(hwnd)
+    except OSError:
+        log.exception("buyutec gorev cubugundan gizlenemedi")
+
+
+def _taskbar_delete_tab(hwnd: int) -> None:
+    """`ITaskbarList::DeleteTab`. comtypes ile: arayuz uc metotluk, elle
+    tanimlamak vtable'i ctypes'la sokmekten kisa."""
+    import comtypes
+    import comtypes.client
+    from comtypes import COMMETHOD, GUID, IUnknown
+
+    class ITaskbarList(IUnknown):
+        _iid_ = GUID("{56FDF342-FD6D-11D0-958A-006097C9A090}")
+        _methods_ = [
+            COMMETHOD([], comtypes.HRESULT, "HrInit"),
+            COMMETHOD([], comtypes.HRESULT, "AddTab", (["in"], wintypes.HWND, "hwnd")),
+            COMMETHOD([], comtypes.HRESULT, "DeleteTab", (["in"], wintypes.HWND, "hwnd")),
+        ]
+
+    # Cagri buyutec thread'inden geliyor, COM orada kurulu olmayabilir.
+    comtypes.CoInitialize()
+    try:
+        taskbar = comtypes.client.CreateObject(
+            GUID("{56FDF344-FD6D-11D0-958A-006097C9A090}"), interface=ITaskbarList
+        )
+        taskbar.HrInit()
+        taskbar.DeleteTab(hwnd)
+    finally:
+        comtypes.CoUninitialize()
 
 
 def _read_dword(name: str, default: int) -> int:
