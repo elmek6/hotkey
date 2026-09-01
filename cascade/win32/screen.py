@@ -127,7 +127,7 @@ def monitors() -> list[tuple[str, tuple[int, int, int, int]]]:
 
     Ad birincil monitorde `prm`, digerlerinde SOLDAN SAGA sira numarasi
     (`1`, `3` ... -- birincilin sirasi atlanir, numara konumu soyler).
-    F14 menusundeki "Screen" alt menusu bu adi kullaniyor. Koordinat sanal
+    F14 menusundeki "Area" alt menusu bu adi kullaniyor. Koordinat sanal
     masaustu koordinati, yani `grab_virtual` ile ayni eksende (negatif
     olabilir).
     """

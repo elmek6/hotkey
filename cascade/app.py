@@ -36,7 +36,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from cascade import keymap, logs, paths, repository, theme
+from cascade import autostart, keymap, logs, paths, repository, theme
 from cascade.actions import ActionRunner, beep
 from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
@@ -52,6 +52,7 @@ from cascade.slots_ctl import SlotController
 from cascade.store import SlotStore
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.incognito_badge import IncognitoBadge
+from cascade.ui.key_map_view import KeyMapView
 from cascade.ui.mem_slots import MemSlots
 from cascade.ui.menu import DEFAULT, PopupMenu
 from cascade.ui.monitor import EventMonitor
@@ -64,6 +65,7 @@ from cascade.ui.settings_dialog import SettingsDialog
 from cascade.ui.snip import SnipOverlay
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
+from cascade.version import VERSION, build_stamp, full_version
 from cascade.win32 import ocr, send
 from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
@@ -77,8 +79,6 @@ from cascade.win32.window import (
 )
 
 log = logging.getLogger("cascade.app")
-
-VERSION = "0.1.0"
 
 #: Ekran koruyucu engelleyici -- AHK IdleModule: 5 dakikada bir, en cok
 #: 60 tur (5 saat) boyunca.
@@ -161,6 +161,7 @@ class Cascade:
         self.monitor = EventMonitor()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
         self._settings_dialog: SettingsDialog | None = None
+        self._key_map_view: KeyMapView | None = None
         self.runner = ActionRunner()
 
         # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
@@ -341,13 +342,21 @@ class Cascade:
         # Secim acikken tusa yeniden basmak da buraya gelir: show_snip
         # pencerenin acik oldugunu gorup bastan sectiriyor.
         self.runner.register("select.start", self.show_snip)
-        # Secim cubugundaki "Alan" menusu -- konsept. Kayit yok, is yok:
-        # ne dusundugumuz gorunsun diye ekranda duruyor.
-        self.snip.placeholder.connect(self._area_placeholder)
+        # Kural penceresi acilirken hook susmali (tus yakalanacak), kural
+        # kisayolu da kayit defterine tutulmali: ikisi de app.py'nin isi,
+        # snip'in dispatcher'a erisimi yok.
+        self.snip.set_ui_open = self._set_ui_open
+        self.snip.bind_rule = self._bind_area_rule
+        self.snip.release_rules = self._release_area_rules
         # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
         # App.ScreenOcr.snipInteractive / snip("plain") idi).
         # F14 menusu > Screen: monitorun tamami secili gelir (keymap.screen_menu).
         self.runner.register("select.screen", self.show_snip_screen)
+        # Kisayol haritasi: hangi tus kimde (statik tablo + kaskad + calisma
+        # aninda tutulanlar).
+        self.runner.register("keys.map", self.show_key_map)
+        # Alan kuralinin kisayolu buraya duser (bkz. _bind_area_rule).
+        self.runner.register("area.run", self.run_area_rule)
         self.runner.register("select.ocr", lambda _: self.show_snip_auto("ocr"))
         self.runner.register("select.ocr_adv", lambda _: self.show_snip_auto("ocr_adv"))
         # AHK menus.ahk: menuAlwaysOnTop -- pencereyi hep ustte tut.
@@ -378,6 +387,7 @@ class Cascade:
         # AHK showManagerGui portu. `shorts.manage:<ad>` verilen profili
         # secili acar (AHK editProfileForActiveWindow ile ayni fikir).
         self.profiles_view = ProfilesView(self.shorts)
+        self.profiles_view.keys_changed = self.bind_profile_keys
         self.runner.register("shorts.manage", self.open_profiles)
 
         # repository.ahk'nin VERI yarisi (cascade/repository.py). Yonetici
@@ -472,15 +482,89 @@ class Cascade:
         self.dispatcher.ui_open = True
         self.filter_window.show_items(items, title)
 
-    # ---- F14 secim araci ----
+    def _set_ui_open(self, state: bool) -> None:
+        """Snip'in kancasi: pencere acikken dusuk seviye hook sussun."""
+        self.dispatcher.ui_open = state
 
-    def _area_placeholder(self, key: str) -> None:
-        """"Alan" menusu maddesi secildi. Konsept: yalniz ne olacagini soyler."""
+    def _bind_area_rule(self, owner: str, spec: str, area_name: str, index: int) -> str:
+        """Kural kisayolunu tutar. Catisma varsa TUTMAZ, sahibini doner.
+
+        Once ayni sahibin eski tanimi birakiliyor: kuralin tusu
+        degistirildiginde eskisi tutulu kalmasin. Bos `spec` "tus yok"
+        demek -- kural periyodik ya da elle calisiyordur.
+        """
+        table = self.dispatcher.hotkeys
+        table.release(owner)
+        if not spec:
+            return ""
+        action = f"area.run:{area_name}#{index}"
+        clash = table.claim(owner, spec, action, f"alan kurali: {area_name}")
+        if clash is not None:
+            log.warning("kisayol catismasi: %s -> %s", spec, clash.owner)
+            return clash.owner
+        return ""
+
+    def _release_area_rules(self, area_name: str) -> None:
+        """Alan silindi: butun kurallarinin tuslarini birak."""
+        table = self.dispatcher.hotkeys
+        prefix = f"area:{area_name}#"
+        for owner in {b.owner for b in table.bindings if b.owner.startswith(prefix)}:
+            table.release(owner)
+
+    def run_area_rule(self, argument: str) -> None:
+        """`area.run:<alan>#<sira>` -- kuralin kisayoluna basildi.
+
+        Kural MOTORU henuz yok: burasi kuralin dogru baglandigini ve tusun
+        gercekten bize geldigini gosteriyor. Motor yazildiginda degisecek
+        tek yer bu govde -- alan dikdortgeni yakalanip `do`/`to` islenecek.
+        """
+        name, _, index = argument.rpartition("#")
+        area = self.snip.store.find(name)
+        rule = area.rules[int(index)] if area and index.isdigit() else None
+        if rule is None:
+            self.tip.show_html("⚠️ <b>kural bulunamadi</b>", 1500)
+            return
         self.tip.show_html(
-            f"🚧 <b>{html.escape(key)}</b> — kavram asamasi<br>"
-            "<span style='color:#8b949e;'>alan kaydi ve otomasyon henuz yok</span>",
-            2000,
+            f"⚡ <b>{html.escape(name)}</b><br>"
+            f"<span style='color:#8b949e;'>{html.escape(rule.label())}</span><br>"
+            "<span style='color:#8b949e;'>kural motoru henuz yok</span>",
+            2500,
         )
+
+    def show_key_map(self, _argument: str = "") -> None:
+        """`keys.map` -- HANGI TUS KIMDE. Kendi penceresi (ui/key_map_view).
+
+        Kisayollar uc ayri yerden geliyor: keymap.py'deki sabit tablo,
+        kaskadlar (F15..F20) ve calisma aninda tutulanlar (alan, makro,
+        profil). Kullanicinin sorusu her zaman ayni: "bu tus bosta mi, kim
+        tutuyor?" -- cevabi tek yerde vermek, uc ayri menude aramaktan iyi.
+        """
+        table = self.dispatcher.hotkeys
+        conflicting = {text for text, _items in table.conflicts()}
+        rows = [
+            (owner, key, desc, action, key in conflicting)
+            for key, action, owner, desc in table.entries()
+        ]
+        # Kaskadlar ayri bir makinede yasiyor (core/cascade.py); tablo onlari
+        # bilmiyor ama kullanici acisindan onlar da "dolu tuslar".
+        for vk, definition in self.dispatcher.machine.definitions.items():
+            detail = ", ".join(
+                f"{press.name.lower()}: {action}"
+                for press, action in definition.main.items()
+            )
+            combos = " ".join(f"+{combo.key_text}" for combo in definition.combos)
+            rows.append(("cascade", key_name(vk), combos, detail, False))
+        if self._key_map_view is None:
+            self._key_map_view = KeyMapView()
+            # `ui_open` acik kalirsa hook susar ve pencere kapandiktan
+            # sonra HICBIR kisayol calismaz; kapanis sinyali sart.
+            self._key_map_view.closed.connect(
+                lambda: setattr(self.dispatcher, "ui_open", False)
+            )
+        self.dispatcher.ui_open = True
+        self._key_map_view.show_rows(tuple(rows))
+
+    # ---- F14 secim araci ----
 
     def show_snip(self, key: str = "") -> None:
         """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir.
@@ -751,6 +835,24 @@ class Cascade:
         """`shorts.manage[:<profil adi>]` -- yonetici penceresi."""
         self.profiles_view.open(argument.strip())
 
+    def bind_profile_keys(self) -> None:
+        """Profil aksiyonlarina atanmis tuslari kayit defterine tutturur.
+
+        Acilista ve profil penceresi her kayit yaptiginda cagriliyor. Once
+        BUTUN profil tanimlari birakiliyor: aksiyon silinmis, sirasi
+        degismis ya da tusu bosaltilmis olabilir; tek tek takip etmek
+        yerine hepsini yeniden kurmak hem kisa hem de kacak birakmiyor.
+        """
+        table = self.dispatcher.hotkeys
+        for owner in {b.owner for b in table.bindings if b.owner.startswith("profile:")}:
+            table.release(owner)
+        for owner, spec, action, desc in self.shorts.bindings():
+            clash = table.claim(owner, spec, action, desc)
+            if clash is not None:
+                log.warning(
+                    "profil kisayolu atlandi: %s zaten %s tarafinda", spec, clash.owner
+                )
+
     def play_shortcut(self, argument: str) -> None:
         """`shorts.play:Chrome/0` -- AHK `ShortCut.play()`.
 
@@ -1009,7 +1111,7 @@ class Cascade:
 
     def show_sys_menu(self) -> None:
         """AHK: sysCommands() -- `´` tusunun menusu."""
-        self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ cascade {VERSION}")
+        self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ cascade {full_version()}")
 
     def _incognito_menu_item(self) -> tuple:
         """F13 menusundeki tek satir: pencereyi acar (kapatma pencerede)."""
@@ -1296,30 +1398,40 @@ class Cascade:
 
     def on_start(self) -> None:
         """AHK: LoadSettings() -- OnExit'in karsiti."""
-        log.info("cascade %s basladi", VERSION)
+        log.info("cascade %s basladi", full_version())
         # AHK LoadSettings: Settings.load() + applyAll(). Ayarlari OKUMAK
         # yetmiyor, abonelere haber vermek de gerek -- yoksa moduller kod
         # icindeki varsayilanla calismaya devam eder.
         SETTINGS.load(paths.SETTINGS)
+        # Baslangic kisayolu ayardan ONCE okunur: kaynagi dosya sistemi,
+        # settings.json degil (bkz. autostart.sync).
+        autostart.sync()
         SETTINGS.apply_all()
         for action in keymap.START_ACTIONS:
             self.runner.run(action)
         self.clip.load()
         self.shorts.load()
+        self.bind_profile_keys()
         profile = keymap.current_profile()
         label = keymap.PROFILE_LABELS.get(profile, profile)
         log.info("makine profili: %s (%s)", profile, platform.node())
-        self.tray.setToolTip(f"cascade {VERSION} - {profile}")
+        self.tray.setToolTip(f"cascade {full_version()} - {profile}")
         # AHK LoadSettings: is bilgisayarinda State.Idle.enable() -- ekran
         # koruyucu devreye girmesin diye 5 dakikada bir fareyi kimildatir.
         if profile == "work":
             self._idle_count = IDLE_TICKS
             self.dispatcher.last_physical = time.perf_counter()
             self._idle_timer.start(IDLE_INTERVAL_MS)
-        # Kisa bir acilis bildirimi: yalniz SURUM ve PROFIL. Sayimlar (pano
-        # kaydi, uygulama profili) buradan cikarildi -- her acilista okunan
-        # bir sey degildi, log'a zaten yaziliyorlar.
-        self.tip.show_html(f"✅ <b>cascade {VERSION}</b> &nbsp;·&nbsp; {label}", 1600)
+        # Acilis karti: profil, surum, yapim damgasi. Uc satir ve 4 saniye
+        # -- hata bildiriminde istenen bilgi bu ucu ve acilista bir kez
+        # bakip gorulebilsin diye okunacak kadar duruyor. Sayimlar (pano
+        # kaydi, uygulama profili) burada yok, log'a zaten yaziliyorlar.
+        self.tip.show_html(
+            f"✅ <b>cascade</b> &nbsp;·&nbsp; {label}<br>"
+            f"<span style='color:#8b949e;'>version</span> {VERSION}<br>"
+            f"<span style='color:#8b949e;'>build</span> {build_stamp()}",
+            4000,
+        )
 
     def _idle_tick(self) -> None:
         """AHK IdleModule.tick(): 5 dakikada bir, kullanici 1 dakikadir

@@ -55,6 +55,12 @@ class ShortCut:
     name: str
     description: str = ""
     strokes: tuple[str, ...] = ()
+    #: Bu aksiyonu dogrudan calistiran KISAYOL (`parse_hotkey` bicimi:
+    #: "F4", "Ctrl+Alt+T"). Bos = tus yok, aksiyon yalniz menuden calisir.
+    #: Dosyada `hotKey` anahtari; AHK tarafi tanimadigi anahtari yok sayar,
+    #: kendi yazarken de dusurmez -- bizim yazdigimiz dosyayi AHK okur,
+    #: AHK'nin yazdigi dosyada alan bos gelir.
+    key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +179,12 @@ class ShortcutStore:
                             "shortCutName": shortcut.name,
                             "keyDescription": shortcut.description,
                             "keyStrokes": list(shortcut.strokes),
+                            # `hotKey` YALNIZCA doluyken yaziliyor: tus
+                            # atanmamis aksiyonlarda dosya AHK'nin yazdigi
+                            # bicimle bayt bayt ayni kaliyor. Bos alan
+                            # eklemek dosyayi elden ele gecerken degistirir
+                            # ve "kim degistirdi" sorusu uretirdi.
+                            **({"hotKey": shortcut.key} if shortcut.key else {}),
                         }
                         for shortcut in profile.shortcuts
                     ],
@@ -195,6 +207,25 @@ class ShortcutStore:
 
     # ---- sorgu ----
 
+    def bindings(self) -> tuple[tuple[str, str, str, str], ...]:
+        """Tus atanmis butun aksiyonlar: (sahip, tus, eylem, aciklama).
+
+        Acilista ve profil dosyasi her degistiginde kayit defterine bu
+        liste veriliyor. Sahip adi `profile:<profil>#<sira>` -- sira
+        degisirse eski tanim birakilip yenisi tutuluyor.
+        """
+        rows: list[tuple[str, str, str, str]] = []
+        for profile in self.profiles:
+            for index, shortcut in enumerate(profile.shortcuts):
+                if shortcut.key:
+                    rows.append((
+                        f"profile:{profile.name}#{index}",
+                        shortcut.key,
+                        f"shorts.play:{profile.name}/{index}",
+                        f"{profile.name}: {shortcut.name}",
+                    ))
+        return tuple(rows)
+
     def shortcut(self, profile_name: str, index: int) -> ShortCut | None:
         """Menu maddesinin isaret ettigi kisayol (`shorts.play:Chrome/0`)."""
         for profile in self.profiles:
@@ -214,6 +245,7 @@ def _read_shortcuts(raw) -> list[ShortCut]:
                 name=str(item.get("shortCutName") or ""),
                 description=str(item.get("keyDescription") or ""),
                 strokes=tuple(str(stroke) for stroke in strokes if str(stroke)),
+                key=str(item.get("hotKey") or ""),
             )
         )
     return result

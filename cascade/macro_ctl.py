@@ -56,6 +56,21 @@ class MacroController(QObject):
 
     def register(self, runner) -> None:
         runner.register("macro.recorder", lambda _: self.show())
+        # TODO: makro slotlarina KISAYOL. Su an makro yalniz pencereden
+        # calisiyor; uc slotun tusu olmali ve bu tuslar keymap.py'ye SABIT
+        # yazilmamali -- kayit defterinden gecmeli:
+        #
+        #     runner.register("macro.play", lambda arg: self.play(int(arg)))
+        #     for slot in (1, 2, 3):
+        #         table.claim(f"macro:{slot}", spec, f"macro.play:{slot}",
+        #                     f"makro {slot}")
+        #
+        # Boylece makro tuslari da kisayol haritasinda gorunur, alan ve
+        # profil kisayollariyla ayni catisma kontrolunden gecer ve
+        # kullanici tusu KeyCapture ile degistirebilir (bkz. app.py
+        # `bind_profile_keys` -- ayni kalip). Tusun nerede secilecegi
+        # kararlasmadi: makro penceresinde slot basina bir KeyCapture en
+        # dogru yer gibi duruyor.
 
     def show(self) -> None:
         self.view.open()

@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from cascade import theme
 from cascade.app_shorts import AppProfile, ShortCut, ShortcutStore, stroke_kind
+from cascade.ui.key_capture import KeyCapture
 from cascade.ui.place import center_on_cursor_screen
 
 YENI = -1
@@ -55,6 +56,9 @@ class ProfilesView(QWidget):
         super().__init__(None, Qt.WindowType.Window)
         self.setWindowTitle("\U0001f9e9 Profiller ve Kisayollar")
         self.store = store
+        #: Kaydettikten sonra cagrilan kanca (app.py verir): atanan
+        #: kisayollari kayit defterine yeniden tutturur.
+        self.keys_changed = None
         self._profile_index = YENI
         self._action_index = YENI
 
@@ -117,9 +121,17 @@ class ProfilesView(QWidget):
         self.strokes_edit = QPlainTextEdit()
         self.strokes_edit.setPlaceholderText("her satir bir tus dizisi:\n^+t\nmerhaba")
 
+        # Kisayol: aksiyonu menuye girmeden calistiran tus. Kutuya
+        # tiklayip tusa basiliyor (ui/key_capture.py) -- elle "Ctrl+Alt+T"
+        # yazdirmak hem zahmetli hem de yanlis yaziliyordu.
+        self.action_key = KeyCapture()
         action_form = QGridLayout()
         for row, (label, widget) in enumerate(
-            (("Aksiyon adi", self.action_name), ("Aciklama", self.action_desc))
+            (
+                ("Aksiyon adi", self.action_name),
+                ("Aciklama", self.action_desc),
+                ("Kisayol", self.action_key),
+            )
         ):
             action_form.addWidget(QLabel(label), row, 0)
             action_form.addWidget(widget, row, 1)
@@ -312,6 +324,7 @@ class ProfilesView(QWidget):
         shortcut = profile.shortcuts[self._action_index]
         self.action_name.setText(shortcut.name)
         self.action_desc.setText(shortcut.description)
+        self.action_key.set_spec(shortcut.key)
         self.strokes_edit.setPlainText("\n".join(shortcut.strokes))
 
     def new_action(self) -> None:
@@ -319,6 +332,7 @@ class ProfilesView(QWidget):
         self.action_list.setCurrentRow(-1)
         self.action_name.clear()
         self.action_desc.clear()
+        self.action_key.set_spec("")
         self.strokes_edit.clear()
 
     def _read_strokes(self) -> tuple[str, ...]:
@@ -351,7 +365,10 @@ class ProfilesView(QWidget):
             self.action_name.setFocus()
             return
         shortcut = ShortCut(
-            name=name, description=self.action_desc.text().strip(), strokes=self._read_strokes()
+            name=name,
+            description=self.action_desc.text().strip(),
+            strokes=self._read_strokes(),
+            key=self.action_key.spec,
         )
         shortcuts = list(profile.shortcuts)
         if 0 <= self._action_index < len(shortcuts):
@@ -421,6 +438,10 @@ class ProfilesView(QWidget):
             QMessageBox.critical(self, "Profiller", "profiles.json yazilamadi -- log'a bak.")
             return
         self._fill_profiles()
+        # Kisayollar dosyayla birlikte degisti: kayit defteri tazelensin,
+        # yoksa yeni atanan tus program yeniden baslayana kadar olu kalir.
+        if self.keys_changed is not None:
+            self.keys_changed()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:

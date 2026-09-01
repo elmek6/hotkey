@@ -330,7 +330,7 @@ class SlotController:
             ("Macro recorder", "macro.recorder"),
             ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
             None,
-            ("Screen", keymap.screen_menu()),
+            ("Area", keymap.screen_menu()),
             ("System", keymap.SYSTEM_MENU),
             ("Special keys", keymap.SPECIAL_KEYS_MENU),
             keymap.COLUMN,

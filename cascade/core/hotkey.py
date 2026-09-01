@@ -207,11 +207,19 @@ def _resolve(name: str) -> int:
     return vk
 
 
+#: Tanimi kimin koydugu. Statik tablo disindaki her sey CALISMA ANINDA
+#: gelir ve sahibiyle birlikte geri alinabilir olmali (bkz. `claim`).
+OWNER_KEYMAP = "keymap"  # keymap.py'deki sabit tablo
+
+
 @dataclass(frozen=True, slots=True)
 class Binding:
     hotkey: Hotkey
     action: str
     desc: str = ""
+    #: Bu tusu KIM tuttu: "keymap", "area:kur paneli", "macro:3" ...
+    #: Catismalari raporlamak ve sahibi gidince tusu birakmak icin.
+    owner: str = OWNER_KEYMAP
 
 
 @dataclass
@@ -224,11 +232,15 @@ class HotkeyTable:
 
     bindings: list[Binding] = field(default_factory=list)
     _keys: set[int] = field(default_factory=set, init=False, repr=False)
+    #: vk -> onek tanimini koyanlarin adlari (rapor icin).
+    _owners: dict[int, set] = field(default_factory=dict, init=False, repr=False)
     _prefix_defs: dict[int, PrefixDef] = field(default_factory=dict, init=False, repr=False)
 
-    def add(self, spec: str, action: str, desc: str = "") -> HotkeyTable:
+    def add(
+        self, spec: str, action: str, desc: str = "", owner: str = OWNER_KEYMAP
+    ) -> HotkeyTable:
         hotkey = parse_hotkey(spec)
-        self.bindings.append(Binding(hotkey, action, desc))
+        self.bindings.append(Binding(hotkey, action, desc, owner))
         # Once onekli, sonra cok modifierli tanim denenir: ozgul olan kazanir.
         self.bindings.sort(
             key=lambda b: (b.hotkey.prefix is not None, len(b.hotkey.mods)), reverse=True
@@ -249,6 +261,7 @@ class HotkeyTable:
         double_ms: float = DEFAULT_DOUBLE_MS,
         drag_action: str = "",
         desc: str = "",
+        owner: str = OWNER_KEYMAP,
     ) -> HotkeyTable:
         """Onek tusuna basili-tutma davranisi ekler.
 
@@ -259,6 +272,7 @@ class HotkeyTable:
         "basili tut" davranisi olan tuslar da yazilabiliyor.
         """
         vk = _resolve(spec.lstrip("~").strip())
+        self._owners.setdefault(vk, set()).add(owner)
         self._touch_prefix(
             vk,
             passthrough=passthrough or spec.strip().startswith("~"),
@@ -296,6 +310,72 @@ class HotkeyTable:
             double_ms=double_ms if double_action else (old.double_ms if old else double_ms),
             drag_action=drag_action or (old.drag_action if old else ""),
             desc=desc or (old.desc if old else ""),
+        )
+
+    def claim(
+        self, owner: str, spec: str, action: str, desc: str = ""
+    ) -> Binding | None:
+        """Calisma aninda tus tutar. Tus BASKASINDAYSA tutmaz, onu doner.
+
+        Alan, makro ve profil kisayollari buradan geciyor: kim once
+        tuttuysa tus onundur ve ikincisi sessizce golgelenmek yerine
+        catismayi ogrenir. Ayni sahip ayni tusu yeniden tutarsa tanim
+        guncellenir -- alanin kisayolunu degistirmek boyle calisiyor.
+        """
+        hotkey = parse_hotkey(spec)
+        for binding in self.bindings:
+            same = binding.hotkey.text == hotkey.text
+            if same and binding.owner != owner:
+                return binding
+            if same and binding.owner == owner:
+                self.bindings.remove(binding)
+                break
+        self.add(spec, action, desc, owner)
+        return None
+
+    def release(self, owner: str) -> int:
+        """Bir sahibin tuttugu tuslari birakir; kac tanim silindigini doner.
+
+        Alan silindiginde ya da kural kapatildiginda cagriliyor -- yoksa
+        program acik kaldigi surece olu kisayollar tusu tutmaya devam eder.
+        """
+        before = len(self.bindings)
+        self.bindings = [b for b in self.bindings if b.owner != owner]
+        self._keys = {b.hotkey.vk for b in self.bindings} | set(self._prefix_defs)
+        return before - len(self.bindings)
+
+    def entries(self) -> tuple[tuple[str, str, str, str], ...]:
+        """(tus, eylem, sahip, aciklama) -- kisayol haritasinin veri hali.
+
+        Onek tanimlari da listeye giriyor: "F14 basili tutunca" da bir
+        kisayoldur ve kullanici tusun dolu oldugunu gormeli.
+        """
+        rows = [
+            (b.hotkey.text, b.action, b.owner, b.desc) for b in self.bindings
+        ]
+        for vk, definition in self._prefix_defs.items():
+            name = key_name(vk)
+            owner = ", ".join(sorted(self._owners.get(vk, {OWNER_KEYMAP})))
+            for label, action in (
+                ("basili tut", definition.hold_action),
+                ("cift", definition.double_action),
+                ("surukle", definition.drag_action),
+            ):
+                if action:
+                    rows.append((f"{name} ({label})", action, owner, definition.desc))
+        return tuple(sorted(rows))
+
+    def conflicts(self) -> tuple[tuple[str, tuple[Binding, ...]], ...]:
+        """Ayni tusu tutan BIRDEN COK tanim: (tus metni, tanimlar).
+
+        `match` en ozgul tanimi sectigi icin catisma sessizce kaybediyordu;
+        burasi onu gorunur kiliyor.
+        """
+        groups: dict[str, list[Binding]] = {}
+        for binding in self.bindings:
+            groups.setdefault(binding.hotkey.text, []).append(binding)
+        return tuple(
+            (text, tuple(items)) for text, items in sorted(groups.items()) if len(items) > 1
         )
 
     def owns(self, vk: int) -> bool:

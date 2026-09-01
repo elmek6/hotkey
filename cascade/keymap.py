@@ -217,12 +217,14 @@ SPECIAL_KEYS_MENU = (
 )
 
 def screen_menu() -> tuple:
-    """F14 menusundeki "Screen" alt menusu -- monitorun TAMAMINI secer.
+    """F14 menusundeki "Area" alt menusu -- monitorun TAMAMINI secer.
 
     Madde adi `prm 1920x1080` bicimde: birincil monitor `prm`, digerleri
     sirasiyla numarali (win32/screen.py `monitors`). Secilince alan secimi
     o monitorun tamami olarak acilir, islem cubugu hazir gelir -- surukleme
     yok. Liste her acilista taze uretiliyor: monitor takilip cikarilabilir.
+
+    Menude adi "Area": secilen sey bir ALAN, yalnizca alani ekranin tamami.
     """
     from cascade.win32.screen import monitors
 
@@ -288,6 +290,7 @@ SYS_COMMANDS_MENU = (
     # duzenleme dosyanin kendisinden (AHK'nin yonetici GUI'si port edilmedi).
     ("3: Profile manager", "shorts.manage"),
     ("4: Key history", "app.monitor"),
+    ("k: Kisayol haritasi", "keys.map"),
     ("5: Memory slots", "memslots.start"),
     ("6: Macro recorder", "macro.recorder"),
     ("7: F13 menu", "menu.f13"),
