@@ -38,6 +38,7 @@ DOUBLE_CLICK_LABELS = {
     "settings": "Settings",
     "monitor": "Event monitor",
     "copy_error": "Copy last error",
+    "show_log": "Show log",
 }
 #: settings.json'da duran eski (metin) degerler.
 DOUBLE_CLICK_LEGACY = {label: name for name, label in DOUBLE_CLICK_LABELS.items()}
@@ -54,7 +55,8 @@ DOUBLE_CLICK = setting(
     desc=(
         "Sistem tepsisindeki simgeye cift tiklayinca ne olsun -- secenekler "
         "tepsi menusundeki maddelerin ayni. Tek tiklama Windows'un kendi isi "
-        "(menuyu acar), ona karisilmiyor."
+        "(menuyu acar), ona karisilmiyor. Simge KIRMIZI iken (hata var) bu "
+        "ayar gecersiz: son hatalar penceresi acilir."
     ),
 )
 
@@ -109,6 +111,8 @@ class Tray(QSystemTrayIcon):
         on_toggle_pause: Callable[[], None] = lambda: None,
         on_settings: Callable[[], None] = lambda: None,
         on_copy_error: Callable[[], None] = lambda: None,
+        on_show_log: Callable[[], None] = lambda: None,
+        on_show_errors: Callable[[], None] = lambda: None,
         parent=None,
     ) -> None:
         super().__init__(make_icon(), parent)
@@ -123,7 +127,12 @@ class Tray(QSystemTrayIcon):
             "settings": on_settings,
             "monitor": on_monitor,
             "copy_error": on_copy_error,
+            "show_log": on_show_log,
         }
+        #: Simge KIRMIZI iken cift tiklama bunu cagirir -- cift tiklama
+        #: ayarindan bagimsiz. Kirmizi simgeye tiklayan "ne oldu" diye
+        #: bakiyor; o an Pause/Play yapmak istemiyor.
+        self._on_show_errors = on_show_errors
 
         menu = QMenu()
 
@@ -139,6 +148,7 @@ class Tray(QSystemTrayIcon):
         self._add(menu, "Settings...", on_settings)
         self._add(menu, "Event monitor...", on_monitor)
         self.error_action = self._add(menu, "", on_copy_error)
+        self._add(menu, "Show log...", on_show_log)
         menu.addSeparator()
         self._add(menu, "Exit", on_exit)
 
@@ -157,6 +167,9 @@ class Tray(QSystemTrayIcon):
 
     def _on_activated(self, reason) -> None:
         if reason != QSystemTrayIcon.ActivationReason.DoubleClick:
+            return
+        if self.error_count:
+            self._on_show_errors()
             return
         name = str(DOUBLE_CLICK.get())
         self._handlers.get(name, self._handlers["pause"])()

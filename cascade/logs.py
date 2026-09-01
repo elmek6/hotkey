@@ -56,11 +56,37 @@ SHOW_TIP = setting(
     ),
 )
 
+#: Dosyaya INFO da yazilsin mi. Varsayilan KAPALI: gunluk kullanimda
+#: log.txt'yi dolduran satirlarin hepsi INFO ve rotasyon (512 KB x2) bir
+#: gun onceki hatayi hizla disari itiyordu. Kapaliyken dosyaya yalnizca
+#: WARNING+ dusuyor; konsol (hata-ayikla.cmd) her zaman hepsini gorur.
+FILE_INFO = setting(
+    "log.fileInfo",
+    "Log dosyasina INFO da yaz",
+    default=False,
+    category=Category.GENERAL,
+    tags="log kayit info ayrinti dosya",
+    desc=(
+        "Acikken Files/log.txt her ayrintiyi (INFO) alir -- sorun ararken. "
+        "Kapaliyken yalnizca uyari ve hatalar yazilir."
+    ),
+    on_change=lambda value, _old: _apply_file_level(),
+)
+
 MAX_ERRORS = 50
 MAX_BYTES = 512 * 1024
 BACKUP_COUNT = 2
 
 log = logging.getLogger("cascade")
+
+#: Dosya handler'i -- ayar degisince seviyesi buradan guncelleniyor.
+_file_handler: logging.Handler | None = None
+
+
+def _apply_file_level() -> None:
+    """FILE_INFO ayarini calisan dosya handler'ina uygular."""
+    if _file_handler is not None:
+        _file_handler.setLevel(logging.INFO if FILE_INFO.get() else logging.WARNING)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,12 +179,18 @@ def setup(level: int = logging.INFO) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+    global _file_handler
+    _file_handler = None
     try:
         file_handler = logging.handlers.RotatingFileHandler(
             paths.LOG, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
         )
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)
+        # Seviye handler'da suzuluyor, root'ta DEGIL: konsol ve ErrorStore
+        # ayrinti gormeye devam etsin.
+        _file_handler = file_handler
+        _apply_file_level()
     except OSError:
         pass  # yazilamiyorsa program yine calissin; konsol handler'i kalir
 

@@ -424,6 +424,8 @@ class Cascade:
             on_toggle_pause=self.toggle_pause,
             on_settings=self.show_settings,
             on_copy_error=self.copy_last_error,
+            on_show_log=self.show_log_file,
+            on_show_errors=self.show_errors,
         )
         self.tray.show()
 
@@ -998,6 +1000,20 @@ class Cascade:
             f"{logs.recent_text(15)}",
         )
         self._clear_error_badge()
+
+    def show_log_file(self) -> None:
+        """Tepsi menusu "Show log..." -- log dosyasini Notepad ile acar.
+
+        Ayar ekranindaki "settings.json" dugmesiyle ayni yol. Dosya henuz
+        yoksa bos olarak yaratiliyor: Notepad'in "olusturulsun mu" sorusu
+        cikmasin.
+        """
+        try:
+            paths.ensure_files_dir()
+            paths.LOG.touch(exist_ok=True)
+            subprocess.Popen(["notepad.exe", str(paths.LOG)])  # noqa: S603, S607
+        except OSError:
+            log.exception("log dosyasi acilamadi")
 
     def copy_last_error(self) -> None:
         """AHK: App.ErrHandler.copyLastError()"""

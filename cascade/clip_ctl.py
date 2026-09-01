@@ -266,8 +266,17 @@ class ClipController:
     # ---- disk / kapanis ----
 
     def load(self) -> int:
-        count = self.history.load(self.store.load_entries())
-        log.info("%d pano kaydi diskten okundu (%s)", count, self.store.path)
+        entries = self.store.load_entries()
+        count = self.history.load(entries)
+        # Iki sayi AYRI: dosyadan okunan kayit ile gecmise alinan kayit.
+        # Bellek siniri (ClipHistory.MAX_ITEMS) diskteki sinirdan cok daha
+        # kucuk -- tek sayi yazinca "dosyada 50 kayit var" gibi okunuyordu.
+        log.info(
+            "pano: diskten %d kayit okundu, %d tanesi gecmise alindi (%s)",
+            len(entries),
+            count,
+            self.store.path,
+        )
         return count
 
     def save(self) -> bool:
