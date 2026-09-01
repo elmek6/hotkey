@@ -301,3 +301,33 @@ def test_ERROR_pencere_acmaz(qapp, monkeypatch):
     sahte._on_error_logged("ERROR", "sadece rozet")
     sahte._flush_critical()
     assert acilan == []
+
+
+# ---- repository.md ve settings.json: acilisi kilitlemeyen bozukluk ----
+
+
+def test_utf8_olmayan_repository_acilisi_kilitlemez(tmp_path):
+    """`Repository.load` `Cascade.__init__` icinden cagriliyor: burada cikan
+    istisna programin HIC acilmamasi demek. Baska kodlamada duzenlenmis
+    (ya da bozulmus) bir dosya tam olarak bunu yapiyordu."""
+    from cascade.repository import Repository
+
+    path = tmp_path / "repository.md"
+    path.write_bytes(bytes([0xFF, 0xFE]) + b" bu UTF-8 degil")
+    depo = Repository(path)
+
+    assert depo.load() is False
+    assert depo.items == []
+    assert list(tmp_path.glob("repository.md.kodlama-*")), "bozuk dosya yedeklenmedi"
+
+
+def test_bozuk_settings_yedeklenir(tmp_path):
+    """Bozuk settings.json kapanista uzerine yazilip yok oluyordu; diger
+    depolar gibi yaninda saklanmali."""
+    from cascade.settings import Registry
+
+    path = tmp_path / "settings.json"
+    path.write_bytes(BOZUK)
+
+    assert Registry().load(path) is False
+    assert list(tmp_path.glob("settings.json.bozuk-*")), "bozuk dosya yedeklenmedi"

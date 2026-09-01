@@ -99,3 +99,8 @@ class MouseSeen:
     scan: int = 0
     extended: bool = False
     mouse: bool = True
+    #: Cevirinin KAYNAGI olan ham hook olayi. Izleyiciye cevrilmis bicim
+    #: yetiyor ama makro kaydedicisi mesaji ve tekerlek delta'sini istiyor
+    #: (macro.Recorder.feed_mouse); cevrilmis bicimde ikisi de yok. Tur
+    #: yazilmiyor: core/ icinde win32 import'u yasak.
+    raw: object | None = None

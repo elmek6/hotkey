@@ -282,6 +282,11 @@ class Cascade:
         keymap.VECTOR_IGNORE_PX.subscribe(
             lambda value, _old: setattr(self.dispatcher, "drag_px", int(value))
         )
+        # Sanal fare kombolari TABLODA duruyor (bkz. keymap.build_hotkeys):
+        # ayar degisince tablo yeniden kurulmali. Abonelik burada, cunku
+        # ayar tepsi menusunden de ayar EKRANINDAN da degisebiliyor -- iki
+        # yol da ayni yerden gecsin.
+        keymap.VIRTUAL_MOUSE.subscribe(lambda value, old: self.rebuild_hotkeys())
 
         self.hook = HookThread(
             self.events,
@@ -1373,17 +1378,39 @@ class Cascade:
             title="ScrollLock",
         )
 
+    def rebuild_hotkeys(self) -> None:
+        """Kisayol tablosunu bastan kurar -- CALISMA ANINDA tutulanlarla birlikte.
+
+        Tabloda yalniz keymap.py yok: profil kisayollari (`profile:*`) ve
+        alan kurallari (`area:*`) calisma aninda `claim` ile giriyor. Ciplak
+        tabloyu takip birakmak onlari sessizce dusuruyordu -- sanal fareyi
+        bir kez ac-kapa yapan kullanici butun profil ve alan tuslarini
+        kaybediyor, program yeniden baslayana kadar da geri gelmiyordu.
+
+        Onek tanimlarina dokunulmuyor: bu kombolarin onegi yok, dolayisiyla
+        PrefixTracker'in durumu gecerli kaliyor.
+        """
+        self.dispatcher.hotkeys = keymap.build_hotkeys()
+        self.bind_profile_keys()
+        for area in self.snip.store.areas:
+            for index, rule in enumerate(area.rules):
+                self._bind_area_rule(
+                    area.rule_owner(index),
+                    rule.key if rule.enabled else "",
+                    area.name,
+                    index,
+                )
+
     def toggle_virtual_mouse(self) -> None:
         """Win+WASD sanal faresini ac/kapa.
 
-        Ayari cevirmek yetmiyor: kombolar TABLODA duruyor, tablo da acilista
-        bir kez kuruluyor. Kapatinca kombonun yutulmamasi icin tabloyu
-        yeniden kurup dispatcher'a veriyoruz -- onek tanimlari degismedigi
-        icin (bu kombolarin onegi yok) PrefixTracker'a dokunulmuyor.
+        Yalniz ayari ceviriyor: tabloyu yeniden kurma isi ayarin
+        abonesinde (bkz. `__init__`), boylece AYAR EKRANINDAN degistirmek
+        de ayni yoldan geciyor. Once yalnizca burada yapiliyordu ve ayar
+        ekranindan acilan sanal fare yeniden baslatana kadar olu kaliyordu.
         """
         keymap.VIRTUAL_MOUSE.set(not keymap.VIRTUAL_MOUSE.get())
         on = keymap.VIRTUAL_MOUSE.get()
-        self.dispatcher.hotkeys = keymap.build_hotkeys()
         self.tip.show_html(
             f"🖱️ <b>WASD sanal fare: {'acik' if on else 'kapali'}</b><br>"
             + (

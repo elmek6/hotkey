@@ -24,6 +24,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from cascade import macro
+from cascade.core.mouse import MouseSeen
 from cascade.ui.macro_view import MacroView
 from cascade.win32.hook import KeyEvent, MouseEvent
 
@@ -125,6 +126,13 @@ class MacroController(QObject):
             if not self.recorder.recording:
                 # Esc ya da sinir: kaydedici kendini durdurdu, yaziya dok.
                 self.stop(self._slot, self.view.name.text())
+        elif isinstance(event, MouseSeen):
+            # `seen` kuyruguna fare olayi CEVRILMIS gelir (izleyici icin);
+            # kaydedici ham olayi istiyor, o da `raw` alaninda geliyor.
+            # Cevrilmis bicimi vermek sessizce hicbir sey kaydetmemek
+            # demekti: "Yalniz fare" kaydi bos dosya cikiyordu.
+            if event.raw is not None:
+                self.recorder.feed_mouse(event.raw)
         elif isinstance(event, MouseEvent):
             self.recorder.feed_mouse(event)
 

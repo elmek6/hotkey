@@ -97,3 +97,43 @@ def test_kritik_hatalar_tek_pencerede_toplanir(cascade, monkeypatch):
     assert cascade._critical_scheduled  # bir sonraki olay turuna birakildi
     cascade._flush_critical()
     assert acilan == [["slots.json bozuk", "profiles.json bozuk"]]
+
+
+def test_tablo_yeniden_kurulunca_calisma_anindaki_tuslar_kalir(cascade):
+    """Sanal fareyi ac/kapa yapmak profil ve alan tuslarini DUSURMEMELI.
+
+    Tabloda yalniz keymap.py yok: profil kisayollari ve alan kurallari
+    calisma aninda `claim` ile giriyor. Tablo ciplak kurulup birakilinca
+    ikisi de sessizce oluyordu ve program yeniden baslayana kadar geri
+    gelmiyordu.
+    """
+    from cascade.areas import Area, Rule
+
+    table = cascade.dispatcher.hotkeys
+    table.claim("profile:Test#0", "F4", "send_text:selam", "profil")
+    area = Area(name="alan", x=0, y=0, w=10, h=10, rules=[Rule(key="F7")])
+    cascade.snip.store.put(area)
+    cascade._bind_area_rule(area.rule_owner(0), "F7", area.name, 0)
+
+    def sahipler() -> set[str]:
+        return {b.owner for b in cascade.dispatcher.hotkeys.bindings}
+
+    # Profil tanimi dosyadan geliyor; testte elle tutuldugu icin
+    # `bind_profile_keys` onu yeniden kuramaz -- alan kurali yeter.
+    cascade.rebuild_hotkeys()
+    assert area.rule_owner(0) in sahipler()
+
+
+def test_sanal_fare_ayari_tabloyu_gunceller(cascade):
+    """Ayar EKRANINDAN degistirmek de tabloyu kurmali: eskiden yalniz
+    tepsi/menu yolu (`vmouse.toggle`) kuruyordu, ayar ekranindan acilan
+    sanal fare yeniden baslatana kadar olu kaliyordu."""
+    from cascade import keymap
+
+    onceki = len(cascade.dispatcher.hotkeys.bindings)
+    keymap.VIRTUAL_MOUSE.set(True)
+    try:
+        assert len(cascade.dispatcher.hotkeys.bindings) > onceki
+    finally:
+        keymap.VIRTUAL_MOUSE.set(False)
+    assert len(cascade.dispatcher.hotkeys.bindings) == onceki

@@ -26,6 +26,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from cascade.store import backup_file
+
 log = logging.getLogger("cascade.settings")
 
 VERSION = 1
@@ -232,8 +234,15 @@ class Registry:
             return False
         try:
             root = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except OSError:
             log.exception("settings.json okunamadi")
+            return False
+        except (ValueError, UnicodeDecodeError):
+            # Bozuk dosya: kapanista uzerine yazilacak ve kullanicinin butun
+            # ayarlari sessizce gidecekti. Diger depolarla ayni kural --
+            # yaninda sakla, varsayilanlarla devam et.
+            log.exception("settings.json okunamadi")
+            backup_file(path, "bozuk")
             return False
         values = root.get("values") if isinstance(root, dict) else None
         if not isinstance(values, dict):

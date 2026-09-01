@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from cascade.store import backup_file
+
 log = logging.getLogger("cascade.repository")
 
 SEPARATOR = "==="
@@ -133,6 +135,15 @@ class Repository:
             text = self.path.read_text(encoding="utf-8-sig")
         except OSError:
             log.exception("repository okunamadi: %s", self.path)
+            self.items = []
+            return False
+        except UnicodeDecodeError:
+            # Dosya UTF-8 DEGIL (baska kodlamada duzenlenmis ya da bozulmus).
+            # Diger depolarla ayni kural: yedekle ve bos basla -- burada
+            # yakalanmadigi icin acilis kilitleniyordu (`Cascade.__init__`
+            # icinden cagriliyor, tek bozuk dosya programi hic actirmiyordu).
+            log.exception("repository UTF-8 degil: %s", self.path)
+            backup_file(self.path, "kodlama")
             self.items = []
             return False
         self.items = parse(text)

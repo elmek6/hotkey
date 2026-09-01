@@ -268,7 +268,12 @@ class Dispatcher:
         # yuzlerce satirla dolardi.
         with contextlib.suppress(queue.Full):
             self.seen.put_nowait(
-                (MouseSeen(vk=vk, down=down, t=event.t, x=event.x, y=event.y), swallow)
+                (
+                    MouseSeen(
+                        vk=vk, down=down, t=event.t, x=event.x, y=event.y, raw=event
+                    ),
+                    swallow,
+                )
             )
         return swallow
 

@@ -131,3 +131,38 @@ def test_eylem_kaydi(ctl):
     assert "macro.recorder" in kayitli
     kayitli["macro.recorder"](None)
     assert ctl.view.isVisible()
+
+
+def test_dispatcher_yolundan_gelen_fare_kaydedilir(ctl):
+    """GERCEK yol: hook -> Dispatcher -> `seen` kuyrugu -> ctl.feed.
+
+    `feed`e elle `MouseEvent` vermek yolu sinamiyordu: dispatch.py o
+    kuyruga cevrilmis `MouseSeen` koyuyor. Cevrilmis bicim eskiden
+    `isinstance(event, MouseEvent)` suzgecine takilmiyordu ve "Yalniz
+    fare" kaydi BOS dosya cikiyordu.
+    """
+    import queue
+
+    from cascade.core.cascade import CascadeMachine
+    from cascade.core.hot_vectors import HotVectors
+    from cascade.core.hotkey import HotkeyTable
+    from cascade.dispatch import Dispatcher
+
+    seen: queue.Queue = queue.Queue()
+    dispatcher = Dispatcher(
+        machine=CascadeMachine(),
+        hotkeys=HotkeyTable(),
+        gestures=HotVectors(),
+        actions=queue.Queue(),
+        seen=seen,
+        menu_open=lambda: False,
+    )
+    dispatcher.double_click_guard = False  # ard arda gelen sahte tik yutulmasin
+
+    ctl.start_record(1, macro.HYBRID)
+    dispatcher.mouse_filter(mouse(0x0201))  # WM_LBUTTONDOWN
+    dispatcher.mouse_filter(mouse(0x0202))  # WM_LBUTTONUP
+    while not seen.empty():
+        ctl.feed(seen.get_nowait()[0])
+
+    assert [event["e"] for event in ctl.recorder.events] == ["mouse", "mouse"]
