@@ -104,6 +104,57 @@ def virtual_rect() -> tuple[int, int, int, int]:
     )
 
 
+MONITORINFOF_PRIMARY = 1
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
+_MONITORENUMPROC = ctypes.WINFUNCTYPE(
+    wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT),
+    wintypes.LPARAM,
+)
+
+
+def monitors() -> list[tuple[str, tuple[int, int, int, int]]]:
+    """Monitorler: (ad, (x, y, genislik, yukseklik)) -- FIZIKSEL piksel.
+
+    Ad birincil monitorde `prm`, digerlerinde SOLDAN SAGA sira numarasi
+    (`1`, `3` ... -- birincilin sirasi atlanir, numara konumu soyler).
+    F14 menusundeki "Screen" alt menusu bu adi kullaniyor. Koordinat sanal
+    masaustu koordinati, yani `grab_virtual` ile ayni eksende (negatif
+    olabilir).
+    """
+    found: list[tuple[bool, tuple[int, int, int, int]]] = []
+
+    def callback(handle, _dc, _rect, _param):
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+            box = info.rcMonitor
+            found.append((
+                bool(info.dwFlags & MONITORINFOF_PRIMARY),
+                (box.left, box.top, box.right - box.left, box.bottom - box.top),
+            ))
+        return True
+
+    user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(callback), 0)
+    # SOLDAN SAGA siralaniyor: EnumDisplayMonitors'un verdigi sira surucuye
+    # bagli ve ekranda gorunen duzenle ilgisiz olabiliyor -- "2" dedigimiz
+    # monitorun soldaki mi sagdaki mi oldugu menude tahmin edilebilir olsun.
+    found.sort(key=lambda entry: entry[1][0])
+    named: list[tuple[str, tuple[int, int, int, int]]] = []
+    for index, (primary, box) in enumerate(found):
+        named.append(("prm" if primary else str(index + 1), box))
+    return named
+
+
 def grab_virtual() -> tuple[QImage, tuple[int, int, int, int]]:
     """Tum ekranlari tek karede yakalar. (goruntu, sanal dikdortgen) doner.
 

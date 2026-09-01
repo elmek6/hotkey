@@ -216,6 +216,22 @@ SPECIAL_KEYS_MENU = (
     ("Bicimsiz yapistir", "send_key:^+v"),
 )
 
+def screen_menu() -> tuple:
+    """F14 menusundeki "Screen" alt menusu -- monitorun TAMAMINI secer.
+
+    Madde adi `prm 1920x1080` bicimde: birincil monitor `prm`, digerleri
+    sirasiyla numarali (win32/screen.py `monitors`). Secilince alan secimi
+    o monitorun tamami olarak acilir, islem cubugu hazir gelir -- surukleme
+    yok. Liste her acilista taze uretiliyor: monitor takilip cikarilabilir.
+    """
+    from cascade.win32.screen import monitors
+
+    spec: tuple = ()
+    for index, (name, (_x, _y, width, height)) in enumerate(monitors()):
+        spec += ((f"{name} {width}x{height}", f"select.screen:{index}"),)
+    return spec or (("(monitor bulunamadi)", "notify:Monitor bulunamadi"),)
+
+
 # AHK: showF14menu() icindeki subMenuSet.
 SYSTEM_MENU = (
     ("\U0001f440 Key history loop", "app.monitor"),
@@ -238,16 +254,12 @@ F13_MENU = (
     # ---- 1. KOLON: pano, ekran goruntusu, OCR (AHK showF13menu) ----
     ("Clipboard history win", "send_key:#v", "res:243"),  # panodan pencereye
     None,
-    ("Select screenshot", "send_key:#+s", "shell:260"),  # makas
+    # Secim/OCR/buyutec maddeleri BURADA YOK: hepsi fare tuslarina bagli
+    # (F14 surukleme = alan secimi, cubuktan OCR; F13&F14 = buyutec).
+    # Menude ikinci bir yol tutmak ayni isi iki yerde bakim ettiriyordu.
     ("Window screenshot", "send_key:!PrintScreen", "shell:196"),  # fotograf makinesi
-    ("Select text with OCR", "send_key:#+t"),
-    # AHK: App.ScreenOcr.snipInteractive() / snip("plain"). Bizde secim
-    # araci aciliyor ve alan secilir secilmez o OCR kipi calisiyor.
-    ("OCR Gelismis", "select.ocr_adv"),
-    ("OCR Basit", "select.ocr"),
     None,
     ("Clipboard images", "clip.images", "res:109"),  # gorsel
-    ("Magnifier", "magnifier.toggle"),
     # ---- 2. KOLON: aktif pencere profili, araclar, hep ustte ----
     # Kolon ayracini COLUMN ciziyor; bu yuzden 1. kolonun sonunda ayrica
     # yatay ayrac YOK -- AHK'de de oyle, kolon dibinde boslukta asili bir

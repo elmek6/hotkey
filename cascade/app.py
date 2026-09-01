@@ -68,6 +68,7 @@ from cascade.win32 import ocr, send
 from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
 from cascade.win32.magnifier import Magnifier
+from cascade.win32.screen import monitors
 from cascade.win32.window import (
     WindowPins,
     foreground_window,
@@ -345,6 +346,8 @@ class Cascade:
         self.snip.placeholder.connect(self._area_placeholder)
         # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
         # App.ScreenOcr.snipInteractive / snip("plain") idi).
+        # F14 menusu > Screen: monitorun tamami secili gelir (keymap.screen_menu).
+        self.runner.register("select.screen", self.show_snip_screen)
         self.runner.register("select.ocr", lambda _: self.show_snip_auto("ocr"))
         self.runner.register("select.ocr_adv", lambda _: self.show_snip_auto("ocr_adv"))
         # AHK menus.ahk: menuAlwaysOnTop -- pencereyi hep ustte tut.
@@ -506,6 +509,20 @@ class Cascade:
             self.snip.repick(origin)
             return
         self.snip.start(vk, origin, self.dispatcher.watch_held)
+
+    def show_snip_screen(self, index: str = "0") -> None:
+        """`select.screen:<sira>` -- o monitorun tamami secili acilir.
+
+        Liste menu acilirken uretildigi icin sira bir sonraki ana kadar
+        gecerli; arada monitor cikarilmis olabilir, o yuzden sinir kontrolu.
+        """
+        screens = monitors()
+        number = int(index or 0)
+        if not 0 <= number < len(screens):
+            self.tip.show_html("🚧 <b>monitor bulunamadi</b>", 1500)
+            return
+        self.dispatcher.watch(0)
+        self.snip.start_rect(screens[number][1])
 
     def show_snip_auto(self, action: str) -> None:
         """Secim aracini "bitince su eylemi calistir" diyerek acar."""
