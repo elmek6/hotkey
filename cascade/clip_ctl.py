@@ -27,7 +27,7 @@ from PySide6.QtGui import QGuiApplication, QImage
 from cascade.core.clip_history import ClipHistory
 from cascade.core.filter import FilterItem
 from cascade.core.state import ClipboardState
-from cascade.imgstore import ClipImageStore
+from cascade.imgstore import ClipImageStore, thumb_to_image
 from cascade.store import ClipStore
 from cascade.ui.clip_images import ClipImages
 from cascade.ui.clipboard import ClipboardWatcher
@@ -108,10 +108,41 @@ class ClipController:
         if image.isNull():
             self._tip("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
             return
-        if self.save_image(image) < 0:
+        slot = self.save_image(image)
+        if slot < 0:
             self._tip("⚠️ <b>gorsel kaydedilemedi</b>", 1200)
             return
-        self._tip(f"\U0001f5bc️ <b>gorsel</b> {image.width()}x{image.height()}", 1200)
+        info = f"\U0001f5bc️ <b>gorsel</b><br>{image.width()}x{image.height()}"
+        self._tip(self._thumb_html(slot, info), 1600)
+
+    def _thumb_html(self, slot: int, info: str) -> str:
+        """Ipucunda kucuk resmi gosterir; uretilemezse yalniz metni doner.
+
+        Yeni goruntu URETMIYORUZ: kayit sirasinda zaten 64x64 bir thumb
+        yazildi (imgstore._make_thumb), onu okuyup gosteriyoruz. AHK'de
+        ToolTip duz metindi, bu yuzden orada boyle bir sey yoktu.
+
+        Neden diske PNG: QLabel'in zengin metni `data:` URI'sini yuklemez,
+        yalnizca `file:///` calisir. Neden dosya adinda slot numarasi: ayni
+        ada tekrar yazildiginda Qt onbellekteki ESKI resmi ciziyordu.
+        Boyut da 64x64 sabit veriliyor -- thumb zaten o boyutta, buyutursek
+        bulaniklasir.
+        """
+        try:
+            thumb = self.image_store.read_thumb(slot)
+            if thumb is None:
+                return info
+            path = self.image_store.idx_path.parent / f"tip-thumb-{slot}.png"
+            thumb_to_image(thumb).save(path, "PNG")
+        except (OSError, ValueError):
+            log.exception("ipucu kucuk resmi yazilamadi")
+            return info
+        return (
+            '<table cellspacing="0" cellpadding="2"><tr>'
+            f'<td><img src="{path.as_uri()}" width="64" height="64"></td>'
+            f"<td>&nbsp;&nbsp;{info}</td>"
+            "</tr></table>"
+        )
 
     def save_image(self, image: QImage) -> int:
         """QImage -> gorsel deposu. Slot no doner, basarisizsa -1.
