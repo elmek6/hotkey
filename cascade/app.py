@@ -42,7 +42,6 @@ from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from cascade.core.keynames import key_name, vk_from_name
-from cascade.core.state import Busy
 from cascade.dispatch import Dispatcher
 from cascade.incognito import Incognito
 from cascade.macro_ctl import MacroController
@@ -169,7 +168,7 @@ class Cascade:
         # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
         # bunlarin USTUNE ekleniyor, kapaninca tabana geri donuluyor.
         self._base_defs = dict(keymap.build_cascades())
-        self.machine = CascadeMachine(dict(self._base_defs), Busy())
+        self.machine = CascadeMachine(dict(self._base_defs))
 
         # Pano: durum + gecmis + gorseller tek denetleyicide (clip_ctl.py).
         # Hafiza bloklari moduna dusen metni buradan alip pencereye veriyoruz.
@@ -326,7 +325,7 @@ class Cascade:
         self.runner.register("app.monitor", lambda _: self.show_monitor())
         self.runner.register("app.settings", lambda _: self.show_settings())
         self.runner.register("app.pause", lambda _: self.toggle_pause())
-        self.runner.register("busy.free", lambda _: self.free_busy())
+        self.runner.register("state.reset", lambda _: self.reset_state())
         self.runner.register("errors.show", lambda _: self.show_errors())
         self.runner.register("errors.copy", lambda _: self.copy_last_error())
         # AHK memory_slots.ahk. Argumani olanlar slot numarasi aliyor.
@@ -1006,14 +1005,15 @@ class Cascade:
 
     # ---- menuler ve durum ----
 
-    def free_busy(self) -> None:
-        """AHK: `Pause & c:: State.Busy.setFree()`.
+    def reset_state(self) -> None:
+        """Acil fren: takilmis onek / yarida kalmis kaskad varsa temizler.
 
-        Bir kaskad yarida kalirsa Busy kilitli kalir ve hicbir kisayol
-        calismaz. Bu, o durumdan cikis yolu -- AHK'de de acil frendi.
+        AHK karsiligi `Pause & c:: State.Busy.setFree()` idi; o global bayrak
+        artik yok (bkz. core/state.py), ama `dispatcher.reset()` ayni ise
+        yariyor: makine IDLE'a doner, onek ve jest takipcileri bosalir.
         """
         self.dispatcher.reset()
-        self.tip.show_html("\U0001f513 <b>busy kilidi acildi</b>", 1200)
+        self.tip.show_html("\U0001f513 <b>durum sifirlandi</b>", 1200)
 
     def show_errors(self) -> None:
         """AHK: getStatsArray / getRecentErrors."""

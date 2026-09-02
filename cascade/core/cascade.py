@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 from cascade.core.builder import CascadeDef, PressType, press_type
-from cascade.core.state import Busy
 
 VK_ESCAPE = 0x1B
 
@@ -82,8 +81,10 @@ class CascadeMachine:
     """
 
     definitions: dict[int, CascadeDef] = field(default_factory=dict)
-    busy: Busy = field(default_factory=Busy)
 
+    # AHK'deki global `State.Busy` bayragi buraya port edilmedi: `_phase`
+    # zaten ayni bilgiyi tutuyordu (FREE<->IDLE, COMBO<->MENU) ve ikisi de
+    # ayni `_lock` altinda guncelleniyordu. Bkz. core/state.py bas yorumu.
     _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _phase: Phase = field(default=Phase.IDLE, init=False)
     _active: CascadeDef | None = field(default=None, init=False)
@@ -152,8 +153,6 @@ class CascadeMachine:
             definition = self.definitions.get(vk)
             if definition is None:
                 return False, []
-            if not self.busy.claim(definition.key_text):
-                return False, []  # baska bir kaskad calisiyor: tusa dokunma
             self._active = definition
             self._phase = Phase.HELD
             self._start = t
@@ -169,7 +168,6 @@ class CascadeMachine:
             combo = self._active.combo_for(vk)
             if combo is None:
                 return False, []  # kaskadin ilgilenmedigi tus normal aksin
-            self.busy.set_combo(self._active.key_text)
             self._combo_used = True
             self._swallowed.add(vk)
             return True, [Run(combo.action, key=vk, desc=combo.desc)]
@@ -213,7 +211,6 @@ class CascadeMachine:
         if definition.show_menu and definition.combos:
             self._phase = Phase.MENU
             self._menu_start = t
-            self.busy.set_combo(definition.key_text)
             actions.append(OpenMenu(definition.key_text, definition.tips))
             return swallow, actions
 
@@ -237,5 +234,4 @@ class CascadeMachine:
         self._active = None
         self._combo_used = False
         self._medium_beeped = self._long_beeped = False
-        self.busy.set_free()
         return []

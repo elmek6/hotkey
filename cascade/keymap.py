@@ -27,7 +27,7 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     ~F13 & WheelUp   basili tutup tekerlek
     Pause            basili tut: duraklatma penceresi (AHK DialogPauseGui)
     Pause & Home     yeniden baslat (AHK: reloadScript)
-    Pause & End      yeniden baslat    Pause & c   busy kilidini acar
+    Pause & End      yeniden baslat    Pause & c   takilan durumu sifirlar
     ^ & 1 .. 0       base grubun (defaultGroup=='') slotunu yapistirir
     ScrollLock       kisa: Turkce ac/kapa   basili tut: dizilim 1<->2
     ~MButton/~Insert memslots penceresi acikken akilli yapistirma
@@ -239,7 +239,7 @@ SYSTEM_MENU = (
     ("\U0001f440 Key history loop", "app.monitor"),
     ("⚙️ Ayarlar...", "app.settings"),
     ("⏸️ Duraklat / Devam", "app.pause"),
-    ("\U0001f513 Busy kilidini ac", "busy.free"),
+    ("\U0001f513 Takilan durumu sifirla", "state.reset"),
     None,
     ("\U0001f4c4 Son hatalar...", "errors.show"),
     ("\U0001f4cb Son hatayi kopyala", "errors.copy"),
@@ -515,7 +515,7 @@ def build_hotkeys() -> HotkeyTable:
     # duruma donmek (takilmis onek, olmus kanca): ikisini de reload cozuyor.
     # Cikis tepsi menusunde ve Pause duraklatma penceresinde duruyor.
     table.add("Pause & End", "app.restart", "yeniden baslat")
-    table.add("Pause & c", "busy.free", "busy kilidini ac")
+    table.add("Pause & c", "state.reset", "takilan durumu sifirla")
 
     # `^` basiliyken rakam: pano gecmisinin o sirasindaki kaydi yapistirir.
     # 1 en yeni kopya, 2 bir onceki... AHK'deki `clip_slot` mantiginin

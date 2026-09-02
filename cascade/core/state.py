@@ -1,8 +1,18 @@
 """Calisma zamani durumu -- script_state.ahk'nin karsiligi.
 
-Aktif olanlar: Busy (BusyModule) ve ClipboardState (ClipboardModule).
+Aktif olan: ClipboardState (ClipboardModule).
 
-TODO(AHK): script_state.ahk'nin diger modulleri port edilmedi --
+AHK'nin BusyModule'u port EDILMEDI ve bilerek silindi. AHK'de global bir
+kilitti cunku uc ayri handler dosyasi (cascade/hook/mouse) birbirinden
+habersizdi; her handler basindaki `if (!State.Busy.isFree()) return` ve
+`#HotIf State.Busy.isCombo()` onlari senkronize ediyordu. Burada tek bir
+CascadeMachine var ve ayni isi kendi `_phase` alani + `_lock`'u ile zaten
+yapiyor -- Busy bire bir kopya bir bayraktan ibaretti. Ilerde birden fazla
+bagimsiz alt sistemin (makro oynatici, incognito, OCR) ayni anda kaskadlari
+kilitlemesi gerekirse buraya kilit sahibinin adini tutan atomik bir
+`claim(caller) -> bool` / `release()` ciftini geri koymak dogru yer olur.
+
+TODO(AHK): script_state.ahk'nin diger modulleri de port edilmedi --
 ScriptModule (calisma suresi, istatistik), MouseState (tekerlek kisitlama),
 WindowModule (hep ustte tutma) ve IdleModule. Son ikisi Win32 cagrisi
 gerektirir, core'un "Win32 import'u yasak" kurali geregi buraya degil
@@ -11,77 +21,7 @@ win32/ altina yazilmalilar.
 
 from __future__ import annotations
 
-import threading
 from enum import IntEnum
-
-
-class BusyLevel(IntEnum):
-    """AHK: State.Busy.current -- 0 serbest, 1 aktif, 2 kombo bekliyor."""
-
-    FREE = 0
-    ACTIVE = 1
-    COMBO = 2
-
-
-class Busy:
-    """Ayni anda tek bir kaskadin calismasini garanti eder.
-
-    AHK'de her handler basinda `if (!State.Busy.isFree()) return` vardi;
-    aynisi burada. Fark: hook thread'i ile Qt thread'i ayni nesneye
-    dokundugu icin kilit var.
-    """
-
-    __slots__ = ("_level", "_caller", "_lock")
-
-    def __init__(self) -> None:
-        self._level = BusyLevel.FREE
-        self._caller = ""
-        self._lock = threading.Lock()
-
-    @property
-    def level(self) -> BusyLevel:
-        return self._level
-
-    @property
-    def caller(self) -> str:
-        return self._caller
-
-    def is_free(self) -> bool:
-        return self._level == BusyLevel.FREE
-
-    def is_active(self) -> bool:
-        return self._level == BusyLevel.ACTIVE
-
-    def is_combo(self) -> bool:
-        return self._level == BusyLevel.COMBO
-
-    def set_free(self) -> None:
-        with self._lock:
-            self._level = BusyLevel.FREE
-            self._caller = ""
-
-    def set_active(self, caller: str = "") -> None:
-        with self._lock:
-            self._level = BusyLevel.ACTIVE
-            self._caller = caller
-
-    def set_combo(self, caller: str = "") -> None:
-        with self._lock:
-            self._level = BusyLevel.COMBO
-            self._caller = caller
-
-    def claim(self, caller: str = "") -> bool:
-        """Serbestse kilitle ve True don; degilse dokunma ve False don.
-
-        AHK'de bu iki adimdi (`isFree()` sonra `setActive()`) ve arada
-        yaris vardi. Tek adimda ve kilitli.
-        """
-        with self._lock:
-            if self._level != BusyLevel.FREE:
-                return False
-            self._level = BusyLevel.ACTIVE
-            self._caller = caller
-            return True
 
 
 class ClipboardMode(IntEnum):

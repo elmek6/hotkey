@@ -15,7 +15,6 @@ from cascade.core.cascade import (
     Phase,
     Run,
 )
-from cascade.core.state import Busy
 
 TAB = 0x09
 ESCAPE = 0x1B
@@ -34,7 +33,7 @@ def build_tab() -> CascadeMachine:
         .named("Tab")
         .build()
     )
-    return CascadeMachine({definition.key: definition}, Busy())
+    return CascadeMachine({definition.key: definition})
 
 
 def actions_of(result) -> list:
@@ -70,7 +69,6 @@ def test_kisa_basim_ana_eylemi_calistirir_ve_menu_acmaz():
     assert swallow is True
     assert acts == [Run("send_key:Tab", press=PressType.SHORT, key=TAB)]
     assert m.phase == Phase.IDLE
-    assert m.busy.is_free()
 
 
 def test_orta_basim_menuyu_acar():
@@ -82,7 +80,6 @@ def test_orta_basim_menuyu_acar():
     assert isinstance(acts[1], OpenMenu)
     assert acts[1].items == (("1", "Slot 1"), ("2", "Slot 2"))
     assert m.phase == Phase.MENU
-    assert m.busy.is_combo()
 
 
 def test_menude_kombo_tusu_eylemi_calistirir_ve_kapatir():
@@ -95,7 +92,6 @@ def test_menude_kombo_tusu_eylemi_calistirir_ve_kapatir():
     assert isinstance(acts[0], CloseMenu)
     assert acts[1] == Run("slot:2", key=KEY_2, desc="Slot 2")
     assert m.phase == Phase.IDLE
-    assert m.busy.is_free()
 
 
 def test_menude_escape_iptal_eder():
@@ -143,12 +139,10 @@ def test_ana_tus_basiliyken_kombo_calisir_ve_ana_eylem_iptal_olur():
     swallow, acts = m.feed_key(KEY_1, True, 0.05)
     assert swallow is True
     assert acts == [Run("slot:1", key=KEY_1, desc="Slot 1")]
-    assert m.busy.is_combo()
 
     swallow, acts = m.feed_key(TAB, False, 0.20)
     assert acts == []  # ana eylem calismadi
     assert m.phase == Phase.IDLE
-    assert m.busy.is_free()
 
 
 def test_ana_tus_basiliyken_ilgisiz_tus_normal_akar():
@@ -189,7 +183,7 @@ def test_uc_seviyede_bip_esikleri_bir_kez_calar():
         .main_key(PressType.SHORT, "send_key:Tab")
         .build()
     )
-    m = CascadeMachine({TAB: definition}, Busy())
+    m = CascadeMachine({TAB: definition})
     m.feed_key(TAB, True, 0.0)
 
     assert m.tick(0.20) == []
@@ -205,23 +199,23 @@ def test_iki_seviyede_bip_yok():
     assert m.tick(5.0) == []
 
 
-# ---- busy kilidi ----
+# ---- tek kaskad garantisi ----
 
 
-def test_mesgulken_ikinci_kaskad_baslamaz():
-    """AHK: her handler basindaki `if (!State.Busy.isFree()) return`."""
+def test_bir_kaskad_calisirken_ikincisi_baslamaz():
+    """AHK'de bunu global `State.Busy` yapiyordu; burada `_phase` yapiyor:
+    HELD iken baska bir kaskadin ana tusu tanimsiz tus gibi akip gider."""
     other = KeyBuilder(KEY_X, short=350).main_key(PressType.SHORT, "x").build()
     tab = KeyBuilder(TAB, short=350).main_key(PressType.SHORT, "tab").build()
-    m = CascadeMachine({TAB: tab, KEY_X: other}, Busy())
+    m = CascadeMachine({TAB: tab, KEY_X: other})
 
     assert m.feed_key(TAB, True, 0.0)[0] is True
-    m.busy.set_active("baska-is")  # disaridan mesgul edildi
-    m.reset()
-    m.busy.set_active("baska-is")
+    assert m.phase == Phase.HELD
 
     swallow, acts = m.feed_key(KEY_X, True, 1.0)
     assert swallow is False
     assert acts == []
+    assert m.phase == Phase.HELD  # TAB kaskadi bozulmadi
 
 
 def test_reset_durumu_temizler():
@@ -230,7 +224,6 @@ def test_reset_durumu_temizler():
     assert m.phase == Phase.HELD
     m.reset()
     assert m.phase == Phase.IDLE
-    assert m.busy.is_free()
 
 
 # ---- tanimsiz tuslar ----
