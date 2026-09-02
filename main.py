@@ -11,8 +11,8 @@ Katmanlar (AHK'deki dosya ayriminin karsiligi):
 
 Hangi tusun ne yaptigi keymap.py'nin dosya basinda listeli.
 
-Calistir:  baslat.vbs         cift tiklama, konsol yok, normal kullanim
-           hata-ayikla.cmd    konsol acik kalir, hatalari gorursun
+Calistir:  hotkey.vbs         cift tiklama, konsol yok, normal kullanim
+                              (cokerse konsolda yeniden baslatmayi kendi onerir)
            VSCode F5          "cascade (ana program)"
 """
 

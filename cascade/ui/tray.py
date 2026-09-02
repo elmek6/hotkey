@@ -1,6 +1,6 @@
 """Sistem tepsisi -- AHK'deki TraySetIcon + A_TrayMenu karsiligi.
 
-Menu: Pause/Play (surumle birlikte) / Reload / Settings / Event monitor /
+Menu: Pause/Play (surumle birlikte) / Reload / Pause menu / Settings / Event monitor /
 Copy last error / Exit. Metinler INGILIZCE -- AHK tepsi menusu de oyleydi,
 aliskanlik bozulmasin.
 
@@ -35,6 +35,7 @@ BAR = QColor("#ffffff")
 DOUBLE_CLICK_LABELS = {
     "pause": "Pause/Play",
     "restart": "Reload",
+    "pause_dialog": "Pause menu",
     "settings": "Settings",
     "monitor": "Event monitor",
     "copy_error": "Copy last error",
@@ -108,6 +109,7 @@ class Tray(QSystemTrayIcon):
         on_monitor: Callable[[], None],
         on_restart: Callable[[], None],
         on_exit: Callable[[], None],
+        on_pause_dialog: Callable[[], None] = lambda: None,
         on_toggle_pause: Callable[[], None] = lambda: None,
         on_settings: Callable[[], None] = lambda: None,
         on_copy_error: Callable[[], None] = lambda: None,
@@ -124,6 +126,7 @@ class Tray(QSystemTrayIcon):
         self._handlers = {
             "pause": on_toggle_pause,
             "restart": on_restart,
+            "pause_dialog": on_pause_dialog,
             "settings": on_settings,
             "monitor": on_monitor,
             "copy_error": on_copy_error,
@@ -143,6 +146,10 @@ class Tray(QSystemTrayIcon):
         self.pause_action = self._add(menu, "", on_toggle_pause)
         self.pause_action.setCheckable(True)
         self._add(menu, "Reload", on_restart)
+        # AHK menus.ahk `DialogPauseGui` (Pause & c / Pause & End): duraklat +
+        # yeniden baslat + kaydetmeden yeniden baslat + cikis tek pencerede.
+        # Tepsiden de acilsin -- Pause tusu olmayan klavyede tek yol buydu.
+        self._add(menu, "Pause menu...", on_pause_dialog)
         menu.addSeparator()
 
         self._add(menu, "Settings...", on_settings)

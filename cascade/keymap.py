@@ -282,6 +282,9 @@ SYS_COMMANDS_MENU = (
     ("7: F13 menu", "menu.f13"),
     ("8: F14 menu", "menu.slots"),
     ("9: Pause script", "app.pause"),
+    # AHK menus.ahk `DialogPauseGui` (Pause basili tutunca acilan pencere):
+    # duraklat + yeniden baslat + kaydetmeden yeniden baslat + cikis.
+    ("p: Pause menu...", "app.pause_dialog"),
     ("0: Exit script", "app.exit"),
     # repository.ahk'nin veri yarisi port edildi (cascade/repository.py);
     # yonetici GUI'si degil -- duzenleme dosyanin kendisinden.

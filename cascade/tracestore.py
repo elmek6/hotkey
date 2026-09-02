@@ -29,6 +29,7 @@ surec bekleme siniri, .reg metnini satir sayarak taban uretme. Hepsi
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import logging
 import os
 import shutil
@@ -45,6 +46,27 @@ log = logging.getLogger("cascade.incognito.store")
 
 CORE = "core"
 DEEP = "deep"
+
+
+def scan_dir(directory: Path, pattern: str) -> list[os.DirEntry[str]]:
+    """Klasoru TEK gecisle tarar; `Path.glob` + `is_file()` + `stat()` yerine.
+
+    Windows'ta dizin kaydinin kendisi boyutu ve zaman damgasini tasiyor:
+    `os.scandir` bunlari beraberinde getirdigi icin `DirEntry.is_file()` ve
+    `DirEntry.stat()` EK SISTEM CAGRISI YAPMAZ. pathlib yolu ayni bilgi icin
+    dosya basina uc kez cekirdege iniyordu -- 159 `.lnk` icin olcum 21 ms,
+    bu yol 0,7 ms. Fark 700 ms'de bir kosan `watch_tick`te dogrudan
+    hissediliyor (AHK tarafi `Loop Files` ile zaten tek gecisti).
+
+    Klasor yoksa bos liste -- cagiranin ayrica `is_dir()` sormasi gerekmez.
+    Eslesme `fnmatch` ile: `os.path.normcase` uyguladigi icin `Path.glob`
+    gibi buyuk/kucuk harf duyarsiz kaliyor.
+    """
+    try:
+        with os.scandir(directory) as entries:
+            return [e for e in entries if fnmatch.fnmatch(e.name, pattern) and e.is_file()]
+    except OSError:
+        return []
 
 
 def _ahk_mtime(seconds: float) -> int:
@@ -328,10 +350,10 @@ class FileGlobStore(TraceStore):
     def snapshot_paths(self, root: Path) -> list[Path]:
         return [self._pack(root), self._bak(root)]
 
-    def _files(self) -> list[Path]:
-        if not self.dir.is_dir():
-            return []
-        return [p for p in self.dir.glob(self.pattern) if p.is_file()]
+    def _files(self) -> list[os.DirEntry[str]]:
+        """Yol degil DIZIN KAYDI dondurur: boyut ve damga beraberinde geliyor,
+        asagidaki `stat()` cagrilari cekirdege inmiyor (bkz. scan_dir)."""
+        return scan_dir(self.dir, self.pattern)
 
     def count(self) -> int:
         return len(self._files())
@@ -342,25 +364,26 @@ class FileGlobStore(TraceStore):
         Atlanirsa oturumda ILK KEZ yaratilan klasordeki iz kalici kalir."""
         chunks: list[bytes] = []
         written = 0
-        for path in self._files():
-            entry = self._pack_one(path)
-            if entry is None:
+        for entry in self._files():
+            blob = self._pack_one(entry)
+            if blob is None:
                 continue
-            chunks.append(entry)
+            chunks.append(blob)
             written += 1
         blob = self._HEADER.pack(self.SIGNATURE, written) + b"".join(chunks)
         return _write_atomic(self._pack(root), blob)
 
-    def _pack_one(self, path: Path) -> bytes | None:
+    def _pack_one(self, entry: os.DirEntry[str]) -> bytes | None:
         """OKUNAMAYAN DOSYA (baska surec kilitlemis olabilir) yine de ADIYLA
         pakete girer, ama mtime=0 ile: adi olmazsa geri yukleme onu "oturumda
         dogmus" sanip SILER, verisi olursa yanlis icerik yazar."""
         try:
-            data = path.read_bytes()
-            stamp = _ahk_mtime(path.stat().st_mtime)
+            stamp = _ahk_mtime(entry.stat().st_mtime)  # tarama kaydindan, bedava
+            with open(entry.path, "rb") as handle:
+                data = handle.read()
         except OSError:
             data, stamp = b"", 0
-        name = path.name.encode("utf-8")
+        name = entry.name.encode("utf-8")
         return self._ENTRY.pack(len(name)) + name + self._SIZES.pack(len(data), stamp) + data
 
     def _unpack(self, root: Path) -> dict[str, tuple[str, bytes, int]] | None:
@@ -410,14 +433,14 @@ class FileGlobStore(TraceStore):
         if not self.dir.is_dir():
             return True  # klasor hala yok -> yapacak bir sey kalmadi
         live: dict[str, tuple[int, int]] = {}
-        for path in self._files():
-            key = path.name.casefold()
+        for entry in self._files():
+            key = entry.name.casefold()
             if key not in backup:
                 with contextlib.suppress(OSError):
-                    path.unlink()  # oturumda DOGDU -> sil
+                    os.unlink(entry.path)  # oturumda DOGDU -> sil
                 continue
             try:
-                info = path.stat()
+                info = entry.stat()
             except OSError:
                 continue
             live[key] = (info.st_size, _ahk_mtime(info.st_mtime))
@@ -461,16 +484,16 @@ class FileGlobStore(TraceStore):
             target.mkdir(parents=True, exist_ok=True)
         except OSError:
             return False
-        for path in self._files():
+        for entry in self._files():
             with contextlib.suppress(OSError):
-                shutil.copy2(path, target / path.name)
+                shutil.copy2(entry.path, target / entry.name)
         return True
 
     def purge(self) -> int:
         removed = 0
-        for path in self._files():
+        for entry in self._files():
             try:
-                path.unlink()
+                os.unlink(entry.path)
                 removed += 1
             except OSError:
                 pass

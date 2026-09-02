@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -54,6 +55,7 @@ from cascade.tracestore import (
     RegDeltaStore,
     RegStore,
     TraceStore,
+    scan_dir,
 )
 from cascade.win32.filelock import ExclusiveLocks
 from cascade.win32.shell import refresh_shell
@@ -69,6 +71,10 @@ JUMPLIST_DIRS: tuple[tuple[Path, str], ...] = (
     (RECENT / "AutomaticDestinations", "*.automaticDestinations-ms"),
     (RECENT / "CustomDestinations", "*.customDestinations-ms"),
 )
+
+# Kilitlenen klasorler. Icindeki dosyalarin yedegi ERTELENEMEZ: kilit
+# paylasimsiz acildigi icin kilitli dosya OKUNAMIYOR (bkz. win32/filelock).
+_LOCKED_DIRS = frozenset(directory for directory, _ in JUMPLIST_DIRS)
 
 SESSION_MARK = "SESSION"
 POLICY_FILE = "POLICY.tsv"
@@ -178,6 +184,8 @@ class Incognito:
         self._last_skipped = 0
         #: AppID -> ad tablosu; ilk sorulusta okunur (opsiyonel dosya).
         self._app_ids: dict[str, str] | None = None
+        #: Ertelenen yedegi tasiyan isci; bkz. "yedek" bolumunun basi.
+        self._snap_thread: threading.Thread | None = None
 
     # ---- durum ----
 
@@ -238,6 +246,7 @@ class Incognito:
         on = bool(on)
         if on == self.deep_mode:
             return
+        self._finish_snapshot()  # kapsami degistirmeden once yedek otursun
         self.deep_mode = on
         self._options.save({"deep": on})
         if not self.active:
@@ -281,7 +290,9 @@ class Incognito:
             # Cokme kurtarmasi icin diske yaz: apply() durumu yalniz bellekte.
             self.policy.save_to(self.snap_dir / POLICY_FILE)
 
-            self._snapshot_all()  # 3) yedekle -- KILITLEMEDEN ONCE
+            # 3) yedekle -- kilitten ONCE bitmesi gerekenler; kalani arka
+            #    planda surer (bkz. "yedek" bolumunun basindaki not).
+            self._begin_snapshot()
             self._lock_all_existing()  # 2) dondur
             self._clear_vlc_recents()
             return EnableResult(len(self.locks), len(self.stores), self.deep_mode)
@@ -293,6 +304,9 @@ class Incognito:
             return None
         self._busy = True
         try:
+            # Ertelenen yedek bitmeden hicbir sey yapilamaz: hem geri yukleme
+            # tam yedek ister hem de "geri yukleme kapali" dali yedegi siler.
+            self._finish_snapshot()
             # Kilit ONCE acilmali: kilitli dosya okunamaz, geri yukleme
             # jump list paketini yazamaz.
             self.locks.unlock_all()
@@ -313,8 +327,33 @@ class Incognito:
             self._busy = False
 
     # ---- yedek ----
+    #
+    # AGIR KISIM KRITIK YOLDA DEGIL (AHK hizlandirma plani, madde 4). enable()
+    # yalniz kilitten ONCE bitmek ZORUNDA olan yedegi alir, kalanini bir isci
+    # thread'ine birakip doner:
+    #
+    #   senkron   : gozculer -> jump list paketleri -> kilit      (~15 ms)
+    #   arka plan : registry yedekleri + RecentLnk paketi         (~90 ms)
+    #
+    # Ayrim keyfi degil, kilidin dogal sonucu: jump list dosyalari paylasimsiz
+    # aciliyor, yani kilitlendikten sonra KENDIMIZ de okuyamiyoruz -- paketleri
+    # once bitirmek sart. `Recent\*.lnk` hic kilitlenmiyor (Explorer'i bozuyor,
+    # onun yolu silme) ve registry zaten kilitlenemiyor; ikisinin de kilitle
+    # bagi yok, ertelenebilirler.
+    #
+    # YEDEGE DOKUNAN HER YOL once `_finish_snapshot()` cagirmak ZORUNDA --
+    # AHK'deki `_finishSnapshot(true)` ile ayni sozlesme. Unutulan bir yol,
+    # yarim yedekle geri yukleme demek. Burada bu bekleme yedek klasorune
+    # dokunan dort ic metoda konuldu (_clear_snap_payload, _restore_all,
+    # _discard_snapshot, _drop_snapshot) ki yeni bir cagiran eklendiginde de
+    # kendiliginden korunsun; disable/audit/set_deep_mode ayrica cagiriyor.
 
     def _snapshot_all(self) -> None:
+        """Yedegin TAMAMINI alir ve bekler (clean_now bunu kullanir)."""
+        self._begin_snapshot()
+        self._finish_snapshot()
+
+    def _begin_snapshot(self) -> None:
         # SESSION = "acik bir oturumun yedegi duruyor"; cokme sonrasi
         # kurtarmayi bu tetikliyor. EN BASTA yazilmali -- sonda yazilirsa
         # yedegin ortasindaki bir cokme "yedek yok" gibi gorunur, POLICY.tsv
@@ -324,12 +363,59 @@ class Incognito:
             (self.snap_dir / SESSION_MARK).write_text(
                 datetime.now().isoformat(timespec="seconds"), encoding="utf-8"
             )
-        # Gozculer YEDEKTEN ONCE kurulur: yedek alinirken dusen bir iz
-        # yedege karisirsa depo "degismis" sayilsin (bkz. reg.KeyWatcher).
+        # Gozculer YEDEKTEN ONCE kurulur -- ERTELENENLER DAHIL, hepsi burada:
+        # yedek alinirken dusen bir iz yedege karisirsa depo "degismis"
+        # sayilsin (bkz. reg.KeyWatcher). Ertelenen deponun gozcusu de bu
+        # yuzden thread'e birakilmadi, o pencere kaciyordu.
         for store in self.stores:
             store.start_watch()
+
+        deferred: list[TraceStore] = []
         for store in self.stores:
+            if self._locked_before_read(store):
+                self._snapshot_one(store)  # kilitten ONCE bitmek zorunda
+            else:
+                deferred.append(store)
+        if not deferred:
+            return
+        # Liste thread'e KOPYA olarak veriliyor: self.stores'u degistiren
+        # set_deep_mode arada koussa isci yari degismis liste gezmesin.
+        self._snap_thread = threading.Thread(
+            target=self._snapshot_each,
+            args=(deferred,),
+            name="cascade-incognito-snapshot",
+            daemon=True,
+        )
+        self._snap_thread.start()
+
+    def _snapshot_each(self, stores: list[TraceStore]) -> None:
+        """Isci thread'inin govdesi. Hata yutmak _snapshot_one'in isi."""
+        for store in stores:
             self._snapshot_one(store)
+
+    def _finish_snapshot(self, wait: bool = True) -> bool:
+        """Ertelenen yedek bitti mi? True = yedek eksiksiz.
+
+        `wait=False` yalnizca yoklar (AHK `_finishSnapshot(false)`): hicbir
+        sey bloklamadan, biten isciyi toplamak icin.
+        """
+        thread = self._snap_thread
+        if thread is None:
+            return True
+        if thread.is_alive():
+            if not wait:
+                return False
+            thread.join()
+        self._snap_thread = None
+        return True
+
+    @staticmethod
+    def _locked_before_read(store: TraceStore) -> bool:
+        """Bu deponun dosyalari enable() sirasinda KILITLENIYOR mu?
+
+        Kilitli dosya okunamadigi icin boyle bir deponun yedegi ertelenemez.
+        """
+        return isinstance(store, FileGlobStore) and store.dir in _LOCKED_DIRS
 
     def _snapshot_one(self, store: TraceStore) -> None:
         try:
@@ -338,6 +424,7 @@ class Incognito:
             log.exception("incognito yedek alinamadi: %s", store.name)
 
     def _restore_all(self) -> int:
+        self._finish_snapshot()  # yarim yedekten geri yukleme YOK
         if not self.snap_dir.is_dir():
             return 0
 
@@ -373,6 +460,7 @@ class Incognito:
         return restored
 
     def _discard_snapshot(self) -> None:
+        self._finish_snapshot()  # isci hala yaziyorsa klasoru altindan cekme
         shutil.rmtree(self.snap_dir, ignore_errors=True)
 
     def _clear_snap_payload(self) -> None:
@@ -382,6 +470,7 @@ class Incognito:
         once yazilan POLICY.tsv'yi de siliyordu; cokme sonrasi revert_from
         dosyayi bulamiyor ve Start_TrackDocs kapali takili kaliyordu.
         """
+        self._finish_snapshot()  # onceki oturumun iscisi bitmeden bosaltma
         if not self.snap_dir.is_dir():
             return
         for path in self.snap_dir.iterdir():
@@ -395,6 +484,7 @@ class Incognito:
 
     def _drop_snapshot(self, store: TraceStore) -> None:
         """Kapsam disina cikan deponun yedegini at (bkz. set_deep_mode)."""
+        self._finish_snapshot()  # isci o dosyayi hala yaziyor olabilir
         for path in store.snapshot_paths(self.snap_dir):
             if path.is_dir():
                 shutil.rmtree(path, ignore_errors=True)
@@ -423,10 +513,8 @@ class Incognito:
 
     def _lock_all_existing(self) -> None:
         for directory, pattern in JUMPLIST_DIRS:
-            if not directory.is_dir():
-                continue
-            for path in directory.glob(pattern):
-                self.locks.lock(path)
+            for entry in scan_dir(directory, pattern):
+                self.locks.lock(entry.path)
         for target in self.extra_targets:
             if target.exists():
                 self.locks.lock(target)
@@ -440,12 +528,11 @@ class Incognito:
         """
         if not self.active:
             return
+        self._finish_snapshot(wait=False)  # biteni topla, BEKLEME (AHK ile ayni)
         for directory, pattern in JUMPLIST_DIRS:
-            if not directory.is_dir():
-                continue
-            for path in directory.glob(pattern):
-                if path not in self.locks:
-                    self.locks.lock(path)
+            for entry in scan_dir(directory, pattern):
+                if entry.path not in self.locks:
+                    self.locks.lock(entry.path)
         for target in self.extra_targets:
             if target.exists() and target not in self.locks:
                 self.locks.lock(target)
@@ -470,13 +557,13 @@ class Incognito:
         Bu klasor kilitlenmiyor: `Recent\\*.lnk`i kilitlemek Explorer'i
         bozuyor, o yuzden surekli silme yolu secildi.
         """
-        if not RECENT.is_dir():
-            return
-        for path in RECENT.glob("*.lnk"):
+        for entry in scan_dir(RECENT, "*.lnk"):
             try:
-                if path.stat().st_mtime < self.session_start:
+                # Damga tarama kaydindan geliyor: 159 dosya icin ayri ayri
+                # stat() cagirmak bu tur'u 11 ms'de tutuyordu (bkz. scan_dir).
+                if entry.stat().st_mtime < self.session_start:
                     continue
-                path.unlink()
+                os.unlink(entry.path)
             except OSError:
                 continue
 
@@ -531,6 +618,7 @@ class Incognito:
         maliyet enable()'a degil bu cagriya yaziliyor -- kullanici
         "denetle"ye bastiginda zaten beklemeyi goze almis.
         """
+        self._finish_snapshot()  # taban yedekten okunuyor, once tamamlansin
         if not self.snap_dir.is_dir():
             return ["Yedek klasoru yok -- denetim yapilamiyor."]
         lines: list[str] = []

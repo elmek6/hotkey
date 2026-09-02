@@ -29,7 +29,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
-VERSION_INFO = (1, 1, 1)
+VERSION_INFO = (1, 2, 0)
 VERSION = ".".join(str(part) for part in VERSION_INFO)
 
 GIT_TIMEOUT_S = 2  # git takilirsa acilis beklemesin

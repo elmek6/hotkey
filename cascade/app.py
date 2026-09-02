@@ -435,6 +435,7 @@ class Cascade:
             on_monitor=self.show_monitor,
             on_restart=self.restart,
             on_exit=self.quit,
+            on_pause_dialog=self.show_pause_dialog,
             on_toggle_pause=self.toggle_pause,
             on_settings=self.show_settings,
             on_copy_error=self.copy_last_error,

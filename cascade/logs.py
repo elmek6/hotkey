@@ -59,7 +59,7 @@ SHOW_TIP = setting(
 #: Dosyaya INFO da yazilsin mi. Varsayilan KAPALI: gunluk kullanimda
 #: log.txt'yi dolduran satirlarin hepsi INFO ve rotasyon (512 KB x2) bir
 #: gun onceki hatayi hizla disari itiyordu. Kapaliyken dosyaya yalnizca
-#: WARNING+ dusuyor; konsol (hata-ayikla.cmd) her zaman hepsini gorur.
+#: WARNING+ dusuyor; konsol her zaman hepsini gorur.
 FILE_INFO = setting(
     "log.fileInfo",
     "Log dosyasina INFO da yaz",
@@ -194,7 +194,7 @@ def setup(level: int = logging.INFO) -> None:
     except OSError:
         pass  # yazilamiyorsa program yine calissin; konsol handler'i kalir
 
-    # hata-ayikla.cmd ile calisirken konsola da bassin.
+    # Gorunur konsolda calisirken (hotkey.vbs cokme sonrasi sorar) konsola da bassin.
     if sys.stderr is not None:
         stream = logging.StreamHandler(sys.stderr)
         stream.setFormatter(formatter)
