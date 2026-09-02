@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
@@ -35,8 +37,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cascade import qr, theme
+from cascade import paths, qr, theme
+from cascade.settings import SETTINGS
+from cascade.store import PASSWORD_SLOT, SlotStore, slot_display
 from cascade.ui.place import center_on_cursor_screen
+from cascade.ui.preview import shorten
+
+#: Ham icerikte parolanin yerine konan karakter.
+MASK_CHAR = "•"
 
 #: Icerik bu surumun uzerine cikarsa kare gozle okunamayacak kadar
 #: sikilasiyor -- uyari veriliyor, engellenmiyor.
@@ -46,15 +54,33 @@ WARN_VERSION = 20
 class QrDialog(QWidget):
     """Sablon secimi + alanlar + canli kare. Esc kapatir."""
 
-    def __init__(self, initial_text: str = "") -> None:
+    def __init__(self, initial_text: str = "", store: SlotStore | None = None) -> None:
         super().__init__(None, Qt.WindowType.Window)
         self.setWindowTitle("QR kod")
         self._fields: dict[str, QWidget] = {}
         self._content = ""
+        self._store = store
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
+
+        # ---- slot secici (grup acilir kutusu + grubun slotlari)
+        self._groups = QComboBox(self)
+        self._slots = QListWidget(self)
+        self._slots.setFixedHeight(96)
+        if store is not None:
+            slot_row = QHBoxLayout()
+            slot_row.addWidget(QLabel("slot grubu", self))
+            slot_row.addWidget(self._groups, 1)
+            layout.addLayout(slot_row)
+            layout.addWidget(self._slots)
+            self._groups.currentTextChanged.connect(self._on_group)
+            self._slots.itemClicked.connect(self._use_slot)
+            self._load_groups()
+        else:
+            self._groups.hide()
+            self._slots.hide()
 
         # ---- sablon secimi
         self._group = QButtonGroup(self)
@@ -115,6 +141,59 @@ class QrDialog(QWidget):
         self._build_fields(qr.TEMPLATES[index], initial_text)
         center_on_cursor_screen(self)
 
+    # ---- slotlar ----
+
+    def _load_groups(self) -> None:
+        """Gruplar diskten TAZE okunuyor: dosyayi aradan baskasi
+        degistirmis olabilir."""
+        assert self._store is not None
+        self._store.load()
+        self._groups.blockSignals(True)
+        self._groups.clear()
+        for name in self._store.groups:
+            # Adsiz grup "base" diye gorunur: kutuda bos satir olmasin.
+            self._groups.addItem(name or "base", name)
+        current = qr.SLOT_GROUP.get()
+        index = self._groups.findData(current)
+        self._groups.setCurrentIndex(index if index >= 0 else 0)
+        self._groups.blockSignals(False)
+        self._fill_slots()
+
+    def _on_group(self, *_args) -> None:
+        """Grup secimi ayara yaziliyor."""
+        qr.SLOT_GROUP.set(self._groups.currentData() or "")
+        # Hemen diske: cikista yazmak cokme/oldurulme halinde kayboluyor.
+        SETTINGS.save(paths.SETTINGS)
+        self._fill_slots()
+
+    def _fill_slots(self, *_args) -> None:
+        """Secili grubun dolu slotlari. Sifre slotu YOK (store.py kurali:
+        icerigi hicbir listede gorunmez)."""
+        assert self._store is not None
+        group = self._groups.currentData() or ""
+        self._slots.clear()
+        for index, slot in enumerate(self._store.slots(group)[:10], start=1):
+            text = " ".join(slot.content.split())
+            if not text or index == PASSWORD_SLOT:
+                continue
+            shown = slot_display(index, text, lambda t: shorten(t, 60))
+            item = QListWidgetItem(f"{index % 10}  {slot.name or f'Slot {index}'}: {shown}")
+            item.setData(Qt.ItemDataRole.UserRole, slot.content)
+            self._slots.addItem(item)
+        if self._slots.count() == 0:
+            self._slots.addItem("(bu grupta dolu slot yok)")
+
+    def _use_slot(self, item: QListWidgetItem) -> None:
+        """Tiklanan slotun icerigi: sablon yeniden tahmin edilip alanlara
+        cozuluyor."""
+        content = item.data(Qt.ItemDataRole.UserRole)
+        if not content:
+            return
+        key = qr.guess_template(content)
+        index = next(i for i, t in enumerate(qr.TEMPLATES) if t.key == key)
+        self._group.button(index).setChecked(True)
+        self._build_fields(qr.TEMPLATES[index], content)
+
     # ---- sablon / alanlar ----
 
     def _on_template(self, index: int) -> None:
@@ -172,12 +251,24 @@ class QrDialog(QWidget):
             self._fields["hidden"] = hidden
             self._form.addRow("", hidden)
 
-        # Panodan gelen metin ILK alana dusuyor: sablonu ondan tahmin
-        # ettik, tahmin dogruysa dogru alana gitmis olur.
-        if initial and item.fields:
-            first = self._fields[item.fields[0].key]
-            if isinstance(first, QLineEdit):
-                first.setText(initial)
+        # Gelen metin alanlara COZULUYOR (qr.parse). Hazir bir `WIFI:...;;`
+        # dizgisi geldiginde eskiden metnin tamami SSID kutusuna giriyordu:
+        # kacis karakterleri ikinci kez kacirilip cop bir kare cikiyordu.
+        if initial:
+            for key, value in qr.parse(item.key, initial).items():
+                widget = self._fields.get(key)
+                if widget is None or not value:
+                    continue
+                if key == "password" and set(value) <= {MASK_CHAR}:
+                    # Maskelenmis ham icerik geri geldi: gercek parola
+                    # degil, yildizin kendisi. Yazmak yaniltici olurdu.
+                    continue
+                if isinstance(widget, QLineEdit):
+                    widget.setText(value)
+                elif isinstance(widget, QComboBox):
+                    widget.setCurrentText(value)
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(value == "1")
         self._refresh()
 
     # ---- cizim ----
@@ -247,4 +338,4 @@ def _masked(content: str, password: str) -> str:
     """Ham icerikte parolayi yildizla. Bos parola maskelenmez."""
     if not password:
         return content
-    return content.replace(password, "•" * len(password))
+    return content.replace(password, MASK_CHAR * len(password))

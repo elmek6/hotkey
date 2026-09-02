@@ -20,6 +20,21 @@ from dataclasses import dataclass, field
 
 import segno
 
+from cascade.settings import Category, setting
+
+#: QR penceresinin slot grubu. Bos deger = adsiz (base) grup.
+SLOT_GROUP = setting(
+    "qr.slotGroup",
+    "QR penceresinin slot grubu",
+    default="",
+    category=Category.GENERAL,
+    tags="qr slot grup kare",
+    desc=(
+        "QR penceresi acilinca hangi slot grubu secili gelsin. Pencerede "
+        "gruptan secim yapinca burasi kendiliginden guncellenir."
+    ),
+)
+
 #: Kare kenar uzunlugu (piksel) -- ekranda okunur, penceresi buyutmez.
 PIXEL_SIZE = 260
 #: Sessiz bolge. 4 standart, 3 ekranda yeterli ve yer kazandiriyor.
@@ -95,6 +110,60 @@ def _wifi_escape(value: str) -> str:
     for char in _WIFI_SPECIAL:
         value = value.replace(char, "\\" + char)
     return value
+
+
+def _parse_wifi(text: str) -> dict[str, str]:
+    """`WIFI:...;;` dizgisini alanlara geri cozer.
+
+    Gerekli: pencere hazir bir wifi karesiyle acilabiliyor (panoda o metin
+    varsa). Cozulmezse metnin TAMAMI SSID kutusuna giriyordu ve kacis
+    karakterleriyle birlikte ikinci kez kacirilip cop bir kare uretiyordu.
+    """
+    body = text.strip()[5:]
+    if body.endswith(";;"):
+        body = body[:-2]
+    values: dict[str, str] = {}
+    key = ""
+    buffer: list[str] = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "\\" and index + 1 < len(body):
+            # Kacirilmis karakter: bir sonraki AYNEN icerige girer.
+            buffer.append(body[index + 1])
+            index += 2
+            continue
+        if char == ":" and not key:
+            key = "".join(buffer).upper()
+            buffer = []
+        elif char == ";":
+            if key:
+                values[key] = "".join(buffer)
+            key = ""
+            buffer = []
+        else:
+            buffer.append(char)
+        index += 1
+    if key:
+        values[key] = "".join(buffer)
+    return {
+        "ssid": values.get("S", ""),
+        "password": values.get("P", ""),
+        "security": values.get("T", "") or "WPA",
+        "hidden": "1" if values.get("H", "").lower() == "true" else "0",
+    }
+
+
+def parse(key: str, text: str) -> dict[str, str]:
+    """Hazir bir QR icerigini sablonun alanlarina cozer.
+
+    Cozecek kural yoksa metin OLDUGU GIBI ilk alana konur -- eski davranis,
+    duz metin ve linkte dogrusu da bu.
+    """
+    if key == "wifi" and text.strip().lower().startswith("wifi:"):
+        return _parse_wifi(text)
+    item = template(key)
+    return {item.fields[0].key: text} if item.fields else {}
 
 
 TEMPLATES: tuple[Template, ...] = (

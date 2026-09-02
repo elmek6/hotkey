@@ -16,14 +16,15 @@ import html
 import subprocess
 from collections.abc import Callable
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from cascade import keymap
 from cascade.core.filter import FilterItem
-from cascade.store import PASSWORD_SLOT, SlotStore, slot_display
+from cascade.store import PASSWORD_SLOT, Slot, SlotStore, slot_display
 from cascade.ui.preview import preview_html, shorten
+from cascade.ui.slot_edit import SlotEditDialog
 
 
 class SlotController:
@@ -45,6 +46,8 @@ class SlotController:
         self._clipboard = set_clipboard
         self._filter = show_filter
         self._send_key = send_key
+        #: Acik duzenleme kutusu -- referansi tutulmazsa kapaniyor.
+        self._editor = None
 
     def register(self, runner) -> None:
         """Eylem kimlikleri -- AHK'de bunlar dogrudan fonksiyon referansiydi."""
@@ -53,8 +56,7 @@ class SlotController:
         runner.register("slot.paste_side", self.paste_side_slot)
         runner.register("slot.paste_enter", self.paste_slot_then_enter)
         runner.register("slots.copy", self.copy_slot)
-        runner.register("slots.save", self.save_to_slot)
-        runner.register("slots.rename", self.rename_slot)
+        runner.register("slots.edit", self.edit_slot)
         runner.register("slots.group_new", lambda _: self.new_group())
         runner.register("slots.group_select", self.select_group)
         runner.register("slots.group_delete", self.delete_group)
@@ -149,36 +151,36 @@ class SlotController:
 
     # ---- kaydetme / gruplar ----
 
-    def save_to_slot(self, argument: str) -> None:
-        """AHK `promptAndSaveSlot`: panodaki metni slota yazar, adini sorar."""
+    def edit_slot(self, argument: str) -> None:
+        """Tek kutuda ad + icerik. Kutu PANODAKIYLE acilir, pano bossa
+        slotun kendi icerigiyle -- o zaman duz bir duzeltme kutusu olur."""
         group, index = self.split(argument)
         self.store.load()
-        content = QGuiApplication.clipboard().text()
-        if not content:
-            self._tip("⚠️ <b>pano bos</b>, kaydedilmedi", 1500)
-            return
         values = self.store.slots(group)
-        current = values[index - 1].name if 1 <= index <= len(values) else ""
-        name, ok = QInputDialog.getText(
-            None, "Slota kaydet", f"Slot {index % 10} adi:", text=current
-        )
-        if not ok:
-            return
+        slot = values[index - 1] if 1 <= index <= len(values) else Slot()
+        clipboard = QGuiApplication.clipboard().text()
+        # Sifre slotunda pano bossa kutu BOS acilir: store.py'nin kurali,
+        # icerik ekranda gorunmez.
+        proposed = clipboard or ("" if index == PASSWORD_SLOT else slot.content)
+
+        # Modalsiz (bkz. ui/slot_edit.py); referans tutulmazsa pencere
+        # cop toplayiciya gider.
+        dialog = SlotEditDialog(index, slot.name, slot.content, proposed)
+        dialog.accepted.connect(lambda: self._store_slot(group, index, dialog.values()))
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.destroyed.connect(lambda: setattr(self, "_editor", None))
+        self._editor = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _store_slot(self, group: str, index: int, values: tuple[str, str]) -> None:
+        """Duzenleme kutusunun Save'i. Ad ve icerik BIRLIKTE yaziliyor."""
+        name, content = values
+        self.store.load()
         self.store.set_slot_content(group, index, content)
         self.store.set_slot_name(group, index, name)
-        self._tip(f"\U0001f4be <b>{html.escape(name or f'Slot {index}')}</b>", 1500)
-
-    def rename_slot(self, argument: str) -> None:
-        """AHK `setName`: yalniz ADI degistirir, icerige dokunmaz."""
-        group, index = self.split(argument)
-        self.store.load()
-        values = self.store.slots(group)
-        current = values[index - 1].name if 1 <= index <= len(values) else ""
-        name, ok = QInputDialog.getText(
-            None, "Slot adi", f"Slot {index % 10} yeni adi:", text=current
-        )
-        if ok:
-            self.store.set_slot_name(group, index, name)
+        self._tip(f"💾 <b>{html.escape(name or f'Slot {index}')}</b>", 1500)
 
     def new_group(self) -> None:
         """AHK `promptNewGroup`: grup acar ve HEMEN yan grup olarak secer."""
@@ -286,9 +288,6 @@ class SlotController:
                         # (yapistirmiyordu); ayni davranis.
                         *self.items(name, "slots.copy"),
                         None,
-                        ("Rename slot", tuple(self.items(name, "slots.rename"))),
-                        ("Save clipboard to slot", tuple(self.items(name, "slots.save"))),
-                        None,
                         ("Delete this group", f"slots.group_delete:{name}"),
                     ),
                 )
@@ -339,9 +338,7 @@ class SlotController:
             None,
             *self.items("", "slot.paste_group"),
             None,
-            # AHK showF14menu: kolonun sonu "Save to ^ slot" -- ad degistirme
-            # ayri bir madde degil, kaydetme kutusunda soruluyor.
-            ("Save to ^ slot", self.items("", "slots.save")),
+            ("Edit ^", self.items("", "slots.edit")),
             keymap.COLUMN,
             (f"Side slot{f' [{side}]' if side else ''}", self.side_menu_spec()),
         )
@@ -350,7 +347,7 @@ class SlotController:
                 None,
                 *self.items(side, "slot.paste_group", prefix="⇥ "),
                 None,
-                (f"Save to ⇥{side}", self.items(side, "slots.save")),
+                (f"Edit ⇥{side}", self.items(side, "slots.edit")),
             )
         return spec
 

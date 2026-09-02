@@ -1192,7 +1192,7 @@ class Cascade:
         text = QGuiApplication.clipboard().text() or ""
         if self._qr_view is not None:
             self._qr_view.close()
-        self._qr_view = QrDialog(text.strip())
+        self._qr_view = QrDialog(text.strip(), self.slot_store)
         self._qr_view.show()
         self._qr_view.raise_()
         self._qr_view.activateWindow()
@@ -1616,11 +1616,20 @@ class Cascade:
             executable = pythonw
 
         script = os.path.join(paths.ROOT, "main.py")
+        # Gozetmen uzerinden: cocuk hatayla olurse hotkey.vbs `uv sync`
+        # deneyip mesaj verir. Dogrudan pythonw sessizce oluyordu.
+        supervisor = os.path.join(paths.ROOT, "hotkey.vbs")
+        windir = os.environ.get("SYSTEMROOT") or "C:\\Windows"
+        wscript = os.path.join(windir, "System32", "wscript.exe")
+        if os.path.exists(supervisor) and os.path.exists(wscript):
+            command = [wscript, supervisor, RESTART_FLAG]
+        else:
+            command = [executable, script, RESTART_FLAG]
         base_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
         try:
             try:
                 subprocess.Popen(
-                    [executable, script, RESTART_FLAG],
+                    command,
                     cwd=str(paths.ROOT),
                     close_fds=True,
                     env=_child_env(),
@@ -1630,7 +1639,7 @@ class Cascade:
                 # Job breakaway'e izin vermiyorsa (debugpy veriyor, ama
                 # baska bir sarmalayici vermeyebilir) bayraksiz dene.
                 subprocess.Popen(
-                    [executable, script, RESTART_FLAG],
+                    command,
                     cwd=str(paths.ROOT),
                     close_fds=True,
                     env=_child_env(),

@@ -51,7 +51,7 @@ def test_menu_actions_are_registered(cascade):
         "clip.images",
         "slot.paste",
         "slot.paste_group",
-        "slots.save",
+        "slots.edit",
         "slots.search",
         "menu.slots",
         "menu.base_slots",
