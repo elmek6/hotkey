@@ -326,10 +326,10 @@ class SlotController:
         spec: tuple = (
             ("Unformatted paste", "send_key:^+v"),
             None,
-            ("Macro recorder", "macro.recorder"),
-            ("QR kod", "qr.show"),
-            ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
+            ("Clipboard images", "clip.images", "res:109"),  # gorsel
+            ("Window screenshot", "send_key:!PrintScreen", "shell:196"),
             None,
+            ("QR kod", "qr.show", "res:56"),  # cip/matris deseni
             ("Area", keymap.screen_menu()),
             ("System", keymap.SYSTEM_MENU),
             ("Special keys", keymap.SPECIAL_KEYS_MENU),

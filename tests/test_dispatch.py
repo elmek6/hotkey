@@ -465,3 +465,29 @@ def test_tilde_ile_yazilan_tus_yutulmaz_ama_eylem_calisir():
     assert [a.action for a in acts] == ["memslots.paste:middle"]
     # Birakma da yutulmaz: basim listemize hic girmedi.
     assert feed(box, MBUTTON, False, 0.1)[0] is False
+
+
+def test_hayalet_onek_kurtarma_kisayolunu_engellemez():
+    """Birakmasi kaybolan onek, SONRAKI kombolarin onegi olarak sirada basta
+    kaliyordu: `Pause & End` yazilir, chord `F13 & End` cikar, hicbir tanim
+    eslesmez -- programi kurtaracak kisayol dahil. Birincil eslesme bosa
+    cikinca basili tuslar en yeniden eskiye onek olarak deneniyor.
+    """
+    box = make_dispatcher()
+    box.hotkeys.add("Pause & End", "app.restart", "yeniden baslat")
+    pause, end = 0x13, 0x23
+    feed(box, F13, True, 0.0)  # onek basildi, BIRAKMASI hic gelmiyor
+    feed(box, pause, True, 1.0)
+    result = feed(box, end, True, 1.1)
+    assert result[0] is True
+    assert actions(result) == ["app.restart"]
+
+
+def test_kurtarma_eslesme_bulamazsa_tus_serbest_gecer():
+    """Hayalet arama bir "her seyi eslestir" yolu degil: hicbir tanim yoksa
+    tus eskisi gibi uygulamaya gidiyor."""
+    box = make_dispatcher()
+    feed(box, F13, True, 0.0)
+    result = feed(box, 0x23, True, 0.1)  # End: hicbir tanimda yok
+    assert result[0] is False
+    assert actions(result) == []

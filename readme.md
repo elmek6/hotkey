@@ -6,7 +6,7 @@ Kaynak: AHK projesinin kopyası `_AutoHotKey/` içinde — `AutoHotkey.ahk` +
 Hedef: aynı davranış, CPython 3.13 + ctypes/Win32 + PySide6.
 
 Her kod degisikliginden sonra kücük bir degisiklik ise minor versiyon yükseltmesi
-Her kod sonrasi reload
+Her kod sonrasi reload veya restart yapilmali
 
 Flutter karşılıklarıyla:
 ```

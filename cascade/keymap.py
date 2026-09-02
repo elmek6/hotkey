@@ -234,20 +234,6 @@ def screen_menu() -> tuple:
     return spec or (("(monitor bulunamadi)", "notify:Monitor bulunamadi"),)
 
 
-# AHK: showF14menu() icindeki subMenuSet.
-SYSTEM_MENU = (
-    ("\U0001f440 Key history loop", "app.monitor"),
-    ("⚙️ Ayarlar...", "app.settings"),
-    ("⏸️ Duraklat / Devam", "app.pause"),
-    ("\U0001f513 Takilan durumu sifirla", "state.reset"),
-    None,
-    ("\U0001f4c4 Son hatalar...", "errors.show"),
-    ("\U0001f4cb Son hatayi kopyala", "errors.copy"),
-    None,
-    ("\U0001f501 Yeniden baslat", "app.restart"),
-    ("\U0001f6d1 Cikis", "app.exit"),
-)
-
 #: Menu ikonlari AHK ile AYNI numaralar (menus.ahk `menuIcon`): sayi
 #: DLL icindeki 1 tabanli ikon sirasi. Emoji yerine gercek ikon: klasik
 #: Win32 menusu metni GDI ile ciziyor ve renkli emoji tablosunu
@@ -259,9 +245,9 @@ F13_MENU = (
     # Secim/OCR/buyutec maddeleri BURADA YOK: hepsi fare tuslarina bagli
     # (F14 surukleme = alan secimi, cubuktan OCR; F13&F14 = buyutec).
     # Menude ikinci bir yol tutmak ayni isi iki yerde bakim ettiriyordu.
-    ("Window screenshot", "send_key:!PrintScreen", "shell:196"),  # fotograf makinesi
+    ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
     None,
-    ("Clipboard images", "clip.images", "res:109"),  # gorsel
+    ("Macro recorder", "macro.recorder"),
     # ---- 2. KOLON: aktif pencere profili, araclar, hep ustte ----
     # Kolon ayracini COLUMN ciziyor; bu yuzden 1. kolonun sonunda ayrica
     # yatay ayrac YOK -- AHK'de de oyle, kolon dibinde boslukta asili bir
@@ -307,7 +293,15 @@ SYS_COMMANDS_MENU = (
     # AHK'de olmayan, bize ozgu olanlar ayracin altinda.
     ("Pano gecmisi...", "clip.filter"),
     ("Pano gorselleri...", "clip.images"),
+    None,
+    ("⚙️ Ayarlar...", "app.settings"),
+    ("\U0001f4cb Son hatayi kopyala", "errors.copy"),
 )
+
+#: F14 menusundeki "System" alt menusu, `´` menusunun TA KENDISI. Ayri bir
+#: tablo tutulunca ikisi zamanla birbirinden koptu (F14'te Ayarlar vardi,
+#: `´`de yoktu); tek kaynak kalsin diye takma ad.
+SYSTEM_MENU = SYS_COMMANDS_MENU
 
 # ---- OnStart / OnExit -- AHK: LoadSettings() ve ExitSettings() ----
 # Pano gecmisinin diskten okunmasi/yazilmasi app.py on_start/on_exit icinde;

@@ -28,7 +28,7 @@ from cascade.core.cascade import CascadeMachine, Phase, Run
 from cascade.core.combo import ComboTracker
 from cascade.core.hot_vectors import HotVectors
 from cascade.core.hotkey import HotkeyTable
-from cascade.core.keynames import key_name
+from cascade.core.keynames import MODIFIER_VKS, key_name
 from cascade.core.mouse import WM_MOUSEMOVE, MouseSeen, mouse_key
 from cascade.core.prefix import Outcome, PrefixTracker
 from cascade.core.turkish import TurkishLayout
@@ -513,10 +513,13 @@ class Dispatcher:
             return swallow, []
 
         binding = self.hotkeys.match(vk, chord.modifiers, chord.prefix)
+        prefix = chord.prefix
+        if binding is None and prefix is not None:
+            binding, prefix = self._rescue_match(vk, chord)
         if binding is None:
             return False, []
-        if chord.prefix is not None:
-            self.prefixes.combo_used(chord.prefix)
+        if prefix is not None:
+            self.prefixes.combo_used(prefix)
         # Tek basina `~` ile yazilan tus (orta tus, Insert): eylem calisir,
         # tus uygulamaya AYNEN gider. Kombodaki `~` bundan ayri: orada
         # yutulmayan sey ONEK, kombo tusu yine yutulur.
@@ -526,6 +529,30 @@ class Dispatcher:
         if chord.repeat:  # basili tutmada eylem tekrarlanmaz, yutma surer
             return not keep, []
         return not keep, [Run(binding.action, key=vk, desc=binding.desc)]
+
+    def _rescue_match(self, vk: int, chord) -> tuple[object | None, int | None]:
+        """Onek eslesmedi: basili DIGER tuslari da onek olarak dene.
+
+        Chord'un onegi, basili tuslarin SIRASINDAKI ilki (core/combo.py).
+        Bir tusun birakma olayi kaybolursa (onek basiliyken pencere araya
+        girer ve birakma hook'a hic ulasmaz) o hayalet tus sirada basta
+        kalir ve ondan sonraki her kombonun onegi olur: `Pause & End`
+        yazilir ama chord `F14 & End` cikar, hicbir tanim eslesmez ve
+        program kurtarilamaz hale gelir -- kurtarma kisayolunun kendisi de
+        dahil.
+
+        Bu yuzden birincil eslesme BOSA CIKTIGINDA, basili tuslar EN YENIDEN
+        eskiye dogru onek olarak deneniyor. Sadece basarisizlik yolunda
+        calisiyor: gecerli bir kombo varsa buraya hic gelinmiyor, yani
+        mevcut davranis degismiyor.
+        """
+        for candidate in reversed(self.tracker.held):
+            if candidate in (vk, chord.prefix) or candidate in MODIFIER_VKS:
+                continue
+            binding = self.hotkeys.match(vk, chord.modifiers, candidate)
+            if binding is not None:
+                return binding, candidate
+        return None, None
 
     def _hotkey_up(self, vk: int, t: float) -> tuple[bool, list]:
         was_ours = vk in self._hk_swallowed

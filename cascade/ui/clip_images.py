@@ -187,8 +187,11 @@ class ClipImages(QWidget):
         self._seen_rev = -1
 
         self.list = QTreeWidget()
-        self.list.setColumnCount(5)
-        self.list.setHeaderLabels(["Son kullanim", "Boyut", "KB", "×", "Ilk kayit"])
+        # Satir basina IKI satir metin: ust satir "ne zaman", alt satir "ne
+        # kadar". Bes ayri kolon 64px thumb'in yanina sigmiyordu; silme/panoya
+        # alma satirda DEGIL, cift tiklama ve alttaki dugmelerde.
+        self.list.setColumnCount(2)
+        self.list.setHeaderLabels(["Son kullanim / boyut", "Ilk kayit / tekrar"])
         self.list.setRootIsDecorated(False)
         self.list.setUniformRowHeights(True)
         self.list.setIconSize(QSize(THUMB_SIZE, THUMB_SIZE))
@@ -205,6 +208,10 @@ class ClipImages(QWidget):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([430, 620])
+        # Elle oynatilan bolucu bir daha kendiliginden yerinden oynamasin.
+        splitter.splitterMoved.connect(lambda *_: setattr(self, "_user_split", True))
+        self._splitter = splitter
+        self._user_split = False
 
         buttons = QHBoxLayout()
         for label, slot in (
@@ -257,13 +264,13 @@ class ClipImages(QWidget):
 
         self.list.clear()
         for record in self._items:
+            repeats = f"{record.count} kez" if record.count > 1 else "tek kayit"
             item = QTreeWidgetItem(
                 [
-                    _format_ts(record.ts),
-                    f"{record.w}x{record.h}",
-                    str(round(record.dat_size / 1024)),
-                    str(record.count) if record.count > 1 else "",
-                    _format_ts(record.created_ts),
+                    f"{_format_ts(record.ts)}\n"
+                    f"{record.w}x{record.h}  ·  {round(record.dat_size / 1024)} KB",
+                    f"{_format_ts(record.created_ts)}\n{repeats}",
+                    "",
                 ]
             )
             thumb = self.store.read_thumb(record.slot)
@@ -279,12 +286,36 @@ class ClipImages(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, record.slot)
             self.list.addTopLevelItem(item)
 
-        for column in range(5):
+        for column in range(2):
             self.list.resizeColumnToContents(column)
         self.list.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        # Son kolon gerilmesin: gerilirse kolonlarin bittigi yerden listenin
+        # sag kenarina kadar bos bir serit kaliyor.
+        self.list.header().setStretchLastSection(False)
+        self._fit_list_width()
 
         self._restore_selection(selected)
         self._refresh_stats()
+
+    def _fit_list_width(self) -> None:
+        """Bolucuyu kolonlarin GERCEK genisligine cekiyor.
+
+        Sabit bir genislik iki kolonla bos serit birakiyordu; kalan piksel
+        onizlemeye gitsin. Kullanici bolucuyu elle oynattiysa dokunulmuyor
+        -- tazeleme onun ayarini geri almasin.
+        """
+        if getattr(self, "_user_split", False):
+            return
+        header = self.list.header()
+        # %15 pay: kolonlarin tam genisligi yatay kaydirma cubugu cikaracak
+        # kadar sinirda kaliyordu (kenarlik, ic bosluk, uzun tarih metni).
+        width = round(sum(header.sectionSize(i) for i in range(2)) * 1.15) + 8
+        scroll = self.list.verticalScrollBar()
+        if scroll.isVisible():
+            width += scroll.width()
+        total = sum(self._splitter.sizes()) or 1050
+        width = max(240, min(width, total - self.preview.minimumWidth()))
+        self._splitter.setSizes([width, total - width])
 
     # ---- secim ----
 
