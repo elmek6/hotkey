@@ -1,11 +1,18 @@
 """Ipucu penceresi -- AHK'deki ToolTip()'in yerine gecen zengin metin surumu.
 
 AHK'nin ToolTip'i tek renk, tek font, duz metindir; emoji ve vurgu yapamaz.
-Burada QLabel zengin metin (RichText) modunda: HTML alt kumesi, renk, kalin,
-emoji ve satir yapisi calisiyor. Qt'nin QLabel'i CSS2'nin bir alt kumesini
-destekler -- tablo hucre arka plani ve renk calisir, border-radius calismaz;
-o yuzden pencerenin kendi yuvarlak kosesi stylesheet'ten, ic rozetler tablo
-hucresinden geliyor.
+Burada metin QLabel'in zengin metin (RichText) kipinde: HTML alt kumesi,
+renk, kalin, emoji ve satir yapisi calisiyor.
+
+RESIM AYRI BIR ETIKETTE. Metnin HTML'i icine `<img>` koymak mumkun ama Qt'nin
+metin motoru `data:` URI'si cozmuyor, yalnizca dosya yolu; kucuk resmi
+gostermek icin diske PNG yazmak gerekiyordu (Files/tip-thumb-*.png). Artik
+pencere bir kutu: solda `setPixmap` ile BELLEKTEN cizilen resim, saginda
+metin. Metnin HTML'i oldugu gibi duruyor -- tum cagiranlar etkilenmesin.
+
+Qt'nin QLabel'i CSS2'nin bir alt kumesini destekler -- tablo hucre arka plani
+ve renk calisir, border-radius calismaz; o yuzden pencerenin kendi yuvarlak
+kosesi bicem sayfasindan, ic rozetler tablo hucresinden geliyor.
 
 Neden QMenu degil: acilan bir QMenu klavyeyi kapar ve on plandaki pencereden
 odagi alir. Bizim mimaride tus secimi zaten hook'ta yutuluyor, menunun
@@ -23,8 +30,8 @@ from __future__ import annotations
 import html
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QCursor, QFont, QGuiApplication
-from PySide6.QtWidgets import QLabel
+from PySide6.QtGui import QCursor, QFont, QGuiApplication, QImage, QPixmap
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 # Tek yerden renk -- tepsi simgesiyle ayni mavi.
 FG = "#e6edf3"
@@ -41,7 +48,11 @@ FAMILY = "'Segoe UI', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif"
 MONO = "'Cascadia Mono', Consolas, monospace"
 
 
-class Tip(QLabel):
+class Tip(QWidget):
+    #: Kucuk resmin kenar uzunlugu -- imgstore thumb'i zaten 64x64, buyutmek
+    #: bulaniklastirir.
+    THUMB = 64
+
     def __init__(self) -> None:
         super().__init__(None)
         self.setWindowFlags(
@@ -50,14 +61,33 @@ class Tip(QLabel):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setTextFormat(Qt.TextFormat.RichText)
-        self.setMargin(10)
+        # Duz QWidget bicem sayfasindaki arka plani cizmez; bu bayrak
+        # olmadan kutu saydam kalirdi.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setObjectName("tip")
+
         font = QFont("Segoe UI")
         font.setPointSize(10)
         self.setFont(font)
+
+        self.thumb = QLabel(self)
+        self.thumb.setFixedSize(self.THUMB, self.THUMB)
+        self.thumb.hide()
+        self.text = QLabel(self)
+        self.text.setTextFormat(Qt.TextFormat.RichText)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        layout.addWidget(self.thumb, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self.text, 1)
+
+        # Cerceve YALNIZ kutuya (#tip): ic etiketler de kenarlik alirsa
+        # metnin etrafinda ikinci bir cerceve cikiyor.
         self.setStyleSheet(
-            f"background-color: {BG}; color: {FG};"
-            f"border: 1px solid {BORDER}; border-radius: 6px;"
+            f"#tip {{ background-color: {BG};"
+            f" border: 1px solid {BORDER}; border-radius: 6px; }}"
+            f"QLabel {{ color: {FG}; border: none; background: transparent; }}"
         )
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -65,9 +95,27 @@ class Tip(QLabel):
 
     # ---- gosterim ----
 
-    def show_html(self, body: str, ms: int = 0) -> None:
-        """Ham HTML. Cagiran kacislamadan sorumlu."""
-        self.setText(f"<div style=\"font-family:{FAMILY};\">{body}</div>")
+    def show_html(self, body: str, ms: int = 0, image: QImage | None = None) -> None:
+        """Ham HTML. Cagiran kacislamadan sorumlu.
+
+        `image` verilirse metnin soluna 64x64 kucuk resim konur -- BELLEKTEN,
+        gecici dosya yok. Verilmezse resim alani gizlenir; ayni pencere bir
+        onceki gosterimden kalan resmi tasimasin.
+        """
+        if image is not None and not image.isNull():
+            self.thumb.setPixmap(
+                QPixmap.fromImage(image).scaled(
+                    self.THUMB,
+                    self.THUMB,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            self.thumb.show()
+        else:
+            self.thumb.clear()
+            self.thumb.hide()
+        self.text.setText(f"<div style=\"font-family:{FAMILY};\">{body}</div>")
         self.adjustSize()
         self._place()
         self.show()

@@ -14,6 +14,7 @@ FILES = ROOT / "Files"
 
 LOG = FILES / "log.txt"
 CAPTURES = FILES / "captures"  # F14 secimi -> "Sakla" buraya PNG yazar
+PAINT = FILES / "paint"  # "Paint'te ac" gecici PNG'leri (uzerine yazilir)
 
 # Bu iki dosyanin ADI DA BICIMI DE AHK ile ayni: `_AutoHotKey/Files/`
 # altindakiler buraya kopyalandiginda okunur, buradakiler de AHK tarafinda

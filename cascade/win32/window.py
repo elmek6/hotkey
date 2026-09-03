@@ -77,6 +77,7 @@ user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.GetWindowLongW.restype = ctypes.c_long
 
 SW_RESTORE = 9
+SW_MINIMIZE = 6
 
 #: EnumWindows geri cagrimi. Modul duzeyinde: ctypes tipi her cagride
 #: yeniden uretilirse cop toplayici sarmalayiciyi cagri sirasinda
@@ -161,6 +162,18 @@ def window_rect(hwnd: int) -> tuple[int, int, int, int]:
     if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return (0, 0, 0, 0)
     return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+def minimize(hwnd: int = 0) -> bool:
+    """AHK: WinMinimize("A"). hwnd verilmezse one cikan pencereyi kucultur.
+
+    Win+Down tusu yerine dogrudan ShowWindow: Win+Down buyutulmus pencerede
+    once "restore" yapar, kucultmez.
+    """
+    hwnd = hwnd or foreground_window()
+    if not is_window(hwnd):
+        return False
+    return bool(user32.ShowWindow(hwnd, SW_MINIMIZE))
 
 
 def activate(hwnd: int) -> bool:

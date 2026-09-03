@@ -36,10 +36,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cascade import theme
+from cascade import paths, theme
 from cascade.imgstore import THUMB_SIZE, ClipImageStore, ImageRecord, thumb_to_image
 from cascade.store import _from_ahk_ms
 from cascade.ui.place import center_on_cursor_screen
+from cascade.win32 import shell
 
 log = logging.getLogger("cascade.clipimages")
 
@@ -219,6 +220,7 @@ class ClipImages(QWidget):
             ("\U0001f5d1️ Sil", self.delete_selected),
             ("1:1 / sigdir", self.preview.toggle_fit),
             ("\U0001f4be PNG Kaydet", self.export_selected),
+            ("\U0001f3a8 Paint+pano", self.paint_selected),
             ("Kapat", self.close),
         ):
             button = QPushButton(label)
@@ -437,6 +439,21 @@ class ClipImages(QWidget):
             target += ".png"
         if self.store.export_to(slot, target):
             self.copied.emit(f"kaydedildi: {target}")
+
+    def paint_selected(self) -> None:
+        """Secili gorseli gecici bir PNG'ye yazip Paint'te acar.
+
+        Gecici dosya SLOT adiyla yazilir, yani ayni slot iki kez acilinca
+        klasor sismez. Silmiyoruz: Paint dosyayi acik tutuyor ve kullanici
+        uzerinde calisip "Kaydet" diyebilir.
+        """
+        slot = self._current_slot()
+        if slot is None:
+            return
+        paths.PAINT.mkdir(parents=True, exist_ok=True)
+        target = paths.PAINT / f"clip-{slot}.png"
+        if not self.store.export_to(slot, target) or not shell.open_in_paint(target):
+            QMessageBox.warning(self, "Paint", "Gorsel Paint'te acilamadi.")
 
     # ---- canli tazeleme ----
 

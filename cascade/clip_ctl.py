@@ -27,7 +27,7 @@ from PySide6.QtGui import QGuiApplication, QImage
 from cascade.core.clip_history import ClipHistory
 from cascade.core.filter import FilterItem
 from cascade.core.state import ClipboardState
-from cascade.imgstore import ClipImageStore, thumb_to_image
+from cascade.imgstore import THUMB_SIZE, ClipImageStore
 from cascade.store import ClipStore
 from cascade.ui.clip_images import ClipImages
 from cascade.ui.clipboard import ClipboardWatcher
@@ -40,7 +40,7 @@ class ClipController:
     def __init__(
         self,
         *,
-        tip_html: Callable[[str, int], None],
+        tip_html: Callable[..., None],  # (html, ms, image=None) -- bkz. ui/tip.py
         tip_menu: Callable[..., None],
         show_menu: Callable[[tuple], None],
         show_filter: Callable[[tuple, str], None],
@@ -113,36 +113,29 @@ class ClipController:
             self._tip("⚠️ <b>gorsel kaydedilemedi</b>", 1200)
             return
         info = f"\U0001f5bc️ <b>gorsel</b><br>{image.width()}x{image.height()}"
-        self._tip(self._thumb_html(slot, info), 1600)
+        self._tip(info, 1600, self.thumb_image(slot))
 
-    def _thumb_html(self, slot: int, info: str) -> str:
-        """Ipucunda kucuk resmi gosterir; uretilemezse yalniz metni doner.
+    def thumb_image(self, slot: int) -> QImage | None:
+        """Slotun 64x64 kucuk resmi, BELLEKTE. Okunamazsa None.
 
-        Yeni goruntu URETMIYORUZ: kayit sirasinda zaten 64x64 bir thumb
-        yazildi (imgstore._make_thumb), onu okuyup gosteriyoruz. AHK'de
-        ToolTip duz metindi, bu yuzden orada boyle bir sey yoktu.
+        Yeni goruntu URETMIYORUZ: kayit sirasinda zaten bir thumb yazildi
+        (imgstore._make_thumb), diskten HAM okunup dogrudan QImage'a
+        sariliyor -- PNG cozme de yok, gecici dosya da (eskiden ipucu HTML
+        oldugu icin `Files/tip-thumb-*.png` yaziliyordu, bkz. ui/tip.py).
 
-        Neden diske PNG: QLabel'in zengin metni `data:` URI'sini yuklemez,
-        yalnizca `file:///` calisir. Neden dosya adinda slot numarasi: ayni
-        ada tekrar yazildiginda Qt onbellekteki ESKI resmi ciziyordu.
-        Boyut da 64x64 sabit veriliyor -- thumb zaten o boyutta, buyutursek
-        bulaniklasir.
+        `copy()` sart: QImage sarmaladigi tamponun sahibi degil, Python
+        baytlari cop toplandiginda resim bozuk piksel gosterirdi.
         """
         try:
             thumb = self.image_store.read_thumb(slot)
-            if thumb is None:
-                return info
-            path = self.image_store.idx_path.parent / f"tip-thumb-{slot}.png"
-            thumb_to_image(thumb).save(path, "PNG")
         except (OSError, ValueError):
-            log.exception("ipucu kucuk resmi yazilamadi")
-            return info
-        return (
-            '<table cellspacing="0" cellpadding="2"><tr>'
-            f'<td><img src="{path.as_uri()}" width="64" height="64"></td>'
-            f"<td>&nbsp;&nbsp;{info}</td>"
-            "</tr></table>"
-        )
+            log.exception("ipucu kucuk resmi okunamadi")
+            return None
+        if thumb is None:
+            return None
+        return QImage(
+            thumb, THUMB_SIZE, THUMB_SIZE, QImage.Format.Format_ARGB32
+        ).copy()
 
     def save_image(self, image: QImage) -> int:
         """QImage -> gorsel deposu. Slot no doner, basarisizsa -1.

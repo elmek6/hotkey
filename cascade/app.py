@@ -48,7 +48,7 @@ from cascade.macro_ctl import MacroController
 from cascade.repository import Repository
 from cascade.settings import SETTINGS
 from cascade.slots_ctl import SlotController
-from cascade.store import SlotStore
+from cascade.store import SlotStore, slot_display
 from cascade.ui.array_filter import ArrayFilter
 from cascade.ui.incognito_badge import IncognitoBadge
 from cascade.ui.key_map_view import KeyMapView
@@ -60,13 +60,14 @@ from cascade.ui.pause import PauseDialog
 from cascade.ui.preview import preview_html, shorten
 from cascade.ui.profiles_view import ProfilesView
 from cascade.ui.qr_view import QrDialog
+from cascade.ui.quick_panel import QuickItem, QuickPanel, QuickTab
 from cascade.ui.repository_view import RepositoryView
 from cascade.ui.settings_dialog import SettingsDialog
 from cascade.ui.snip import SnipOverlay
 from cascade.ui.tip import Tip
 from cascade.ui.tray import Tray
 from cascade.version import VERSION, build_stamp, full_version
-from cascade.win32 import ocr, send
+from cascade.win32 import ocr, send, shell
 from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
 from cascade.win32.magnifier import Magnifier
@@ -74,6 +75,7 @@ from cascade.win32.screen import monitors
 from cascade.win32.window import (
     WindowPins,
     foreground_window,
+    minimize,
     topmost_windows,
     window_class,
     window_title,
@@ -387,6 +389,12 @@ class Cascade:
         )
         self.slots.register(self.runner)
 
+        # CapsLock basili tutunca acilan panel (ui/quick_panel.py). Ayri bir
+        # veri kaynagi YOK: sekmeler slot / yan grup / pano gecmisinin ayni
+        # eylem kimliklerini gosterir, panel yalnizca cizer.
+        self._quick: QuickPanel | None = None
+        self.runner.register("menu.quick", lambda _: self.show_quick_panel())
+
         # AHK: App.AppShorts (app_shorts.ahk). On plandaki pencereye gore
         # F13 menusune ekstra kisayol maddeleri girer.
         self.shorts = ShortcutStore()
@@ -666,12 +674,27 @@ class Cascade:
                 self.tip.show_html("⚠️ <b>gorsel kaydedilemedi</b>", 1500)
                 return
             self.clip.show_images()
+        elif action == "paint":
+            self.paint_capture(image)
         elif action in ("ocr", "ocr_adv"):
             self._start_ocr(action, image)
 
     def _on_snip_rect_changed(self, image: QImage) -> None:
         """OCR+ acikken alan yeniden ayarlandi: taze kirpimla tekrar oku."""
         self._start_ocr("ocr_adv", image)
+
+    def paint_capture(self, image: QImage) -> None:
+        """Secimi gecici bir PNG'ye yazip Paint'te acar.
+
+        Gorsel gecmisindeki "Paint+pano" ile ayni mantik (ui/clip_images.py
+        `paint_selected`): dosya SABIT adla yazilir, ustune yazilir, silinmez
+        -- Paint dosyayi acik tutuyor ve kullanici uzerinde calisip
+        "Kaydet" diyebilir.
+        """
+        paths.PAINT.mkdir(parents=True, exist_ok=True)
+        target = paths.PAINT / "snip.png"
+        if not image.save(str(target), "PNG") or not shell.open_in_paint(target):
+            self.tip.show_html("⚠️ <b>Paint'te acilamadi</b>", 1500)
 
     def save_capture(self, image: QImage) -> None:
         """AHK'de menuden secilince dosya adi soruluyordu; burada da soruyoruz.
@@ -1002,7 +1025,7 @@ class Cascade:
         """AHK: `(App.Magnifier.reset(), WinMinimize("A"))` -- buyutec %100'e
         doner ve one cikan pencere kuculur."""
         self.magnifier.reset()
-        self.runner.run("send_key:#Down")
+        minimize()
 
     # ---- menuler ve durum ----
 
@@ -1188,9 +1211,62 @@ class Cascade:
         # DEFAULT isaretiyle geliyor; bkz. ui/menu.py.
         self.menu.show(spec)
 
+    # ---- hizli panel ----
+
+    def _quick_tabs(self) -> tuple[QuickTab, ...]:
+        """Panel sekmeleri. Saglayicilar panel her acildiginda cagriliyor.
+
+        PANO ILK SIRADA, cunku paneli acan tus CapsLock: "basili tut,
+        numaraya bas, yapistir" isinin hedefi pano gecmisi. Slotlarin kendi
+        tuslari zaten var (`^`, Tab, F14 menusu).
+        """
+        return (
+            QuickTab("Pano", self._clip_items),
+            QuickTab("Slot", lambda: self._slot_items("")),
+            QuickTab("Side", lambda: self._slot_items(self.slot_store.default_group)),
+        )
+
+    def _slot_items(self, group: str) -> tuple[QuickItem, ...]:
+        """Bir grubun ilk on slotu. Disk TAZE okunuyor -- dosyayi AHK tarafi
+        ya da elle duzenleme degistirmis olabilir (slots_ctl ile ayni kural)."""
+        self.slot_store.load()
+        return tuple(
+            QuickItem(
+                content=slot.content,
+                action=f"slot.paste_group:{group}/{index}",
+                label=f"{slot.name or f'Slot {index}'}: "
+                + (slot_display(index, " ".join(slot.content.split()), lambda t: t) or "(bos)"),
+            )
+            for index, slot in enumerate(self.slot_store.slots(group)[:10], start=1)
+        )
+
+    def _clip_items(self) -> tuple[QuickItem, ...]:
+        """Pano gecmisinin TAMAMI. Kopya sayisi birden coksa etiketin sonunda
+        "x3". Kirpma panelin isi: onarli sayfalar halinde gosteriyor."""
+        return tuple(
+            QuickItem(
+                content=entry.text,
+                action=f"clip.paste:{index}",
+                label=entry.preview + (f"  x{entry.count}" if entry.count > 1 else ""),
+            )
+            for index, entry in enumerate(self.clip.history.entries, start=1)
+        )
+
+    def show_quick_panel(self) -> None:
+        """`menu.quick` -- CapsLock basili tutunca acilan panel."""
+        if self._quick is None:
+            self._quick = QuickPanel(self._quick_tabs())
+            self._quick.chosen.connect(self.runner.run)
+            self._quick.qr_requested.connect(self.show_qr_text)
+        self._quick.open()
+
     def show_qr(self) -> None:
         """F14 menusu > QR kod. Panodaki metinle acilir."""
-        text = QGuiApplication.clipboard().text() or ""
+        self.show_qr_text(QGuiApplication.clipboard().text() or "")
+
+    def show_qr_text(self, text: str) -> None:
+        """Verilen metinle QR penceresi. Hizli panelde Alt+q buraya gelir:
+        orada QR'i gorulmek istenen sey PANODAKI degil SECILI ogedir."""
         if self._qr_view is not None:
             self._qr_view.close()
         self._qr_view = QrDialog(text.strip(), self.slot_store)

@@ -25,7 +25,7 @@ class Recorder:
 def clip(qapp, tmp_path):
     log = Recorder()
     ctl = ClipController(
-        tip_html=lambda body, ms: log.tips.append(body),
+        tip_html=lambda body, ms, image=None: log.tips.append(body),
         tip_menu=lambda title, items, footer="", ms=0: log.tip_menus.append((title, items)),
         show_menu=log.menus.append,
         show_filter=lambda items, title: log.filters.append((items, title)),

@@ -14,7 +14,7 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     F14              kisa: slot menusu     surukle: ekran alani sec
     ^ (Caret)        kisa: `^` yazilir     basili tut: base grup slotlari
     Tab              kisa: Tab yazilir     basili tut: yan grup slotlari
-    CapsLock         kisa: kilit cevrilir  basili tut: pano menusu (AHK cascadeCaps)
+    CapsLock         kisa: kilit cevrilir  basili tut: hizli panel (sekmeli liste)
     Tab & 1 .. 0     SECILI yan gruptan yapistirir (0 = slot 10)
     CapsLock & 1..9  pano gecmisinden yapistirir
     Ctrl+<           VSCode satir sil (Ctrl+Shift+K)
@@ -551,7 +551,10 @@ def build_hotkeys() -> HotkeyTable:
     # (tusu yuttugumuz icin Windows kendi cevirmiyor, biz ceviriyoruz),
     # basili tutma pano gecmisi menusu, rakamlar gecmisten yapistirir. ---
     table.add("CapsLock", "caps.toggle", "kisa: buyuk harf kilidi")
-    table.prefix("CapsLock", hold_action="menu.clip", desc="basili tut: pano menusu")
+    # AHK'de burasi da duz pano menusuydu; artik sekmeli hizli panel
+    # (ui/quick_panel.py). F13 basili tutma eski menude BIRAKILDI:
+    # tek elle, tek tusla acilan kisa liste orada daha hizli.
+    table.prefix("CapsLock", hold_action="menu.quick", desc="basili tut: hizli panel")
     for index in range(1, 10):
         table.add(
             f"CapsLock & {index}",

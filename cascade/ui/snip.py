@@ -126,7 +126,7 @@ _CURSORS = {
 
 #: Secim cubugunun IKI KIPI var ve ilk dugme oteki kipe geciriyor:
 #:
-#:     SCREEN kipi   [Area]   Kopyala Sakla Gorsellere OCR OCR+   X
+#:     SCREEN kipi   [Area]   Kopyala Sakla Gorsellere Paint OCR OCR+   X
 #:     AREA kipi     [Screen] Yeni Alanlar Kaydet Sil             X
 #:
 #: Ayrim isin TURU: "screen" secili pikselle bir sey yapmak (kaydet, oku),
@@ -140,6 +140,7 @@ ACTIONS = (
     ("\U0001f4cb Kopyala", "copy"),
     ("\U0001f4be Sakla", "save"),
     ("\U0001f5bc️ Gorsellere ekle", "clip_image"),
+    ("\U0001f3a8 Paint", "paint"),
     ("\U0001f524 OCR", "ocr"),
     ("\U0001f9e0 OCR+", "ocr_adv"),
 )
