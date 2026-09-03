@@ -514,10 +514,41 @@ def test_hayalet_modifier_onek_tusunu_oldurur():
 def test_temizleyici_hayalet_modifieri_dusurur_ve_onek_geri_gelir():
     box = make_dispatcher()
     feed(box, CTRL, True, 0.0)
-    assert box._reconcile(1.0) == [CTRL]
+    assert box._reconcile(1.0) == []  # ilk tarama yalniz supheleniyor
+    assert box._reconcile(1.5) == [CTRL]
     assert box.phantom_drops == 1
     # Onek yolu geri geldi: F13 yeniden yutuluyor.
     assert feed(box, F13, True, 2.0)[0] is True
+
+
+def test_temizleyici_yoldaki_birakmayi_hayalet_SANMAZ():
+    """SAHTE HAYALET: hook thread'i birakma olayini isleyene kadar tus hem
+    "basili" listesinde durur hem de GetAsyncKeyState "basili degil" der.
+
+    Tek taramaya guvenseydik normal yazarken dakikada birkac tus dusurulur
+    (ve WARNING uretilir) idi. Ikinci taramaya kadar birakma islenmis olur.
+    """
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    assert box._reconcile(1.0) == []  # supheli, ama daha dusurulmedi
+    feed(box, CTRL, False, 1.1)  # yoldaki birakma nihayet islendi
+    assert box._reconcile(1.5) == []
+    assert box.phantom_drops == 0
+
+
+def test_temizleyici_geri_basilan_tusun_suphesini_unutur(monkeypatch):
+    """Bir tarama "basili degil" dedi, sonraki "basili" diyor: sayac sifirlanir,
+    yoksa suphe birikip ucuncu taramada masum tusu dusururdu."""
+    from cascade import dispatch as dispatch_module
+
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    assert box._reconcile(1.0) == []
+    monkeypatch.setattr(dispatch_module.send, "is_down", lambda vk: vk == CTRL)
+    assert box._reconcile(1.5) == []
+    monkeypatch.setattr(dispatch_module.send, "is_down", lambda vk: False)
+    assert box._reconcile(2.0) == []  # suphe bastan basliyor
+    assert box._reconcile(2.5) == [CTRL]
 
 
 def test_temizleyici_gercekten_basili_tusa_dokunmaz(monkeypatch):
@@ -562,16 +593,16 @@ def test_temizleyici_dusurdugu_onegin_eylemini_CALISTIRMAZ():
     box = make_dispatcher()
     feed(box, CTRL, True, 0.0)
     box._reconcile(1.0)
+    box._reconcile(1.5)
     assert _drain(box.actions) == []
-    assert box.tick(1.0) == []
+    assert box.tick(1.5) == []
 
 
 def test_temizleyici_araligi_beklemeden_iki_kez_taramaz():
     box = make_dispatcher()
     feed(box, CTRL, True, 0.0)
-    assert box._reconcile(1.0) == [CTRL]
-    feed(box, CTRL, True, 1.05)
-    assert box._reconcile(1.05) == []  # 250 ms dolmadi
+    box._reconcile(1.0)  # suphe kaydedildi
+    assert box._reconcile(1.05) == []  # 250 ms dolmadi: tarama hic yapilmadi
     assert box._reconcile(1.5) == [CTRL]
 
 

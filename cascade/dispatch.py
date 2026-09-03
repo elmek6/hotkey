@@ -60,6 +60,15 @@ RECONCILE_SECONDS = 0.25
 #: der. Onlar icin tek olcut sure -- bu kadar suredir basili gorunen bir
 #: onek insan eli degildir.
 STALE_HOLD_SECONDS = 30.0
+#: GetAsyncKeyState olcutu TEK taramayla karar VERMEZ: hook callback'i ayri
+#: thread'de kosar ve GIL'i ana thread'den devralmasi milisaniye alabilir --
+#: kullanici tusu birakmisken BIRAKMA OLAYI henuz islenmemis olur. O aralikta
+#: tus hem "basili" listesinde durur hem de Windows "basili degil" der; normal
+#: yazarken dakikada birkac tus sahte hayalet sayiliyordu ("0.0 sn basili
+#: gorunuyordu" satirlari tam olarak bunlardi ve WARNING olduklari icin tepsi
+#: rozetine dusuyorlardi). Gercek hayalet (UAC / Win+L) sonsuza kadar durur,
+#: ikinci taramayi beklemenin bedeli yok. Sure olcutu (STALE_HOLD_SECONDS) bu
+#: kapiya girmez: 30 saniye zaten en guclu dogrulama.
 
 
 class Dispatcher:
@@ -144,6 +153,10 @@ class Dispatcher:
         #: (tani ekraninda gorunuyor -- app.show_monitor).
         self._reconcile_t = 0.0
         self.phantom_drops = 0
+        #: Bir onceki taramada hayalet GORUNEN tuslar: sure olcutu disinda
+        #: dusurmek icin ust uste iki tarama sart (bkz. STALE_HOLD_SECONDS
+        #: altindaki aciklama).
+        self._suspects: set[int] = set()
 
     def watch(self, vk: int) -> None:
         """Bu tusun basili/birakildi durumunu izle (ui/snip.py yokluyor).
@@ -337,6 +350,9 @@ class Dispatcher:
         Windows'a sorulamaz: yutulan keydown tus durumu tablosuna hic
         islemez, GetAsyncKeyState onlara her zaman "basili degil" der --
         sorsaydik F13 basiliyken onegi kendi elimizle dusururduk.
+
+        GetAsyncKeyState olcutu ust uste IKI taramada ayni cevabi vermeden
+        kimseyi dusurmez -- sebebi STALE_HOLD_SECONDS'in altinda yaziyor.
         """
         if now - self._reconcile_t < RECONCILE_SECONDS:
             return []
@@ -344,6 +360,7 @@ class Dispatcher:
         # (vk, basildigi an) -- sure LOG icin gerekiyor ve `_forget`ten sonra
         # sorulamaz. `or` ile secilemez: ilk tusun ani 0.0 olabilir.
         phantoms: list[tuple[int, float | None]] = []
+        suspects: set[int] = set()
         seen: set[int] = set()
         for vk in (*self.tracker.held, *self.prefixes.held):
             if vk in seen or vk > 0xFF:
@@ -358,7 +375,14 @@ class Dispatcher:
                     continue  # yutuldu: Windows'a soramayiz, sure disinda olcut yok
             elif send.is_down(vk) and not stale:
                 continue  # gercekten basili
+            elif not stale:
+                # Windows "basili degil" diyor ama sure olcutu dolmadi:
+                # birakma olayi YOLDA olabilir, ikinci taramayi bekle.
+                suspects.add(vk)
+                if vk not in self._suspects:
+                    continue
             phantoms.append((vk, started))
+        self._suspects = suspects
         for vk, started in phantoms:
             log.warning(
                 "hayalet tus dusuruldu: %s (%.1f sn basili gorunuyordu)",
@@ -425,6 +449,7 @@ class Dispatcher:
         self._pending_tap.clear()
         self._passed_through.clear()
         self._hk_swallowed.clear()
+        self._suspects.clear()
 
     # ---- ic akis (hepsi hook thread'inde) ----
 
