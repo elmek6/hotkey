@@ -84,6 +84,20 @@ class PrefixTracker:
     def is_down(self, vk: int) -> bool:
         return vk in self._down
 
+    def held_since(self, vk: int) -> float | None:
+        """Onegin basildigi an -- hayalet temizleyicisi icin (bkz. ComboTracker)."""
+        return self._down.get(vk)
+
+    def forget(self, vk: int) -> None:
+        """Onegi HIC BIR EYLEM URETMEDEN dusur.
+
+        `key_up` basim turune karar verir ve tap/hold eylemi dondurur;
+        hayalet bir tus icin o eylemin calismasi tam da onlemek istedigimiz
+        sey (kimse basmadi ki). Bu yuzden ayri bir kapi.
+        """
+        self._down.pop(vk, None)
+        self._used.discard(vk)
+
     def is_used(self, vk: int) -> bool:
         """Bu basimda kombo/surukleme/hold calisti mi -- ikinci kez tetiklenmesin."""
         return vk in self._used

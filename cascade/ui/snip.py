@@ -1218,6 +1218,22 @@ class SnipOverlay(QWidget):
         if event.key() == Qt.Key.Key_Escape:
             self.close()
             return
+        # FARENIN KOPYALA TUSU. F20 kaskadi kisa basimda `^c` gonderiyor
+        # (keymap.build_cascades) ve o tus, secim penceresi ondeyken bize
+        # geliyordu -- ama burada Ctrl+C'nin bir anlami yoktu, tus hicbir
+        # sey yapmadan dusuyordu. Cubuktaki "Kopyala" dugmesi calisiyor,
+        # farenin tusu calismiyordu; ikisi ayni isi yapmali.
+        #
+        # Metin kutusuna (Area adi, IFTTT metni) yazarken calismaz: Qt
+        # olayi once odaktaki widget'a verir, QLineEdit Ctrl+C'yi kendi
+        # yer ve buraya hic yukselmez -- ayrica bir kontrole gerek yok.
+        if (
+            event.key() == Qt.Key.Key_C
+            and event.modifiers() == Qt.KeyboardModifier.ControlModifier
+            and not self._rect.normalized().isEmpty()
+        ):
+            self._finish("copy")
+            return
         super().keyPressEvent(event)
 
     def paintEvent(self, _event) -> None:

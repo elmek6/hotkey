@@ -14,6 +14,13 @@ Hangi tusun ne yaptigi keymap.py'nin dosya basinda listeli.
 Calistir:  hotkey.vbs         cift tiklama, konsol yok, normal kullanim
                               (cokerse konsolda yeniden baslatmayi kendi onerir)
            VSCode F5          "cascade (ana program)"
+
+Cikis kodlari -- gozetmen (hotkey.vbs) bunlara gore davraniyor:
+
+    0                    normal cikis
+    2  ALREADY_RUNNING   bu oturumda zaten bir cascade var (cokme DEGIL)
+    3  RESTART           yerimize bir cocuk baslatildi (cokme DEGIL)
+    digeri               gercek cokme: uv sync + bir kez daha denenir
 """
 
 from __future__ import annotations
@@ -26,8 +33,20 @@ from cascade import logs
 from cascade.app import Cascade
 from cascade.win32.instance import SingleInstance
 
+#: Gozetmene (hotkey.vbs) "cokme degil" diyen cikis kodu: bu oturumda
+#: zaten bir cascade var. Sifirdan farkli her kodu cokme sayan gozetmen
+#: bunun icin bosuna `uv sync` calistirip hata kutusu aciyordu.
+EXIT_ALREADY_RUNNING = 2
+
 
 def main() -> int:
+    # GIL DEVRI: varsayilan 5 ms. Dusuk seviye hook callback'i AYRI bir
+    # thread'de kosuyor ve Windows'un butcesi 300 ms; ana thread uzun bir
+    # Python isi yaparken (ayar okuma, liste kurma) callback her GIL
+    # devrini beklemek zorunda ve gecikme birikiyor. 1 ms'ye cekmek
+    # callback'i yuk altinda one aliyor -- asilirsa hook SESSIZCE dusuyor
+    # ve program ayakta gorunurken hicbir tus calismiyor.
+    sys.setswitchinterval(0.001)
     logs.setup()
     logs.install_qt_handler()
     app = QApplication(sys.argv)
@@ -47,13 +66,13 @@ def main() -> int:
         QMessageBox.warning(
             None, "cascade", "Onceki cascade kapanmadi; yenisi baslatilamadi."
         )
-        return 1
+        return EXIT_ALREADY_RUNNING
 
     cascade = Cascade(app, lock)  # referans sart: PySide6 sinyalleri zayif tutar
     # Bizden sonra acilan ornek kilidi isterse yerimizi birakiriz.
     lock.watch_quit(cascade.request_quit)
     try:
-        return app.exec()
+        return app.exec()  # EXIT_RESTART ise yerimize bir cocuk baslatildi
     finally:
         cascade.on_exit()
         lock.release()

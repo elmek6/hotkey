@@ -87,6 +87,15 @@ class ComboTracker:
     def is_down(self, vk: int) -> bool:
         return vk in self._down
 
+    def held_since(self, vk: int) -> float | None:
+        """Tusun basildigi an (perf_counter) -- basili degilse None.
+
+        Hayalet tus temizleyicisi (dispatch.Dispatcher._reconcile) buna
+        bakiyor: keyup'i kaybolmus bir tus sonsuza kadar "basili" kalir ve
+        ondan sonraki her komboyu bozar.
+        """
+        return self._down.get(vk)
+
     def reset(self) -> None:
         """Odak kaybi / hook yeniden kurulumu sonrasi hayalet tuslari temizler."""
         self._down.clear()

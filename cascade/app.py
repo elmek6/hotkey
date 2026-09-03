@@ -19,7 +19,6 @@ giris ve kilitlenme olur.
 
 from __future__ import annotations
 
-import contextlib
 import ctypes
 import html
 import logging
@@ -94,6 +93,27 @@ user32 = ctypes.windll.user32
 
 # restart() cocuk surece bunu gecer: eski ornek kilidi birakana kadar bekle.
 RESTART_FLAG = "--restart"
+
+#: "Yeniden baslat" cikis kodu. Gozetmen (hotkey.vbs) bunu cokme SAYMAZ;
+#: gorunce programi kendisi tekrar calistirir.
+EXIT_RESTART = 3
+
+#: Gozetmen bu bayragi gecerek "seni ben calistirdim ve BEKLIYORUM" diyor.
+#: Bayrak varsa yeniden baslatma hicbir surec BASLATMAZ: sadece
+#: EXIT_RESTART ile cikariz, ayni gozetmen programi tekrar calistirir.
+#:
+#: Eskiden yerimize yeni bir `wscript hotkey.vbs` aciyorduk ve bir sure
+#: IKI gozetmen birden yasiyordu -- ikisi de ayni konsol gunlugunu yazmak
+#: isteyince cmd "dosya kullanimda" deyip cocugu HIC baslatmiyordu. Iki
+#: bekci zaten gereksizdi: tek program calistiriyoruz, basinda tek bekci
+#: olmali. Bayrak yoksa (VSCode F5 / dogrudan python) eski yol geceli:
+#: cocugu kendimiz baslatiyoruz, yoksa "yeniden baslat" cikis olurdu.
+SUPERVISED_FLAG = "--supervised"
+
+#: Gozetmenin aninda olup olmadigini anlamak icin beklenen sure. Cocuk
+#: saglamsa wscript uygulama boyunca ayakta kalir; bu surede olduyse
+#: baslatamamis demektir ve dogrudan python ile yeniden deneniyor.
+SUPERVISOR_PROBE_SECONDS = 0.5
 
 # VSCode F5 (debugpy) programi KILL_ON_JOB_CLOSE bayrakli bir job'a koyuyor;
 # debugger kapaninca job'daki HER surec olduruluyor -- yeniden baslattigimiz
@@ -264,7 +284,6 @@ class Cascade:
         #: Cikista sabitlenen pencereler birakilsin mi. `restart` kapatiyor.
         self._release_pins_on_exit = True
 
-        self.events: queue.Queue = queue.Queue(maxsize=4096)
         self.actions: queue.Queue = queue.Queue(maxsize=4096)
         self.seen: queue.Queue = queue.Queue(maxsize=4096)
 
@@ -293,8 +312,11 @@ class Cascade:
         # yol da ayni yerden gecsin.
         keymap.VIRTUAL_MOUSE.subscribe(lambda value, old: self.rebuild_hotkeys())
 
+        # Ham olay kuyrugu ISTENMIYOR (birinci konum bos): olaylari
+        # `seen` kuyrugundan aliyoruz. Hook'un kendi kuyrugu buraya kadar
+        # doluyor ve `_drain` icinde okunmadan bosaltiliyordu -- olay
+        # basina 4 mikrosaniye, hem de callback'in icinde.
         self.hook = HookThread(
-            self.events,
             key_filter=self.dispatcher.key_filter,
             mouse_filter=self.dispatcher.mouse_filter,
             # Jest icin sart. Hareket olayi sik gelir (saniyede yuzlerce),
@@ -482,7 +504,6 @@ class Cascade:
         self._idle_timer = QTimer(app)
         self._idle_timer.timeout.connect(self._idle_tick)
 
-        self.hook.start()
         # Oturum kapanmasi / gorev sonlandirma da OnExit'i calistirsin.
         app.aboutToQuit.connect(self.on_exit)
         self.on_start()
@@ -494,6 +515,23 @@ class Cascade:
         self._tick_timer = QTimer(app)
         self._tick_timer.timeout.connect(self._tick)
         self._tick_timer.start(20)
+
+        # HOOK EN SON KURULUYOR. Eskiden `on_start`ten ONCE kuruluyordu ve
+        # ACILISTA ISIRIYORDU: `on_start` ayar/pano dosyalarini okuyup
+        # ayristirirken GIL ana thread'de kaliyor, o sirada gelen ilk
+        # callback'ler gecikiyor ve Windows 300 ms'yi asan hook'u SESSIZCE
+        # dusuruyor. Bilgisayar acilirken disk ve CPU zaten dolu oldugu
+        # icin tam da o anda oluyordu: tepsi simgesi yerinde, program
+        # ayakta, hicbir tus calismiyor. Kurulumu yukun BITTIGI yere almak
+        # sebebi ortadan kaldiriyor; nobetci yine de duruyor -- acilis tek
+        # sebep degil.
+        self.hook.start()
+
+        # NOBETCI: hook sessizce dusuruldu mu diye yokluyor, dusmusse
+        # yeniden kuruyor (win32/hook.py `looks_dead`).
+        self._watchdog_timer = QTimer(app)
+        self._watchdog_timer.timeout.connect(self._watchdog_tick)
+        self._watchdog_timer.start(2000)
 
 
     # ---- pano (ana thread) ----
@@ -662,10 +700,13 @@ class Cascade:
     def _on_snip_done(self, action: str, image: QImage) -> None:
         """Secim bitti: eylem kimligi ui/snip.py ACTIONS tablosundan gelir."""
         if action == "copy":
+            # Ipucunu BIZ gostermiyoruz. Panoya resim koyunca pano
+            # dinleyicisi zaten uyaniyor (clip_ctl.on_other): gorseli
+            # gecmise yaziyor ve KUCUK RESIMLI ipucunu kendisi cikariyor.
+            # Ikisi birden calisinca ard arda IKI ipucu goruluyordu -- biri
+            # duz metin, oteki resimli. Resimli olan hem olcuyu veriyor hem
+            # neyi kopyaladigini gosteriyor; buradaki yalnizca fazlaligi.
             QGuiApplication.clipboard().setImage(image)
-            self.tip.show_html(
-                f"\U0001f4cb <b>goruntu panoda</b> {image.width()}x{image.height()}", 1500
-            )
         elif action == "save":
             self.save_capture(image)
         elif action == "clip_image":
@@ -1046,6 +1087,8 @@ class Cascade:
             f"cascade {VERSION} - son hatalar",
             f"Hook callback  : en uzun {self.hook.max_callback_ms:.3f} ms (sinir 300)\n"
             f"Dusen olay     : {self.hook.dropped}\n"
+            f"Hook tamiri    : {self.hook.reinstalls} kez yeniden kuruldu\n"
+            f"Hayalet tus    : {self.dispatcher.phantom_drops} dusuruldu\n"
             f"Pano kaydi     : {len(self.clip.history)}\n"
             f"Yutulan cift tik: {self._bounce_count} (arizali fare)\n"
             f"Log dosyasi    : {paths.LOG}\n\n"
@@ -1363,10 +1406,6 @@ class Cascade:
     # ---- ana thread dongusu ----
 
     def _drain(self) -> None:
-        while not self.events.empty():
-            with contextlib.suppress(queue.Empty):
-                self.events.get_nowait()  # HookThread'in kendi kuyrugu; kullanmiyoruz
-
         showing = self.monitor.isVisible()
         for _ in range(200):
             try:
@@ -1399,6 +1438,39 @@ class Cascade:
         for vk, action in self.dispatcher.tick(now):
             log.debug("basili tutma: %s -> %s", key_name(vk), action)
             self.runner.run(action)
+
+    def _watchdog_tick(self) -> None:
+        """Hook hala ayakta mi? Degilse yeniden kur -- KENDI KENDINI TAMIR.
+
+        Windows, callback'i LowLevelHooksTimeout'u (300 ms) asan hook'u
+        haber vermeden zincirden cikariyor. Program o andan sonra ayakta
+        GORUNUR ama hicbir tus calismaz; tek care yeniden kurmak.
+
+        `dispatcher.reset()` sart: hook olu gectigi surede birakma olaylari
+        kayboldu, geride hayalet tuslar kalir (bkz. dispatch._reconcile).
+        """
+        if self._exited:
+            return
+        try:
+            if not self.hook.ensure_alive(time.perf_counter()):
+                return
+        except Exception:
+            # SetWindowsHookEx her zaman basarili olmaz (oturum degisimi,
+            # kaynak sikintisi). Zamanlayici yuvasindan disari kacan bir
+            # hata programi dusururdu; iki saniye sonra tekrar denenecek.
+            log.exception("hook yeniden kurulamadi, sonraki turda tekrar denenecek")
+            return
+        self.dispatcher.reset()
+        log.warning(
+            "hook dusmustu, yeniden kuruldu (%d. kez, en uzun callback %.1f ms)",
+            self.hook.reinstalls,
+            self.hook.max_callback_ms,
+        )
+        self.tip.show_html(
+            "🔁 <b>hook yeniden kuruldu</b><br>"
+            "<span style='color:#8b949e;'>Windows dusurmustu; tuslar geri geldi</span>",
+            2500,
+        )
 
     def _apply(self, action) -> None:
         if isinstance(action, Run):
@@ -1661,6 +1733,12 @@ class Cascade:
     def restart(self) -> None:
         """AHK: Pause+Home -> reloadScript()
 
+        GOZETMEN ALTINDAYSAK (hotkey.vbs, normal kullanim) hicbir surec
+        baslatilmaz: EXIT_RESTART ile cikariz, bizi bekleyen bekci programi
+        tekrar calistirir. Asagisi yalnizca gozetmensiz calisirken (VSCode
+        F5, dogrudan python) gecerli -- orada cocugu kendimiz acmazsak
+        "yeniden baslat" duz bir cikis olurdu.
+
         Cocuk surec AYRIK ve JOB DISINDA baslatilir:
 
         * SIRA ONEMLI: once kendi kapanisimiz (pano diske yazilir, hook
@@ -1687,6 +1765,15 @@ class Cascade:
         if self.lock is not None:
             self.lock.release()
 
+        if SUPERVISED_FLAG in sys.argv:
+            # Bekci kapida bekliyor: ona "beni tekrar calistir" demek icin
+            # cikis kodu yetiyor. Surec baslatmiyoruz -- ne ikinci bir
+            # gozetmen, ne konsol gunlugu icin bogusma, ne de "cocuk
+            # kalkabildi mi" sorusu.
+            log.info("yeniden baslatiliyor (gozetmen devraliyor)")
+            self.app.exit(EXIT_RESTART)
+            return
+
         executable = sys.executable
         pythonw = os.path.join(os.path.dirname(executable), "pythonw.exe")
         if os.path.exists(pythonw):
@@ -1698,38 +1785,63 @@ class Cascade:
         supervisor = os.path.join(paths.ROOT, "hotkey.vbs")
         windir = os.environ.get("SYSTEMROOT") or "C:\\Windows"
         wscript = os.path.join(windir, "System32", "wscript.exe")
-        if os.path.exists(supervisor) and os.path.exists(wscript):
-            command = [wscript, supervisor, RESTART_FLAG]
-        else:
-            command = [executable, script, RESTART_FLAG]
-        base_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        direct = [executable, script, RESTART_FLAG]
+        via_supervisor = os.path.exists(supervisor) and os.path.exists(wscript)
+        command = [wscript, supervisor, RESTART_FLAG] if via_supervisor else direct
         try:
-            try:
-                subprocess.Popen(
-                    command,
-                    cwd=str(paths.ROOT),
-                    close_fds=True,
-                    env=_child_env(),
-                    creationflags=base_flags | CREATE_BREAKAWAY_FROM_JOB,
-                )
-            except OSError:
-                # Job breakaway'e izin vermiyorsa (debugpy veriyor, ama
-                # baska bir sarmalayici vermeyebilir) bayraksiz dene.
-                subprocess.Popen(
-                    command,
-                    cwd=str(paths.ROOT),
-                    close_fds=True,
-                    env=_child_env(),
-                    creationflags=base_flags,
-                )
+            child = self._spawn(command)
         except OSError as exc:
             # Sessizce cikmaktansa soyle: eskiden "yeniden baslat" cikis gibi
             # gorunuyordu, cunku hata kimseye ulasmiyordu.
             QMessageBox.critical(None, "cascade", f"Yeniden baslatilamadi: {exc}")
             self.app.quit()
             return
-        log.info("yeniden baslatiliyor")
+
+        # COCUK GERCEKTEN KALKTI MI? Gozetmen (wscript) uygulama boyunca
+        # ayakta kalir -- yarim saniyede olduyse baslatamamis demektir ve
+        # geriye HICBIR SEY kalmaz: "yeniden baslat dedim, program kapanip
+        # gitti" tam olarak bu. Kod cerezi degil: WSH kayitli degilse,
+        # bir politika wscript'i engelliyorsa ya da .vbs uzantisi baska bir
+        # programa baglanmissa bu yol sessizce olur.
+        if via_supervisor:
+            time.sleep(SUPERVISOR_PROBE_SECONDS)
+            if child.poll() is not None:
+                log.warning(
+                    "gozetmen aninda oldu (kod %s), dogrudan python deneniyor",
+                    child.returncode,
+                )
+                try:
+                    self._spawn(direct)
+                except OSError as exc:
+                    QMessageBox.critical(
+                        None, "cascade", f"Yeniden baslatilamadi: {exc}"
+                    )
+                    self.app.quit()
+                    return
+        log.info("yeniden baslatiliyor (gozetmensiz: cocugu kendimiz actik)")
         self.app.quit()
+
+    def _spawn(self, command: list[str]):
+        """Ayrik, job'dan kopmus cocuk surec. Bkz. `restart` notlari."""
+        base_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        try:
+            return subprocess.Popen(
+                command,
+                cwd=str(paths.ROOT),
+                close_fds=True,
+                env=_child_env(),
+                creationflags=base_flags | CREATE_BREAKAWAY_FROM_JOB,
+            )
+        except OSError:
+            # Job breakaway'e izin vermiyorsa (debugpy veriyor, ama baska
+            # bir sarmalayici vermeyebilir) bayraksiz dene.
+            return subprocess.Popen(
+                command,
+                cwd=str(paths.ROOT),
+                close_fds=True,
+                env=_child_env(),
+                creationflags=base_flags,
+            )
 
     def request_quit(self) -> None:
         """Yeni bir ornek acildi: yerimizi birak (win32/instance.py).
@@ -1754,6 +1866,7 @@ class Cascade:
         logs.errors.unsubscribe(self._error_sub)
         self._drain_timer.stop()
         self._tick_timer.stop()
+        self._watchdog_timer.stop()
         self.clip.close()
         self.filter_window.close()
         self.snip.close()

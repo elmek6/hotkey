@@ -491,3 +491,135 @@ def test_kurtarma_eslesme_bulamazsa_tus_serbest_gecer():
     result = feed(box, 0x23, True, 0.1)  # End: hicbir tanimda yok
     assert result[0] is False
     assert actions(result) == []
+
+
+# ---- hayalet tus temizleyicisi (Dispatcher._reconcile) ----------------------
+
+
+def test_hayalet_modifier_onek_tusunu_oldurur():
+    """ARIZANIN KENDISI: keyup'i kaybolan bir Ctrl F13/F14'u sessizce oldurur.
+
+    Onek yoluna girmenin sarti `not chord.modifiers` (bkz. `_hotkey_key`);
+    sahte Ctrl o sarti bozar, tus yutulmaz ve hicbir eylem uretilmez.
+    Kaskad makinesi (F15..F20) modifier'a bakmadigi icin o tuslar
+    calismaya devam eder -- "fare tuslarinin bir kismi oldu" tablosu.
+    """
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)  # BIRAKMASI hic gelmiyor (UAC / Win+L)
+    result = feed(box, F13, True, 1.0)
+    assert result[0] is False
+    assert actions(result) == []
+
+
+def test_temizleyici_hayalet_modifieri_dusurur_ve_onek_geri_gelir():
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    assert box._reconcile(1.0) == [CTRL]
+    assert box.phantom_drops == 1
+    # Onek yolu geri geldi: F13 yeniden yutuluyor.
+    assert feed(box, F13, True, 2.0)[0] is True
+
+
+def test_temizleyici_gercekten_basili_tusa_dokunmaz(monkeypatch):
+    """Olcut GetAsyncKeyState: kullanici Ctrl'yi hala tutuyorsa dusurulmez."""
+    from cascade import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "is_down", lambda vk: vk == CTRL)
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    assert box._reconcile(1.0) == []
+    assert box.tracker.is_down(CTRL) is True
+
+
+def test_temizleyici_yuttugumuz_onegi_hemen_dusurmez():
+    """F13'un keydown'ini YUTTUK: Windows'un tus durumu tablosu onu hic
+    gormedi, GetAsyncKeyState "basili degil" der. Sorup dusurseydik
+    kullanici F13'u basili tutarken onegi elimizle iptal ederdik."""
+    box = make_dispatcher()
+    feed(box, F13, True, 0.0)
+    assert box._reconcile(1.0) == []
+    assert box.prefixes.is_down(F13) is True
+
+
+def test_temizleyici_takilan_onegi_sure_dolunca_dusurur():
+    """Yutulan tusun tek olcutu sure: 30 sn basili gorunen onek hayalettir.
+
+    Takili kalirsa ondan sonraki HER tus `F13 & X` sanilir -- F15 kendi
+    kaskadi (^y) yerine slot yapistirir.
+    """
+    box = make_dispatcher()
+    box.hotkeys.add("F13 & F16", "slot.paste:1", "slot 1")
+    feed(box, F13, True, 0.0)
+    assert actions(feed(box, F16, True, 1.0)) == ["slot.paste:1"]  # yanlis eylem
+    assert box._reconcile(20.0) == []  # sure dolmadi
+    assert box._reconcile(40.0) == [F13, F16]  # F16'nin birakmasi da gelmemisti
+    assert box.prefixes.is_down(F13) is False
+
+
+def test_temizleyici_dusurdugu_onegin_eylemini_CALISTIRMAZ():
+    """`prefixes.forget` kullaniliyor: `key_up` olsaydi kimsenin basmadigi
+    tusun tap/hold eylemi (menu) kendiliginden acilirdi."""
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    box._reconcile(1.0)
+    assert _drain(box.actions) == []
+    assert box.tick(1.0) == []
+
+
+def test_temizleyici_araligi_beklemeden_iki_kez_taramaz():
+    box = make_dispatcher()
+    feed(box, CTRL, True, 0.0)
+    assert box._reconcile(1.0) == [CTRL]
+    feed(box, CTRL, True, 1.05)
+    assert box._reconcile(1.05) == []  # 250 ms dolmadi
+    assert box._reconcile(1.5) == [CTRL]
+
+
+# ---- hook nobetcisi (win32/hook.py looks_dead) ------------------------------
+
+
+def _hook(monkeypatch, idle_ms: float, alive: bool = True):
+    """Gercek hook kurmadan nobetci mantigini deneyen sahte HookThread."""
+    import queue as _queue
+    import threading
+
+    from cascade.win32 import hook as hook_module
+
+    monkeypatch.setattr(hook_module, "system_idle_ms", lambda: idle_ms)
+    thread = hook_module.HookThread(_queue.Queue())
+    thread._thread = threading.current_thread() if alive else None
+    thread._kb_hook = thread._ms_hook = 1  # kurulmus gibi
+    return thread
+
+
+def test_nobetci_bosta_oturan_kullanicida_yanlis_alarm_vermez(monkeypatch):
+    """Kimse dokunmuyorsa iki sure birlikte buyur, fark acilmaz."""
+    box = _hook(monkeypatch, idle_ms=600_000.0)  # 10 dakikadir girdi yok
+    box.last_event = 0.0
+    assert box.looks_dead(600.0) is False
+
+
+def test_nobetci_sistem_girdi_gorup_biz_gormeyince_olu_der(monkeypatch):
+    """ARIZANIN IMZASI: kullanici yaziyor, callback hic cagrilmiyor."""
+    box = _hook(monkeypatch, idle_ms=50.0)  # sistem 50 ms once girdi gordu
+    box.last_event = 0.0
+    assert box.looks_dead(10.0) is True  # biz 10 saniyedir hicbir sey gormedik
+
+
+def test_nobetci_normal_kullanimda_susar(monkeypatch):
+    box = _hook(monkeypatch, idle_ms=40.0)
+    box.last_event = 9.95  # olayi biz de az once gorduk
+    assert box.looks_dead(10.0) is False
+
+
+def test_nobetci_thread_olunce_olu_der(monkeypatch):
+    box = _hook(monkeypatch, idle_ms=600_000.0, alive=False)
+    box.last_event = 10.0
+    assert box.looks_dead(10.0) is True
+
+
+def test_nobetci_GetLastInputInfo_basarisizsa_alarm_vermez(monkeypatch):
+    """Sonsuz bosta suresi: "sistem de girdi gormedi" -> saglam say."""
+    box = _hook(monkeypatch, idle_ms=float("inf"))
+    box.last_event = 0.0
+    assert box.looks_dead(3600.0) is False

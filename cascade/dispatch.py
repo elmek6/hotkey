@@ -21,6 +21,7 @@ Karar sirasi (her iki filtre icin ayni):
 from __future__ import annotations
 
 import contextlib
+import logging
 import queue
 from collections.abc import Callable
 
@@ -45,6 +46,20 @@ VK_LBUTTON = 0x01
 # tiklamada iki basim arasi 100 ms'nin altina inmez (Windows'un cift tik
 # suresi 500 ms), o yuzden bu esik normal kullanimi bozmaz.
 DOUBLE_CLICK_MS = 70.0
+
+log = logging.getLogger("cascade.dispatch")
+
+# HAYALET TUS TEMIZLEYICISI (bkz. Dispatcher._reconcile). Tarama Qt
+# thread'inde, `tick` icinden yapilir -- hook callback'ine dokunulmaz.
+#: Iki tarama arasindaki en kisa sure. 250 ms: kullanicinin "tuslar oldu"
+#: diyecek kadar bekleyemeyecegi, ama saniyede 50 kez GetAsyncKeyState
+#: cagirmayacak kadar seyrek.
+RECONCILE_SECONDS = 0.25
+#: YUTTUGUMUZ tusun gercek durumu Windows'a sorulamaz: yutulan keydown tus
+#: durumu tablosuna hic islemez, GetAsyncKeyState her zaman "basili degil"
+#: der. Onlar icin tek olcut sure -- bu kadar suredir basili gorunen bir
+#: onek insan eli degildir.
+STALE_HOLD_SECONDS = 30.0
 
 
 class Dispatcher:
@@ -125,6 +140,10 @@ class Dispatcher:
         self._bounce_up = False
         #: Filtre kapatilabilsin diye ayri bayrak (tepsi/menu ile acilir).
         self.double_click_guard = True
+        #: Son hayalet tus taramasinin ani ve toplam dusurulen tus sayisi
+        #: (tani ekraninda gorunuyor -- app.show_monitor).
+        self._reconcile_t = 0.0
+        self.phantom_drops = 0
 
     def watch(self, vk: int) -> None:
         """Bu tusun basili/birakildi durumunu izle (ui/snip.py yokluyor).
@@ -284,6 +303,7 @@ class Dispatcher:
         birakilinca karar veriliyor (AHK ile ayni, bkz. `PrefixTracker.key_up`).
         Geriye yalniz cift basim penceresi kaldi.
         """
+        self._reconcile(now)
         fired: list[tuple[int, str]] = []
         # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
         for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
@@ -291,6 +311,85 @@ class Dispatcher:
                 del self._pending_tap[vk]
                 fired.append((vk, action))
         return fired
+
+    # ---- hayalet tus temizleyicisi (Qt thread) ----
+
+    def _reconcile(self, now: float) -> list[int]:
+        """Birakma olayi KAYBOLMUS tuslari dusurur -- kendi kendini tamir.
+
+        Bir tusun keyup'i hook'a hic ulasmayabilir: UAC / Ctrl+Alt+Del
+        guvenli masaustunde LL hook calismaz, Win+L ile kilitlenen oturumda
+        da oyle; Windows hook'u zaman asimindan dusurup geri takarsa da
+        aradaki olaylar kaybolur. Geride kalan hayaletin iki zarari var:
+
+            hayalet MODIFIER -- `_hotkey_key`'in onek yoluna girmesi icin
+            `not chord.modifiers` sarti var. Sahte bir Ctrl F13 ve F14'u
+            SESSIZCE oldurur: hicbir sey yutulmaz, hicbir eylem uretilmez.
+            F15..F20 kaskad makinesinden geciyor ve o makine modifier'a hic
+            bakmiyor, yani calismaya devam ederler -- "fare tuslarinin bir
+            kismi oldu, otekiler duruyor" tablosunun sebebi tam olarak bu.
+
+            hayalet ONEK -- ondan sonraki her tus `F13 & X` sanilir.
+            (`_rescue_match` yalnizca eslesme BOSA CIKINCA kurtariyor;
+            gecerli bir kombo varsa yanlis eylem calisir.)
+
+        Olcut ikiye ayriliyor, cunku YUTTUGUMUZ tusun gercek durumu
+        Windows'a sorulamaz: yutulan keydown tus durumu tablosuna hic
+        islemez, GetAsyncKeyState onlara her zaman "basili degil" der --
+        sorsaydik F13 basiliyken onegi kendi elimizle dusururduk.
+        """
+        if now - self._reconcile_t < RECONCILE_SECONDS:
+            return []
+        self._reconcile_t = now
+        # (vk, basildigi an) -- sure LOG icin gerekiyor ve `_forget`ten sonra
+        # sorulamaz. `or` ile secilemez: ilk tusun ani 0.0 olabilir.
+        phantoms: list[tuple[int, float | None]] = []
+        seen: set[int] = set()
+        for vk in (*self.tracker.held, *self.prefixes.held):
+            if vk in seen or vk > 0xFF:
+                continue  # tekerlek takma kodu: birakma olayi zaten yok
+            seen.add(vk)
+            started = self.tracker.held_since(vk)
+            if started is None:
+                started = self.prefixes.held_since(vk)
+            stale = started is not None and (now - started) > STALE_HOLD_SECONDS
+            if vk in self._hk_swallowed:
+                if not stale:
+                    continue  # yutuldu: Windows'a soramayiz, sure disinda olcut yok
+            elif send.is_down(vk) and not stale:
+                continue  # gercekten basili
+            phantoms.append((vk, started))
+        for vk, started in phantoms:
+            log.warning(
+                "hayalet tus dusuruldu: %s (%.1f sn basili gorunuyordu)",
+                key_name(vk),
+                now - started if started is not None else 0.0,
+            )
+            self._forget(vk, now)
+        self.phantom_drops += len(phantoms)
+        return [vk for vk, _started in phantoms]
+
+    def _forget(self, vk: int, now: float) -> None:
+        """Hayalet tusu durumdan HIC EYLEM URETMEDEN siler.
+
+        `prefixes.key_up` degil `prefixes.forget`: birincisi basim turune
+        karar verip tap/hold eylemi dondururdu -- kimsenin basmadigi bir
+        tusun menusunu acmak, duzeltmek istedigimiz seyin ta kendisi.
+        """
+        self.tracker.key_up(vk, now)
+        self.prefixes.forget(vk)
+        self._hk_swallowed.discard(vk)
+        self._passed_through.discard(vk)
+        self._pending_tap.pop(vk, None)
+        if self._watch_vk == vk:
+            self._watch_down = False
+        # Jest kapanisi YALNIZCA bu tus jest yapiyorduysa: `_end_gesture`
+        # ipucunu gizleyen bir eylem kuyruga atiyor, her hayalette bir
+        # `tip.hide` uretmek gereksiz gurultu olurdu.
+        if self.gestures.stop(vk) and not self.gestures.watching:
+            self._end_gesture()
+        if vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
+            self._prefix_at = None
 
     @property
     def ui_open(self) -> bool:
