@@ -36,7 +36,7 @@ from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from cascade import autostart, keymap, logs, paths, repository, theme
-from cascade.actions import ActionRunner, beep
+from cascade.actions import ActionRunner, beep, command
 from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
 from cascade.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
@@ -324,6 +324,11 @@ class Cascade:
             watch_mouse_move=True,
         )
 
+        # Burada kalanlar: isi BASKA bir nesnenin yaptigi kayitlar (tip,
+        # mem_slots, magnifier) ve tek metodun iki ayri kimlikle farkli
+        # parametre aldigi haller. Cascade'in kendi metoduna giden kayitlar
+        # metodun ustundeki `@command` ile veriliyor -- kimlik ile is ayni
+        # yerde dursun (bkz. actions.command / ActionRunner.adopt).
         # tip: imlecin yaninda 2 sn gorunup kaybolur.  notify: kalici tepsi balonu.
         self.runner.register("tip", lambda text: self.tip.show_text(text, 2000))
         # Jest bitince ipucu da gitsin: 2 sn'lik sure jestten sonra da ekranda
@@ -331,29 +336,11 @@ class Cascade:
         self.runner.register("tip.hide", lambda _: self.tip.hide())
         self.runner.register("tip_html", lambda body: self.tip.show_html(body, 2000))
         self.runner.register("notify", lambda text: self.tray.notify("cascade", text))
-        self.runner.register("app.restart", lambda _: self.restart())
-        self.runner.register("app.exit", lambda _: self.quit())
-        # Arizali fare: yutulan ikinci basim (dispatch.DOUBLE_CLICK_MS).
-        self.runner.register("click.bounce", self.on_click_bounce)
-        # AHK cascadeCaps: kisa basim SetCapsLockState -- tusu yuttugumuz
-        # icin Windows kendi cevirmiyor.
-        self.runner.register("caps.toggle", lambda _: self.toggle_caps())
-        self.runner.register("menu.f13", lambda _: self.show_f13_menu())
-        self.runner.register("menu.sys", lambda _: self.show_sys_menu())
         self.runner.register("menu.close", lambda _: self.menu.close())
         # Surukleme anlasilinca gecikmeli enjekte edilen gercek fare basimi.
         self.runner.register("button_down", press_button)
-        self.runner.register("yok", self.not_ported)
-        self.runner.register("click_then", self.click_then)
         self.runner.register("click3_then", lambda keys: self.click_then(keys, times=3))
-        self.runner.register("app.monitor", lambda _: self.show_monitor())
-        self.runner.register("app.settings", lambda _: self.show_settings())
-        self.runner.register("app.pause", lambda _: self.toggle_pause())
-        self.runner.register("state.reset", lambda _: self.reset_state())
-        self.runner.register("errors.show", lambda _: self.show_errors())
-        self.runner.register("errors.copy", lambda _: self.copy_last_error())
         # AHK memory_slots.ahk. Argumani olanlar slot numarasi aliyor.
-        self.runner.register("memslots.start", lambda _: self.show_mem_slots())
         self.runner.register(
             "memslots.paste_slot", lambda n: self.mem_slots.paste_slot(int(n))
         )
@@ -368,12 +355,6 @@ class Cascade:
         self.runner.register(
             "memslots.paste", lambda arg: self.mem_slots.smart_paste(arg == "middle")
         )
-        # AHK handleMButton pt2: yapistir + Shift+Enter.
-        self.runner.register("memslots.paste_enter", lambda _: self.memslots_paste_enter())
-        # F14 -- surukleyince ekran alani secimi, kimildatmadan birakinca menu.
-        # Secim acikken tusa yeniden basmak da buraya gelir: show_snip
-        # pencerenin acik oldugunu gorup bastan sectiriyor.
-        self.runner.register("select.start", self.show_snip)
         # Kural penceresi acilirken hook susmali (tus yakalanacak), kural
         # kisayolu da kayit defterine tutulmali: ikisi de app.py'nin isi,
         # snip'in dispatcher'a erisimi yok.
@@ -382,22 +363,11 @@ class Cascade:
         self.snip.release_rules = self._release_area_rules
         # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
         # App.ScreenOcr.snipInteractive / snip("plain") idi).
-        # F14 menusu > Screen: monitorun tamami secili gelir (keymap.screen_menu).
-        self.runner.register("select.screen", self.show_snip_screen)
-        # Kisayol haritasi: hangi tus kimde (statik tablo + kaskad + calisma
-        # aninda tutulanlar).
-        self.runner.register("keys.map", self.show_key_map)
-        # Alan kuralinin kisayolu buraya duser (bkz. _bind_area_rule).
-        self.runner.register("area.run", self.run_area_rule)
         self.runner.register("select.ocr", lambda _: self.show_snip_auto("ocr"))
         self.runner.register("select.ocr_adv", lambda _: self.show_snip_auto("ocr_adv"))
-        # AHK menus.ahk: menuAlwaysOnTop -- pencereyi hep ustte tut.
-        self.runner.register("window.pin", self.toggle_pin)
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
-        self.runner.register("magnifier.zoom", self.zoom)
         self.runner.register("magnifier.toggle", lambda _: self.magnifier.toggle())
         self.runner.register("magnifier.reset", lambda _: self.magnifier.reset())
-        self.runner.register("magnifier.panic", lambda _: self.panic())
 
         # AHK clip_slot.ahk: slot yapistirma, gruplar ve F14 menusu.
         self.slots = SlotController(
@@ -415,18 +385,12 @@ class Cascade:
         # veri kaynagi YOK: sekmeler slot / yan grup / pano gecmisinin ayni
         # eylem kimliklerini gosterir, panel yalnizca cizer.
         self._quick: QuickPanel | None = None
-        self.runner.register("menu.quick", lambda _: self.show_quick_panel())
 
         # AHK: App.AppShorts (app_shorts.ahk). On plandaki pencereye gore
         # F13 menusune ekstra kisayol maddeleri girer.
         self.shorts = ShortcutStore()
-        self.runner.register("shorts.play", self.play_shortcut)
-        self.runner.register("shorts.edit", lambda _: self.edit_shortcuts())
-        # AHK showManagerGui portu. `shorts.manage:<ad>` verilen profili
-        # secili acar (AHK editProfileForActiveWindow ile ayni fikir).
         self.profiles_view = ProfilesView(self.shorts)
         self.profiles_view.keys_changed = self.bind_profile_keys
-        self.runner.register("shorts.manage", self.open_profiles)
 
         # repository.ahk'nin VERI yarisi (cascade/repository.py). Yonetici
         # GUI'si henuz yok; profillerde oldugu gibi duzenleme dosyanin
@@ -435,13 +399,11 @@ class Cascade:
         self.repository.load()
         self.repository_view = RepositoryView(self.repository)
         self.runner.register("repository.open", lambda _: self.repository_view.open())
-        self.runner.register("repository.edit", lambda _: self.edit_repository())
 
         # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
         # Nesne her acilista yeniden kuruluyor -- durum tasimiyor ve
         # panodaki metin her seferinde bastan okunmali.
         self._qr_view: QrDialog | None = None
-        self.runner.register("qr.show", lambda _: self.show_qr())
 
         # AHK menus.ahk `DialogPauseGui`: Pause tusu basili tutulunca acilir.
         self.pause_dialog = PauseDialog()
@@ -449,16 +411,10 @@ class Cascade:
         self.pause_dialog.restart.connect(self.restart)
         self.pause_dialog.restart_nosave.connect(self._restart_without_saving)
         self.pause_dialog.exit_app.connect(self.quit)
-        self.runner.register("app.pause_dialog", lambda _: self.show_pause_dialog())
 
         # AHK turkish_layout_addon.ahk -- ScrollLock. Hangi VK hangi harf,
         # duzene sorularak bulunuyor; kararlari dispatch veriyor.
         self.dispatcher.turkish_keys = keymap.turkish_keys()
-        self.runner.register("turkish.toggle", lambda _: self.toggle_turkish())
-        self.runner.register("turkish.layout", lambda _: self.switch_turkish_layout())
-        self.runner.register("turkish.set", self.set_turkish_layout)
-        self.runner.register("menu.scrolllock", lambda _: self.show_scroll_lock_menu())
-        self.runner.register("vmouse.toggle", lambda _: self.toggle_virtual_mouse())
 
         self.tray = Tray(
             VERSION,
@@ -496,13 +452,16 @@ class Cascade:
         self._incognito_badge: IncognitoBadge | None = None
         self._incognito_timer = QTimer(app)
         self._incognito_timer.timeout.connect(self.incognito.watch_tick)
-        self.runner.register("incognito.open", lambda _: self.open_incognito())
 
         # Ekran koruyucu engelleyici -- AHK script_state.ahk IdleModule.
         # `on_start` is profilinde bunu baslatiyor, o yuzden cagridan ONCE
         # kuruluyor.
         self._idle_timer = QTimer(app)
         self._idle_timer.timeout.connect(self._idle_tick)
+
+        # `@command` ile isaretli metotlar -- kimlik metodun ustunde duruyor,
+        # kayit tek satirda burada. Kurulum bittikten sonra cagriliyor.
+        self.runner.adopt(self)
 
         # Oturum kapanmasi / gorev sonlandirma da OnExit'i calistirsin.
         app.aboutToQuit.connect(self.on_exit)
@@ -574,8 +533,11 @@ class Cascade:
         for owner in {b.owner for b in table.bindings if b.owner.startswith(prefix)}:
             table.release(owner)
 
+    @command("area.run")
     def run_area_rule(self, argument: str) -> None:
         """`area.run:<alan>#<sira>` -- kuralin kisayoluna basildi.
+
+        Kuralin kisayolu buraya duser (bkz. `_bind_area_rule`).
 
         Kural MOTORU henuz yok: burasi kuralin dogru baglandigini ve tusun
         gercekten bize geldigini gosteriyor. Motor yazildiginda degisecek
@@ -594,6 +556,7 @@ class Cascade:
             2500,
         )
 
+    @command("keys.map")
     def show_key_map(self, _argument: str = "") -> None:
         """`keys.map` -- HANGI TUS KIMDE. Kendi penceresi (ui/key_map_view).
 
@@ -629,8 +592,13 @@ class Cascade:
 
     # ---- F14 secim araci ----
 
+    @command("select.start")
     def show_snip(self, key: str = "") -> None:
         """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir.
+
+        Surukleyince alan secimi, kimildatmadan birakinca menu. Secim
+        acikken tusa yeniden basmak da buraya gelir: pencerenin acik
+        oldugunu gorup bastan sectiriyor.
 
         `select.start:F14@{x},{y}` yazilirsa secim O TUSLA yapilir -- F14
         basili tutuldugu surece fare hareketi dikdortgeni buyutur, tus
@@ -657,9 +625,11 @@ class Cascade:
             return
         self.snip.start(vk, origin, self.dispatcher.watch_held)
 
+    @command("select.screen")
     def show_snip_screen(self, index: str = "0") -> None:
         """`select.screen:<sira>` -- o monitorun tamami secili acilir.
 
+        F14 menusu > Screen maddesi buraya geliyor (keymap.screen_menu).
         Liste menu acilirken uretildigi icin sira bir sonraki ana kadar
         gecerli; arada monitor cikarilmis olabilir, o yuzden sinir kontrolu.
         """
@@ -815,8 +785,12 @@ class Cascade:
 
     # ---- hep ustte (AHK: menuAlwaysOnTop) ----
 
+    @command("window.pin")
     def toggle_pin(self, argument: str) -> None:
-        """`window.pin` (bos = one cikan pencere) / `window.pin:<hwnd>`."""
+        """`window.pin` (bos = one cikan pencere) / `window.pin:<hwnd>`.
+
+        AHK menus.ahk `menuAlwaysOnTop` -- pencereyi hep ustte tut.
+        """
         try:
             hwnd = int(argument) if argument else 0
         except ValueError:
@@ -925,8 +899,13 @@ class Cascade:
         profiles.append(("\U0001f4dd profiles.json duzenle", "shorts.edit"))
         return ("Profiller", tuple(profiles))
 
+    @command("shorts.manage")
     def open_profiles(self, argument: str = "") -> None:
-        """`shorts.manage[:<profil adi>]` -- yonetici penceresi."""
+        """`shorts.manage[:<profil adi>]` -- yonetici penceresi.
+
+        AHK showManagerGui portu; `shorts.manage:<ad>` verilen profili
+        secili acar (AHK editProfileForActiveWindow ile ayni fikir).
+        """
         self.profiles_view.open(argument.strip())
 
     def bind_profile_keys(self) -> None:
@@ -947,6 +926,7 @@ class Cascade:
                     "profil kisayolu atlandi: %s zaten %s tarafinda", spec, clash.owner
                 )
 
+    @command("shorts.play")
     def play_shortcut(self, argument: str) -> None:
         """`shorts.play:Chrome/0` -- AHK `ShortCut.play()`.
 
@@ -965,7 +945,8 @@ class Cascade:
             else:
                 send.type_text(stroke)
 
-    def edit_repository(self) -> None:
+    @command("repository.edit")
+    def edit_repository(self, _argument: str = "") -> None:
         """Kod parcasi deposunu Notepad ile acar.
 
         Dosya yoksa ORNEK bir kayit yaziliyor: bos Notepad "hangi alanlar
@@ -990,7 +971,8 @@ class Cascade:
             2500,
         )
 
-    def edit_shortcuts(self) -> None:
+    @command("shorts.edit")
+    def edit_shortcuts(self, _argument: str = "") -> None:
         """Profil dosyasini Notepad ile acar (AHK: yonetici GUI'si).
 
         Dosya yoksa AHK bicimiyle bos bir iskelet yazilir -- bos Notepad
@@ -1011,7 +993,8 @@ class Cascade:
 
     # ---- hafiza slotlari ----
 
-    def memslots_paste_enter(self) -> None:
+    @command("memslots.paste_enter")
+    def memslots_paste_enter(self, _argument: str = "") -> None:
         """Orta tus UZUN basim -- AHK handleMButton pt2. Yapistirma panoya
         yazip Ctrl+V gonderiyor (asenkron), Shift+Enter onun ARDINDAN
         gitmeli; yoksa satir sonu yapistirmadan once dusuyor."""
@@ -1020,7 +1003,8 @@ class Cascade:
         self.mem_slots.smart_paste(middle=True)
         QTimer.singleShot(160, lambda: self.runner.run("send_key:+Enter"))
 
-    def show_mem_slots(self) -> None:
+    @command("memslots.start")
+    def show_mem_slots(self, _argument: str = "") -> None:
         """AHK: singleMemorySlot.getInstance().start()
 
         Pano modu MEM_SLOTS'a geciyor; onceki mod kapanista geri aliniyor
@@ -1055,6 +1039,7 @@ class Cascade:
 
     # ---- buyutec ----
 
+    @command("magnifier.zoom")
     def zoom(self, argument: str) -> None:
         """`magnifier.zoom:+` / `magnifier.zoom:-`"""
         if argument.startswith("-"):
@@ -1062,7 +1047,8 @@ class Cascade:
         else:
             self.magnifier.zoom_in()
 
-    def panic(self) -> None:
+    @command("magnifier.panic")
+    def panic(self, _argument: str = "") -> None:
         """AHK: `(App.Magnifier.reset(), WinMinimize("A"))` -- buyutec %100'e
         doner ve one cikan pencere kuculur."""
         self.magnifier.reset()
@@ -1070,7 +1056,8 @@ class Cascade:
 
     # ---- menuler ve durum ----
 
-    def reset_state(self) -> None:
+    @command("state.reset")
+    def reset_state(self, _argument: str = "") -> None:
         """Acil fren: takilmis onek / yarida kalmis kaskad varsa temizler.
 
         AHK karsiligi `Pause & c:: State.Busy.setFree()` idi; o global bayrak
@@ -1080,7 +1067,8 @@ class Cascade:
         self.dispatcher.reset()
         self.tip.show_html("\U0001f513 <b>durum sifirlandi</b>", 1200)
 
-    def show_errors(self) -> None:
+    @command("errors.show")
+    def show_errors(self, _argument: str = "") -> None:
         """AHK: getStatsArray / getRecentErrors."""
         QMessageBox.information(
             None,
@@ -1110,7 +1098,8 @@ class Cascade:
         except OSError:
             log.exception("log dosyasi acilamadi")
 
-    def copy_last_error(self) -> None:
+    @command("errors.copy")
+    def copy_last_error(self, _argument: str = "") -> None:
         """AHK: App.ErrHandler.copyLastError()"""
         last = logs.errors.last
         if last is None:
@@ -1198,6 +1187,7 @@ class Cascade:
         self._error_count = 0
         self.tray.set_error_count(0)
 
+    @command("click.bounce")
     def on_click_bounce(self, argument: str) -> None:
         """AHK: `#HotIf A_TimeSincePriorHotkey < 70` -> LButton yutulur.
 
@@ -1209,8 +1199,9 @@ class Cascade:
         log.warning("cift tiklama yutuldu (%s ms, toplam %d)", argument, self._bounce_count)
         beep(1000, 100)
 
-    def toggle_caps(self) -> None:
-        """Buyuk harf kilidini cevirir ve yeni durumu soyler (AHK ShowTip).
+    @command("caps.toggle")
+    def toggle_caps(self, _argument: str = "") -> None:
+        """AHK cascadeCaps: kilidi cevirir, yeni durumu soyler (AHK ShowTip).
 
         Onek tusunun keydown'i yutuluyor, yani kilidi Windows cevirmiyor;
         tusu geri gondermek yeterli -- kendi gonderdigimiz basim kilidi
@@ -1220,7 +1211,8 @@ class Cascade:
         send.tap(VK_CAPITAL)
         self.tip.show_html("<b>CAPSLOCK</b>" if not state else "<b>capslock</b>", 900)
 
-    def show_sys_menu(self) -> None:
+    @command("menu.sys")
+    def show_sys_menu(self, _argument: str = "") -> None:
         """AHK: sysCommands() -- `´` tusunun menusu."""
         self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ cascade {full_version()}")
 
@@ -1230,7 +1222,8 @@ class Cascade:
             return (f"🏴‍☠️ Incognito ({self.incognito.locked_count})", "incognito.open")
         return ("🏴‍☠️ Incognito", "incognito.open")
 
-    def show_f13_menu(self) -> None:
+    @command("menu.f13")
+    def show_f13_menu(self, _argument: str = "") -> None:
         """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
         # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolonun basi o
         # anki pencereye bagli bloklar, sonu sabit kuyruk -- sira AHK
@@ -1295,7 +1288,8 @@ class Cascade:
             for index, entry in enumerate(self.clip.history.entries, start=1)
         )
 
-    def show_quick_panel(self) -> None:
+    @command("menu.quick")
+    def show_quick_panel(self, _argument: str = "") -> None:
         """`menu.quick` -- CapsLock basili tutunca acilan panel."""
         if self._quick is None:
             self._quick = QuickPanel(self._quick_tabs())
@@ -1303,7 +1297,8 @@ class Cascade:
             self._quick.qr_requested.connect(self.show_qr_text)
         self._quick.open()
 
-    def show_qr(self) -> None:
+    @command("qr.show")
+    def show_qr(self, _argument: str = "") -> None:
         """F14 menusu > QR kod. Panodaki metinle acilir."""
         self.show_qr_text(QGuiApplication.clipboard().text() or "")
 
@@ -1317,6 +1312,7 @@ class Cascade:
         self._qr_view.raise_()
         self._qr_view.activateWindow()
 
+    @command("yok")
     def not_ported(self, module: str) -> None:
         """Menude `--` ile isaretli ogeler buraya duser."""
         self.tip.show_html(
@@ -1325,6 +1321,7 @@ class Cascade:
             2000,
         )
 
+    @command("click_then")
     def click_then(self, keys: str, times: int = 1) -> None:
         """AHK: `(Click("Left", 3), Send("^c"))` -- once tikla, sonra gonder.
 
@@ -1335,7 +1332,8 @@ class Cascade:
             send.click("left")
         QTimer.singleShot(80, lambda: self.runner.run(f"send_key:{keys}"))
 
-    def show_settings(self) -> None:
+    @command("app.settings")
+    def show_settings(self, _argument: str = "") -> None:
         """AHK subMenuSet "Settings" -- ayar ekrani (ui/settings_dialog.py)."""
         if self._settings_dialog is None:
             self._settings_dialog = SettingsDialog()
@@ -1355,7 +1353,8 @@ class Cascade:
         )
         return answer == QMessageBox.StandardButton.Yes
 
-    def open_incognito(self) -> None:
+    @command("incognito.open")
+    def open_incognito(self, _argument: str = "") -> None:
         """Kisayolun/menunun tek isi: pencereyi acmak.
 
         Pencere acilinca incognito devreye girer ve pencere kapanana kadar
@@ -1398,7 +1397,9 @@ class Cascade:
             2000,
         )
 
-    def show_monitor(self) -> None:
+    @command("app.monitor")
+    def show_monitor(self, _argument: str = "") -> None:
+        """`´` menusu 4 + tepsi -- olay gecmisi penceresi (ui/monitor.py)."""
         self.monitor.show()
         self.monitor.raise_()
         self.monitor.activateWindow()
@@ -1484,7 +1485,8 @@ class Cascade:
 
     # ---- yasam dongusu ----
 
-    def toggle_pause(self) -> None:
+    @command("app.pause")
+    def toggle_pause(self, _argument: str = "") -> None:
         """AHK: Suspend. Hook yerinde kalir, sadece kararlar devre disi."""
         self.set_paused(not self.paused)
 
@@ -1509,7 +1511,8 @@ class Cascade:
         else:
             self.tip.show_html("▶️ <b>devam</b>", 1200)
 
-    def toggle_turkish(self) -> None:
+    @command("turkish.toggle")
+    def toggle_turkish(self, _argument: str = "") -> None:
         """ScrollLock kisa basim -- AHK: `SetScrollLockState(!state)` + tip.
 
         Tusu onek olarak yuttugumuz icin ScrollLock lambasini Windows kendi
@@ -1525,11 +1528,13 @@ class Cascade:
             900,
         )
 
-    def switch_turkish_layout(self) -> None:
+    @command("turkish.layout")
+    def switch_turkish_layout(self, _argument: str = "") -> None:
         """ScrollLock basili tutma -- AHK: dizilim 1 <-> 2."""
         self.dispatcher.turkish.switch_layout()
         self.switch_turkish_layout_tip()
 
+    @command("turkish.set")
     def set_turkish_layout(self, arg: str) -> None:
         """Menuden dizilim SECIMI -- `turkish.set:1` / `turkish.set:2`.
 
@@ -1550,7 +1555,8 @@ class Cascade:
             1200,
         )
 
-    def show_scroll_lock_menu(self) -> None:
+    @command("menu.scrolllock")
+    def show_scroll_lock_menu(self, _argument: str = "") -> None:
         """ScrollLock basili tutulunca: Turkce seti + sanal fare kipi.
 
         Turkceyi ACIP KAPAMAK menude yok, o KISA basim (`turkish.toggle`).
@@ -1583,7 +1589,8 @@ class Cascade:
                     index,
                 )
 
-    def toggle_virtual_mouse(self) -> None:
+    @command("vmouse.toggle")
+    def toggle_virtual_mouse(self, _argument: str = "") -> None:
         """Win+WASD sanal faresini ac/kapa.
 
         Yalniz ayari ceviriyor: tabloyu yeniden kurma isi ayarin
@@ -1603,6 +1610,7 @@ class Cascade:
             1400,
         )
 
+    @command("app.pause_dialog")
     def show_pause_dialog(self, critical: str = "") -> None:
         """AHK `DialogPauseGui`: once duraklat, sonra pencereyi ac.
 
@@ -1730,7 +1738,8 @@ class Cascade:
         )
         self._shutdown()
 
-    def restart(self) -> None:
+    @command("app.restart")
+    def restart(self, _argument: str = "") -> None:
         """AHK: Pause+Home -> reloadScript()
 
         GOZETMEN ALTINDAYSAK (hotkey.vbs, normal kullanim) hicbir surec
@@ -1853,7 +1862,8 @@ class Cascade:
         self._release_pins_on_exit = False
         self._quit_requested = True
 
-    def quit(self) -> None:
+    @command("app.exit")
+    def quit(self, _argument: str = "") -> None:
         """AHK: Pause & End -> ExitApp()"""
         self.on_exit()
         self.app.quit()

@@ -23,6 +23,24 @@ from cascade.win32 import send
 log = logging.getLogger("cascade.actions")
 
 
+def command(*names: str):
+    """Metodu eylem kimligiyle isaretler -- kaydi `ActionRunner.adopt` yapar.
+
+    Amac: kimlik, aciklama ve gercek is AYNI yerde dursun. Onceden kimlik
+    app.py'nin kurulum blogunda, is ise dosyanin bin satir asagisindaki
+    metotta duruyordu.
+
+    Isaretli metot `run()` gibi tek dizgi argumani alir; parametresiz
+    komutlar `_argument: str = ""` yazip yok sayar.
+    """
+
+    def mark(function):
+        function.cascade_commands = names
+        return function
+
+    return mark
+
+
 def beep(freq: int, ms: int) -> None:
     """Qt dongusunu bloke etmemek icin ayri thread'de. AHK: SoundBeep."""
     threading.Thread(
@@ -62,6 +80,19 @@ class ActionRunner:
 
     def register(self, name: str, handler: Callable[[str], None]) -> None:
         self._commands[name] = handler
+
+    def adopt(self, *owners: object) -> None:
+        """`@command` ile isaretli metotlari sahiplerinden toplayip kaydeder.
+
+        Gezinti SINIF uzerinden: ornek uzerinde `getattr` ile dolasmak
+        `handlers` gibi property'leri tetiklerdi. Taban siniflar once
+        geliyor ki turemis sinif ayni kimligi ezebilsin.
+        """
+        for owner in owners:
+            for klass in reversed(type(owner).__mro__):
+                for attribute, value in vars(klass).items():
+                    for name in getattr(value, "cascade_commands", ()):
+                        self.register(name, getattr(owner, attribute))
 
     def run(self, action: str) -> None:
         name, _, argument = action.partition(":")
