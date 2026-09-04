@@ -280,6 +280,15 @@ class QuickPanel(QWidget):
         self._refresh(keep_page=True)
         return len(self._shown)
 
+    def tab_index(self, title: str) -> int:
+        """Sekme ADINDAN sirasi. Bilinmeyen ad ilk sekmeye duser -- paneli
+        acan tusun yanlis yazilmis bir argumani paneli hic acmamaktan iyi."""
+        lowered = title.strip().casefold()
+        for index, tab in enumerate(self._tabs):
+            if tab.title.casefold() == lowered:
+                return index
+        return 0
+
     def select_tab(self, index: int) -> None:
         if not self._tabs:
             return

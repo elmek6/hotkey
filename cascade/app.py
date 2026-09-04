@@ -270,14 +270,18 @@ class Cascade:
 
         self.paused = False
         self._idle_count = IDLE_TICKS  # ekran koruyucu engelleyici sayaci
+        #: Fare kimildatma bir kez engellendi mi (bkz. _idle_tick).
+        self._idle_blocked = False
         self._exited = False
         # Yeni bir ornek acildi mi (win32/instance.py devralmasi). Hook
         # disi bir thread kaldiriyor, `_tick` gorup kapatiyor.
         self._quit_requested = False
         # Arizali farenin yutulan basim sayisi (AHK: KeyCounts "DoubleCount").
         self._bounce_count = 0
-        #: Tepsi rozetindeki hata sayisi -- son hata okununca sifirlanir.
+        #: Tepsi rozetindeki kayit sayisi -- son hata okununca sifirlanir.
         self._error_count = 0
+        #: Bunlarin kaci ERROR+ (yani simgeyi kirmiziya boyayan).
+        self._severe_count = 0
         # AHK: State.Script.shouldSaveOnExit. "Kaydetmeden yeniden baslat"
         # bunu indirir; kapanista pano dosyasina DOKUNULMAZ.
         self.save_on_exit = True
@@ -1113,11 +1117,14 @@ class Cascade:
         self._clear_error_badge()
 
     def _on_error_logged(self, level: str, text: str) -> None:
-        """Hata kaydedildi: tepsi rozeti HER ZAMAN yanar. Ipucu ayara bagli
-        (logs.SHOW_TIP), tepsi balonu SADECE CRITICAL'da -- her uyarida
-        balon cikarsa rahatsiz eder."""
+        """Hata kaydedildi: tepsi rozeti HER ZAMAN yanar, ama RENGI siddete
+        gore -- ERROR+ kirmizi, WARNING sari (bkz. ui/tray.py dosya basi).
+        Ipucu ayara bagli (logs.SHOW_TIP), tepsi balonu SADECE CRITICAL'da --
+        her uyarida balon cikarsa rahatsiz eder."""
         self._error_count += 1
-        self.tray.set_error_count(self._error_count)
+        if level in ("ERROR", "CRITICAL"):
+            self._severe_count += 1
+        self.tray.set_error_count(self._error_count, self._severe_count)
         if logs.SHOW_TIP.get():
             self.tip.show_html(
                 f"⚠️ <b>{html.escape(level.lower())}</b><br>{preview_html(text, 3)}",
@@ -1185,7 +1192,8 @@ class Cascade:
     def _clear_error_badge(self) -> None:
         """Hatalar gorulmus sayilir: rozet sifirlanir, kayitlar durur."""
         self._error_count = 0
-        self.tray.set_error_count(0)
+        self._severe_count = 0
+        self.tray.set_error_count(0, 0)
 
     @command("click.bounce")
     def on_click_bounce(self, argument: str) -> None:
@@ -1289,13 +1297,18 @@ class Cascade:
         )
 
     @command("menu.quick")
-    def show_quick_panel(self, _argument: str = "") -> None:
-        """`menu.quick` -- CapsLock basili tutunca acilan panel."""
+    def show_quick_panel(self, argument: str = "") -> None:
+        """`menu.quick[:sekme]` -- CapsLock ve `^` basili tutunca acilan panel.
+
+        Arguman acilista SECILI gelecek sekmenin adi. CapsLock adsiz cagirir
+        ve Pano'da acilir; `^` "Slot" der, cunku o tusun rakamlari (`^ & 1..0`)
+        zaten base slotlari yapistiriyor -- panel ayni listeyi gostermeli.
+        """
         if self._quick is None:
             self._quick = QuickPanel(self._quick_tabs())
             self._quick.chosen.connect(self.runner.run)
             self._quick.qr_requested.connect(self.show_qr_text)
-        self._quick.open()
+        self._quick.open(self._quick.tab_index(argument))
 
     @command("qr.show")
     def show_qr(self, _argument: str = "") -> None:
@@ -1631,7 +1644,7 @@ class Cascade:
 
     def on_start(self) -> None:
         """AHK: LoadSettings() -- OnExit'in karsiti."""
-        log.info("cascade %s basladi", full_version())
+        logs.lifecycle("cascade %s basladi", full_version())
         # AHK LoadSettings: Settings.load() + applyAll(). Ayarlari OKUMAK
         # yetmiyor, abonelere haber vermek de gerek -- yoksa moduller kod
         # icindeki varsayilanla calismaya devam eder.
@@ -1697,7 +1710,32 @@ class Cascade:
             self._idle_timer.stop()
             log.info("ekran koruyucu engelleyici durdu (%d tur doldu)", IDLE_TICKS)
             return
-        send.move_relative(-1, -1)
+        # GIT-GEL: tek yonlu -1,-1 imleci her turda bir piksel sol uste
+        # kaydiriyordu -- bes saatte 59 piksel. Ayni turda geri aliniyor;
+        # iki hareketin ikisi de bos zaman sayacini sifirliyor, imlec ise
+        # yerinde kaliyor.
+        #
+        # SendInput, on plandaki pencere BIZDEN YUKSEK butunlukteyse
+        # (yonetici hakkiyla acilmis bir program, UAC istemi) UIPI ile geri
+        # cevriliyor. Microsoft'un notu: "neither GetLastError nor the return
+        # value will indicate the failure was caused by UIPI blocking" -- yani
+        # kod da guvenilir degil, OSError'un tamami yakalanmali. Bizim hatamiz
+        # degil ve gecici: odak degisince duzelir. Yakalanmadigi surece Qt
+        # yuvasindan disari kaciyor, sys.excepthook onu CRITICAL yaziyor ve
+        # her turda -- bes dakikada bir -- kirmizi tepsi + modal "kritik hata"
+        # penceresi cikiyordu. Bir kez soylenir, sonra susulur.
+        try:
+            send.move_relative(-1, -1)
+            send.move_relative(1, 1)
+        except OSError as exc:
+            if not self._idle_blocked:
+                self._idle_blocked = True
+                log.warning(
+                    "ekran koruyucu engelleyici: fare kimildatilamadi (%s); "
+                    "on plandaki pencere yonetici hakkiyla calisiyor olabilir. "
+                    "Bu uyari oturumda bir kez yazilir.",
+                    exc,
+                )
 
     def on_exit(self) -> None:
         """AHK: ExitSettings() -- OnExit ile kayitli.
@@ -1731,7 +1769,7 @@ class Cascade:
             if self.save_on_exit
             else False
         )
-        log.info(
+        logs.lifecycle(
             "cascade kapaniyor (%d pano kaydi, diske yazildi: %s)",
             len(self.clip.history),
             "evet" if saved else "HAYIR",
@@ -1779,7 +1817,7 @@ class Cascade:
             # cikis kodu yetiyor. Surec baslatmiyoruz -- ne ikinci bir
             # gozetmen, ne konsol gunlugu icin bogusma, ne de "cocuk
             # kalkabildi mi" sorusu.
-            log.info("yeniden baslatiliyor (gozetmen devraliyor)")
+            logs.lifecycle("yeniden baslatiliyor (gozetmen devraliyor)")
             self.app.exit(EXIT_RESTART)
             return
 
@@ -1827,7 +1865,7 @@ class Cascade:
                     )
                     self.app.quit()
                     return
-        log.info("yeniden baslatiliyor (gozetmensiz: cocugu kendimiz actik)")
+        logs.lifecycle("yeniden baslatiliyor (gozetmensiz: cocugu kendimiz actik)")
         self.app.quit()
 
     def _spawn(self, command: list[str]):
@@ -1858,7 +1896,7 @@ class Cascade:
         BASKA THREAD'den cagriliyor -- burada Qt'ye dokunulmuyor, sadece
         bayrak kalkiyor; kapanisi ana thread'deki `_tick` yapiyor.
         """
-        log.info("yeni ornek acildi, kapaniyoruz")
+        logs.lifecycle("yeni ornek acildi, kapaniyoruz")
         self._release_pins_on_exit = False
         self._quit_requested = True
 

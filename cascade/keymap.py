@@ -12,7 +12,7 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
 
     F13              kisa: acilir menu     basili tut: pano hizli menusu
     F14              kisa: slot menusu     surukle: ekran alani sec
-    ^ (Caret)        kisa: `^` yazilir     basili tut: base grup slotlari
+    ^ (Caret)        kisa: `^` yazilir     basili tut: hizli panel (Slot sekmesi)
     Tab              kisa: Tab yazilir     basili tut: yan grup slotlari
     CapsLock         kisa: kilit cevrilir  basili tut: hizli panel (sekmeli liste)
     Tab & 1 .. 0     SECILI yan gruptan yapistirir (0 = slot 10)
@@ -522,8 +522,12 @@ def build_hotkeys() -> HotkeyTable:
         register_name(caret, "Caret")
         # AHK cascadeCaret: kisa basim `^` yazar (yuttugumuz tusu geri
         # gondererek), basili tutma menu acar, rakamlar slot yukler.
+        # Basili tutma artik CapsLock'un hizli paneli, klasik Win32 slot
+        # menusu degil: ayni liste iki ayri pencerede yasiyordu ve panelin
+        # arama kutusu, uc satira sarilan ogesi burada da isine yariyor.
+        # Sekme "Slot", cunku `^ & 1..0` base slotlari yapistiriyor.
         table.prefix(
-            "Caret", hold_action="menu.base_slots", desc="basili tut: base slotlar"
+            "Caret", hold_action="menu.quick:Slot", desc="basili tut: hizli panel (Slot)"
         )
         # AHK cascadeCaret: rakamlar BASE grubun (defaultGroup == "") slotlarini
         # yapistirir. 0 -> 10. slot, yani sifre slotu: yapistirma `private`

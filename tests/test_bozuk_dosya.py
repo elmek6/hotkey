@@ -236,8 +236,14 @@ def _sahte_cascade(monkeypatch, acilan: list):
     sahte._critical_pending = []
     sahte._critical_scheduled = False
     sahte._error_count = 0
+    sahte._severe_count = 0
     sahte.tray = type(
-        "T", (), {"set_error_count": lambda s, n: None, "notify": lambda s, *a: None}
+        "T",
+        (),
+        {
+            "set_error_count": lambda s, n, severe=0: None,
+            "notify": lambda s, *a: None,
+        },
     )()
     sahte.tip = type("P", (), {"show_html": lambda s, *a: None})()
     return sahte

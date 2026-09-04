@@ -73,20 +73,55 @@ FILE_INFO = setting(
     on_change=lambda value, _old: _apply_file_level(),
 )
 
+#: `lifecycle()` kayitlarina konan bayrak -- dosya handler'inin suzgeci
+#: bunu gorunce seviyeye bakmadan geciriyor.
+ALWAYS = "cascade_always"
+
 MAX_ERRORS = 50
 MAX_BYTES = 512 * 1024
 BACKUP_COUNT = 2
 
 log = logging.getLogger("cascade")
 
-#: Dosya handler'i -- ayar degisince seviyesi buradan guncelleniyor.
+#: Dosya handler'i -- ayar degisince suzgeci buradan guncelleniyor.
 _file_handler: logging.Handler | None = None
+
+#: FILE_INFO'nun suzgecin okudugu kopyasi -- suzgec her kayitta ayar
+#: nesnesine gitmesin (ve testte ayar kurulmamis olabilir).
+_file_info = False
 
 
 def _apply_file_level() -> None:
-    """FILE_INFO ayarini calisan dosya handler'ina uygular."""
-    if _file_handler is not None:
-        _file_handler.setLevel(logging.INFO if FILE_INFO.get() else logging.WARNING)
+    """FILE_INFO ayarini calisan dosya handler'ina uygular.
+
+    Seviye handler'in `level`'ina DEGIL suzgece bakiyor: `Logger.callHandlers`
+    seviye kontrolunu suzgeclerden ONCE yapar, yani `setLevel(WARNING)` ile
+    `lifecycle()` satirlarini geri getirmenin yolu kalmazdi.
+    """
+    global _file_info
+    _file_info = bool(FILE_INFO.get())
+
+
+def _file_filter(record: logging.LogRecord) -> bool:
+    """Dosyaya ne yazilacagina karar verir.
+
+    FILE_INFO kapaliyken dosyaya yalnizca WARNING+ dusuyordu ve "basladi /
+    kapaniyor / yeniden baslatiliyor" satirlarinin hepsi INFO. Sonuc: program
+    kapandiktan sonra log'da NEDEN kapandigina dair tek satir yoktu --
+    duzgun cikis mi, devralma mi, yeniden baslatma mi, cokme mi ayirt
+    edilemiyordu. Bu bir avuc satir gunluk gurultu degil, kapanisin tek tanigi;
+    `lifecycle()` onlari ayara bakmadan geciriyor.
+    """
+    return (
+        record.levelno >= logging.WARNING
+        or _file_info
+        or getattr(record, ALWAYS, False)
+    )
+
+
+def lifecycle(message: str, *args) -> None:
+    """Yasam dongusu satiri: INFO seviyesinde ama dosyaya HER ZAMAN yazilir."""
+    log.info(message, *args, extra={ALWAYS: True})
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,9 +221,10 @@ def setup(level: int = logging.INFO) -> None:
             paths.LOG, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
         )
         file_handler.setFormatter(formatter)
+        # Suzgec handler'da, root'ta DEGIL: konsol ve ErrorStore ayrinti
+        # gormeye devam etsin.
+        file_handler.addFilter(_file_filter)
         root.addHandler(file_handler)
-        # Seviye handler'da suzuluyor, root'ta DEGIL: konsol ve ErrorStore
-        # ayrinti gormeye devam etsin.
         _file_handler = file_handler
         _apply_file_level()
     except OSError:

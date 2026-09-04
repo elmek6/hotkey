@@ -10,9 +10,15 @@ bayrak kullanmanin sebebi, yeniden kurulan hook'un zincirin sonuna
 dusmesi ve sira garantisinin kaybolmasi.
 
 Simge dosyadan degil, cizilerek uretiliyor -- ne .ico dosyasi tasimak
-gerekiyor ne de paketlemede kaynak gomme derdi var. Uc durumu var: calisiyor
-(mavi), duraklatildi (gri), hata var (kirmizi). Hata rengi tek gorunur
-uyari: hatalar log'a ve bellege yaziliyordu ama disariya hic yansimiyordu.
+gerekiyor ne de paketlemede kaynak gomme derdi var. Dort durumu var: calisiyor
+(mavi), duraklatildi (gri), uyari var (sari), gercek hata var (kirmizi).
+
+KIRMIZI PAHALI BIR RENKTIR. Once her WARNING+ kaydi kirmiziya boyuyordu ve
+en cok goruleni "cift tiklama yutuldu" idi -- kendi log satiri bile "program
+hatasi degil" diyen bir kayit. Simgeye bakan "cascade coktu mu" diye
+irkiliyor, sonra ariza farenin normal bir gunune bakiyordu. Artik esik
+ERROR: WARNING sariya duser, kirmizi yalnizca gercekten bozulan bir sey
+oldugunda yanar.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from cascade.settings import Category, setting
 BACKGROUND = QColor("#1f6feb")
 PAUSED_BACKGROUND = QColor("#6e7681")
 ERROR_BACKGROUND = QColor("#da3633")
+WARN_BACKGROUND = QColor("#bb8009")
 BAR = QColor("#ffffff")
 
 #: Cift tiklama eylemleri. Ayara KIMLIK yazilir, menude ETIKET gorunur --
@@ -56,18 +63,25 @@ DOUBLE_CLICK = setting(
     desc=(
         "Sistem tepsisindeki simgeye cift tiklayinca ne olsun -- secenekler "
         "tepsi menusundeki maddelerin ayni. Tek tiklama Windows'un kendi isi "
-        "(menuyu acar), ona karisilmiyor. Simge KIRMIZI iken (hata var) bu "
-        "ayar gecersiz: son hatalar penceresi acilir."
+        "(menuyu acar), ona karisilmiyor. Simge ISARETLI iken (kirmizi = hata, "
+        "sari = uyari) bu ayar gecersiz: son hatalar penceresi acilir."
     ),
 )
 
 
-def make_icon(size: int = 64, paused: bool = False, error: bool = False) -> QIcon:
+def make_icon(
+    size: int = 64,
+    paused: bool = False,
+    error: bool = False,
+    warn: bool = False,
+) -> QIcon:
     """Kaskadi anlatan basit simge: saga dogru inen uc cubuk.
 
     Duraklatilmisken ayni sekil gri zeminde -- AHK'nin Suspend simgesi gibi,
-    program calisiyor ama tuslara dokunmuyor demek. Hata varsa kirmizi;
-    duraklatma daha oncelikli, cunku o an ne oldugunu bilmek daha onemli.
+    program calisiyor ama tuslara dokunmuyor demek. Sonra siddet sirasi:
+    kirmizi (ERROR+, bir sey bozuldu), sari (WARNING, dikkat ama calisiyor).
+    Duraklatma hepsinden oncelikli, cunku o an tuslarin neden olmedigini
+    bilmek birikmis bir uyaridan daha acil.
     """
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -76,6 +90,8 @@ def make_icon(size: int = 64, paused: bool = False, error: bool = False) -> QIco
         ground = PAUSED_BACKGROUND
     elif error:
         ground = ERROR_BACKGROUND
+    elif warn:
+        ground = WARN_BACKGROUND
     else:
         ground = BACKGROUND
 
@@ -121,6 +137,8 @@ class Tray(QSystemTrayIcon):
         self.version = version
         self.paused = False
         self.error_count = 0
+        #: Bunlarin kaci ERROR+ -- simgeyi KIRMIZI yapan sayi budur.
+        self.severe_count = 0
         self.setToolTip(f"cascade {version}")
 
         self._handlers = {
@@ -132,9 +150,9 @@ class Tray(QSystemTrayIcon):
             "copy_error": on_copy_error,
             "show_log": on_show_log,
         }
-        #: Simge KIRMIZI iken cift tiklama bunu cagirir -- cift tiklama
-        #: ayarindan bagimsiz. Kirmizi simgeye tiklayan "ne oldu" diye
-        #: bakiyor; o an Pause/Play yapmak istemiyor.
+        #: Simge KIRMIZI ya da SARI iken cift tiklama bunu cagirir -- cift
+        #: tiklama ayarindan bagimsiz. Isaretli simgeye tiklayan "ne oldu"
+        #: diye bakiyor; o an Pause/Play yapmak istemiyor.
         self._on_show_errors = on_show_errors
 
         menu = QMenu()
@@ -192,9 +210,14 @@ class Tray(QSystemTrayIcon):
         )
         self._refresh()
 
-    def set_error_count(self, count: int) -> None:
-        """Hata sayisi: simge kirmizi olur, menude sayi gorunur."""
+    def set_error_count(self, count: int, severe: int = 0) -> None:
+        """Kayit sayisi: menude sayi gorunur, simge renk degistirir.
+
+        `severe` = bunlarin kaci ERROR+. Simge YALNIZCA o sayi sifirdan
+        buyukken kirmizi; geri kalani (WARNING) sari. Bkz. dosya basi.
+        """
         self.error_count = count
+        self.severe_count = min(severe, count)
         self.error_action.setText(
             f"Copy last error  ({count})" if count else "Copy last error"
         )
@@ -202,12 +225,21 @@ class Tray(QSystemTrayIcon):
         self._refresh()
 
     def _refresh(self) -> None:
-        self.setIcon(make_icon(paused=self.paused, error=bool(self.error_count)))
+        self.setIcon(
+            make_icon(
+                paused=self.paused,
+                error=bool(self.severe_count),
+                warn=bool(self.error_count),
+            )
+        )
         tip = f"cascade {self.version}"
         if self.paused:
             tip += " - paused"
-        if self.error_count:
-            tip += f" - {self.error_count} error"
+        # Arac ipucu de ayirir: "1 error" ile "1 warning" cok farkli iki haber.
+        if self.severe_count:
+            tip += f" - {self.severe_count} error"
+        if self.error_count - self.severe_count:
+            tip += f" - {self.error_count - self.severe_count} warning"
         self.setToolTip(tip)
 
     def notify(self, title: str, message: str, ms: int = 2500) -> None:

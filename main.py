@@ -63,6 +63,10 @@ def main() -> int:
     # cocuk da bu yoldan geciyor.
     lock = SingleInstance("cascade")
     if not lock.acquired:
+        # Log'a da dusuyor: "yeniden baslat dedim, geri gelmedi" vakasinda
+        # geriye tek kanit bu satir -- kutuyu kapatan kimse ne gordugunu
+        # bes dakika sonra hatirlamiyor.
+        logs.lifecycle("kilit alinamadi, cikiliyor (kod %d)", EXIT_ALREADY_RUNNING)
         QMessageBox.warning(
             None, "cascade", "Onceki cascade kapanmadi; yenisi baslatilamadi."
         )

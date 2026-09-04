@@ -248,3 +248,23 @@ def test_esc_kapatir(panel):
     panel.show()
     tus(panel, Qt.Key.Key_Escape)
     assert not panel.isVisible()
+
+
+def test_sekme_adiyla_secilir(qapp):
+    """`^` paneli "Slot" sekmesinde acar, CapsLock adsiz cagirip Pano'da.
+
+    Ad eslesmesi buyuk/kucuk harf duyarsiz; bilinmeyen ad ilk sekmeye duser
+    -- yanlis yazilmis bir arguman paneli hic acmamaktan iyi.
+    """
+    panel = QuickPanel(
+        (
+            QuickTab("Pano", tuple),
+            QuickTab("Slot", tuple),
+            QuickTab("Side", tuple),
+        )
+    )
+    assert panel.tab_index("Slot") == 1
+    assert panel.tab_index("slot") == 1
+    assert panel.tab_index("  Side ") == 2
+    assert panel.tab_index("") == 0
+    assert panel.tab_index("yok boyle bir sekme") == 0

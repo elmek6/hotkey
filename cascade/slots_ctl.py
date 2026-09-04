@@ -295,10 +295,14 @@ class SlotController:
         return tuple(result)
 
     def show_base_menu(self) -> None:
-        """`^` basili tutunca: BASE grubun (defaultGroup == "") slotlari.
+        """BASE grubun (defaultGroup == "") slotlari, klasik Win32 menusu.
 
         Kombolarla (`^ & 1..0`) ayni kaynak, ayni sira -- menu o kombolarin
         gorunur halinden ibaret. Sifre slotunun icerigi maskeli.
+
+        `^` BASILI TUTMA ARTIK BURAYA GELMIYOR: hizli panelin Slot sekmesi
+        ayni listeyi arama kutusuyla ve sarilan satirlarla gosteriyor
+        (keymap.py "Caret"). Eylem kimligi duruyor -- geri baglanabilsin.
         """
         self.store.load()
         self._menu(self.items("", "slot.paste_group"))
@@ -329,7 +333,7 @@ class SlotController:
             ("Clipboard images", "clip.images", "res:109"),  # gorsel
             ("Window screenshot", "send_key:!PrintScreen", "shell:196"),
             None,
-            ("QR kod", "qr.show", "res:56"),  # cip/matris deseni
+            ("QR kod", "qr.show", "res:252"),  # dama deseni kareler
             ("Area", keymap.screen_menu()),
             ("System", keymap.SYSTEM_MENU),
             ("Special keys", keymap.SPECIAL_KEYS_MENU),
