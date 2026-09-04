@@ -24,6 +24,8 @@ Hangi degisiklik neyi tetikler (AHK'deki maliyet ayrimi):
                                      dizilir (core/ocr_layout.py)
     olcek                        ->  yeniden OCR, ama ekran TEKRAR CEKILMEZ
                                      -- app.py elindeki kirpimi kullanir
+    Yenile                       ->  ekran TEKRAR CEKILIR, ayni alan bastan
+                                     okunur (alttaki sayfa degismis olabilir)
 
 Secim cercevesi bu panel acikken ekranda KALIR (ui/snip.py ayar fazi):
 alan yeniden ayarlanabilir, panel kendini tazeler.
@@ -71,6 +73,10 @@ class OcrView(QWidget):
     copy_text = Signal(str)
     #: olcek degisti: yeniden OCR gerekiyor (yeni olcek)
     reocr_requested = Signal(int)
+    #: "Yenile" -- ekran TEKRAR CEKILIP ayni alan yeniden okunsun. Olcek
+    #: degisiminden farki bu: orada elimizdeki kirpim yeniden okunuyor,
+    #: burada altta duran sayfa degismis olabilecegi icin taze kare gerek.
+    refresh_requested = Signal()
     closed = Signal()
 
     def __init__(self) -> None:
@@ -138,6 +144,9 @@ class OcrView(QWidget):
             grid.addWidget(widget, 0, column * 2 + 1)
         grid.setColumnStretch(8, 1)
 
+        refresh_button = QPushButton("\U0001f504 Yenile")
+        refresh_button.setToolTip("Ayni alani ekrandan tekrar oku")
+        refresh_button.clicked.connect(self._on_refresh)
         copy_button = QPushButton("\U0001f4cb Kopyala")
         copy_button.setDefault(True)
         copy_button.clicked.connect(lambda: self.copy_text.emit(self._edit.toPlainText()))
@@ -146,6 +155,7 @@ class OcrView(QWidget):
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._info, 1)
+        bottom.addWidget(refresh_button)
         bottom.addWidget(copy_button)
         bottom.addWidget(close_button)
         bottom.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom)
@@ -182,6 +192,11 @@ class OcrView(QWidget):
             return
         self.busy()
         self.reocr_requested.emit(self.scale)
+
+    def _on_refresh(self) -> None:
+        """Ayni alani ekrandan tekrar oku -- app.py snip.refresh()e baglar."""
+        self.busy()
+        self.refresh_requested.emit()
 
     def _relayout(self) -> None:
         """Bicim / ayrac / kolon esigi: OCR gerekmez, kutular yeniden dizilir."""

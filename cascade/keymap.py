@@ -166,10 +166,12 @@ VIRTUAL_MOUSE_KEYS = (
     ("#y", "send_key:Enter", "Enter"),
 )
 
-#: Menude gorunen dizilim adlari: (ad, aciklama). Sira = dizilim numarasi.
+#: ScrollLock menusundeki radyo grubu. Sira = `turkish.set` argumani:
+#: 0 kapali, 1 uzun basim dizilimi, 2 dogrudan remap.
 TURKISH_LAYOUTS = (
-    ("Tr (uzun basinca)", "c s i g o u tuslarini basili tut"),
-    ("Tr (ek tuslarla)", "harfler dogrudan Turkce basar"),
+    "Kapali",
+    "Dizilim 1 -- c s i g o u tuslarini basili tut",
+    "Dizilim 2 -- harfler dogrudan Turkce basar",
 )
 
 VIRTUAL_MOUSE_NOTE = "Win+WASD imlec, Q/E tik, Y Enter"
@@ -445,8 +447,12 @@ def build_hotkeys() -> HotkeyTable:
     # basim showF14menu (slotlar) idi; secim oraya sonradan eklendi ve
     # tusun eski isini yemesin diye surukleme ile ayrildi.
     table.add("F14", "menu.slots", "kisa: slot menusu")
-    # AHK handleF14 pt4: App.ClipSlot.showSlotsSearch().
-    table.prefix("F14", double_action="slots.search", desc="cift: slotlarda ara")
+    # CIFT BASIM YOK. AHK handleF14 pt4 (showSlotsSearch) buradaydi ama
+    # `double_action` tanimli olunca KISA basim eylemi `double_ms` kadar
+    # BEKLETILIYOR (core/prefix.py): menu tus birakildiktan ~200 ms sonra
+    # aciliyordu. Bekleme surukleme icin gerekli degil -- surukleme basim
+    # aninda karara baglaniyor, birakma aninda menunun acilacagi kesin.
+    # Slotlarda arama menude "Search in slots" maddesi olarak duruyor.
     # Eylemin argumani secimi yapacak TUS: F14 basili kaldigi surece
     # dikdortgen buyur, birakilinca secim biter (ui/snip.py). Argumansiz
     # birakilirsa secim sol fare tusuna kalirdi -- F14 ile secmek isterken
@@ -613,35 +619,35 @@ def build_hotkeys() -> HotkeyTable:
 
 
 
-def scroll_lock_menu(layout: int) -> tuple:
+def scroll_lock_menu(layout: int, enabled: bool = False) -> tuple:
     """ScrollLock BASILI TUTULUNCA acilan menu.
 
-    Uc madde, iki ayri mantik:
+    Turkce eklentisinin butun durumu TEK radyo grubu: kapali, dizilim 1,
+    dizilim 2. Ucu birbirini disliyor, biri hep secili -- "acik mi" ile
+    "hangi dizilim" ayri iki soru degil, ayni sorunun uc cevabi.
 
-        Tr (uzun basinca)      dizilim 1 ve 2 -- BIRBIRINI DISLAR,
-        Tr (ek tuslarla)       ikisinden biri hep secili (radyo dugmesi)
-        Fare WASD tuslariyla   bagimsiz ac/kapa (onay kutusu)
+        Kapali        turkish.set:0
+        Dizilim 1     turkish.set:1
+        Dizilim 2     turkish.set:2
+        ------------
+        Fare WASD     bagimsiz ac/kapa (onay kutusu)
 
     Secili olan TIKLI cizilir (`CHECKED`). Kalin YOK: Win32 menusunde kalin
     "varsayilan oge" demek ve menu basina YALNIZ BIR TANE olabiliyor --
-    ikisini birden isaretlemek istedigimiz icin (bir dizilim + acikken sanal
-    fare) kalin yaniltici olurdu, ikincisi birinciyi siliyordu.
-
-    Turkcenin KENDISI burada yok: acip kapamak ScrollLock'a KISA basmak.
-    Menu yalnizca "hangi Turkce seti" sorusunu soruyor; buradan bir dizilim
-    secmek Turkceyi acmaz, sadece kisa basinca hangisinin gelecegini belirler.
+    burada iki isaret gerekiyor (bir dizilim + acikken sanal fare), kalin
+    olsa ikincisi birincisini silerdi.
     """
     rows: list[tuple | None] = []  # None = yatay ayrac (ui/menu.py)
-    for number, (name, note) in enumerate(TURKISH_LAYOUTS, start=1):
-        marks = (CHECKED,) if layout == number else ()
-        rows.append((f"{name} -- {note}", f"turkish.set:{number}", *marks))
+    current = layout if enabled else 0
+    for number, name in enumerate(TURKISH_LAYOUTS):
+        marks = (CHECKED,) if current == number else ()
+        rows.append((name, f"turkish.set:{number}", *marks))
     rows.append(None)
-    on = VIRTUAL_MOUSE.get()
     rows.append(
         (
             "Fare WASD tuslariyla -- " + VIRTUAL_MOUSE_NOTE,
             "vmouse.toggle",
-            *((CHECKED,) if on else ()),
+            *((CHECKED,) if VIRTUAL_MOUSE.get() else ()),
         )
     )
     return tuple(rows)

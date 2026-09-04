@@ -180,8 +180,13 @@ def _owner_window() -> int:
     return _owner
 
 
-def _force_foreground(hwnd: int) -> None:
-    """SetForegroundWindow'u calistir.
+def force_foreground(hwnd: int) -> None:
+    """SetForegroundWindow'u ZORLA calistir -- menu disinda da kullaniliyor.
+
+    ui/snip.py secim penceresi icin de gerekli: program YENIDEN BASLATILINCA
+    (app.restart) yeni surec ayrik aciliyor ve Windows'un onunde hic girdi
+    gormedigi icin odak alma hakki yok. Pencere ustte cikiyor ama klavye
+    odagi almiyordu -- Esc calismiyor, kapatip elle acinca calisiyordu.
 
     Windows, arka plandaki bir surecin odak calmasini engeller; standart
     kacamak, o an odaktaki pencerenin girdi kuyruguna baglanip cagriyi
@@ -345,7 +350,7 @@ def track(spec, title: str = "") -> str | None:
     try:
         if owner:
             user32.ShowWindow(owner, SW_SHOWNOACTIVATE)
-            _force_foreground(owner)
+            force_foreground(owner)
         command = user32.TrackPopupMenu(
             handle,
             TPM_LEFTALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,

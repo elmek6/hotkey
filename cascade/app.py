@@ -262,6 +262,9 @@ class Cascade:
         self.ocr_view = OcrView()
         self.ocr_view.copy_text.connect(self.clip.copy_to_history)
         self.ocr_view.reocr_requested.connect(self._on_reocr)
+        # "Yenile": secim cercevesi ekranda duruyor, ayni alan TAZE kareden
+        # kirpilip yeniden okunur (snip.rect_changed -> _on_snip_rect_changed).
+        self.ocr_view.refresh_requested.connect(self.snip.refresh)
         self.ocr_view.closed.connect(self.snip.end_session)
 
         #: OCR+ oturumundaki son kirpim -- ayar degisince ekran YENIDEN
@@ -1624,14 +1627,23 @@ class Cascade:
 
     @command("turkish.set")
     def set_turkish_layout(self, arg: str) -> None:
-        """Menuden dizilim SECIMI -- `turkish.set:1` / `turkish.set:2`.
+        """Menudeki radyo grubu -- `turkish.set:0|1|2`.
 
-        `switch_turkish_layout` sirayla gecerken bu dogrudan atiyor: menude
-        hangi maddeye bastigin ne olacagini belirlemeli, sira degil.
+        0 kapatir, 1 ve 2 hem ACAR hem dizilimi atar: menude "kapali" ayri
+        bir secenek oldugu icin dizilim secmek "ac" demek. Sirayla ceviren
+        `turkish.toggle`/`turkish.layout` aksine burada ne secildiyse o olur.
         """
-        want = 2 if arg.strip() == "2" else 1
-        if self.dispatcher.turkish.layout != want:
+        want = arg.strip()
+        if want == "0":
+            if self.dispatcher.turkish.enabled:
+                self.toggle_turkish()
+            return
+        number = 2 if want == "2" else 1
+        if self.dispatcher.turkish.layout != number:
             self.dispatcher.turkish.switch_layout()
+        if not self.dispatcher.turkish.enabled:
+            self.toggle_turkish()  # tip'i o veriyor, ikinci tip gerekmez
+            return
         self.switch_turkish_layout_tip()
 
     def switch_turkish_layout_tip(self) -> None:
@@ -1647,10 +1659,14 @@ class Cascade:
     def show_scroll_lock_menu(self, _argument: str = "") -> None:
         """ScrollLock basili tutulunca: Turkce seti + sanal fare kipi.
 
-        Turkceyi ACIP KAPAMAK menude yok, o KISA basim (`turkish.toggle`).
+        Kapali/dizilim 1/dizilim 2 tek radyo grubu; kisa basim
+        (`turkish.toggle`) menusuz ac-kapa olarak duruyor.
         """
         self.menu.show(
-            keymap.scroll_lock_menu(self.dispatcher.turkish.layout),
+            keymap.scroll_lock_menu(
+                self.dispatcher.turkish.layout,
+                self.dispatcher.turkish.enabled,
+            ),
             title="ScrollLock",
         )
 

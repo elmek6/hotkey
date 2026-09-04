@@ -70,6 +70,7 @@ from cascade.areas import (
     default_name,
 )
 from cascade.ui.key_capture import KeyCapture
+from cascade.win32 import menu as win32_menu
 from cascade.win32.screen import grab_virtual
 
 #: Hedef klasor soran `to` degerleri (oteki hedeflerde alan gizlenir).
@@ -795,6 +796,12 @@ class SnipOverlay(QWidget):
         self._place()
         self.raise_()
         self.activateWindow()
+        # Odagi ZORLA al. `activateWindow` tek basina yetmiyor: program
+        # yeniden baslatildiginda (app.restart) yeni surec ayrik aciliyor,
+        # Windows onunde hic girdi gormedigi icin odak calma hakki yok ve
+        # SetForegroundWindow sessizce basarisiz oluyor. Pencere ustte
+        # cikiyor ama klavye odagi almiyordu -- Esc iceri hic ulasmiyordu.
+        win32_menu.force_foreground(int(self.winId()))
         self._key_vk = key_vk
         self._key_held = key_held
         # Tus secim bitince sifirlaniyor; yeniden secim (`repick`) icin
@@ -948,6 +955,16 @@ class SnipOverlay(QWidget):
         self._rect = QRect()
         self.update()
         self._key_timer.start()
+
+    def refresh(self) -> None:
+        """OCR+ panelindeki "Yenile": AYNI alani ekrandan TEKRAR okur.
+
+        Olcek degistirmenin (`_on_reocr`) aksine elimizdeki kirpim
+        kullanilmaz -- ekran yeniden cekilir. Alttaki sayfa degismis
+        olabilir; kullanicinin istedigi tam olarak bu.
+        """
+        if self._session and not self._rect.isEmpty():
+            self._recapture(self._emit_rect_changed)
 
     def end_session(self) -> None:
         """OCR+ paneli kapandi: cerceveyi de kaldir."""
