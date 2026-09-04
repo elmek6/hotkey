@@ -29,7 +29,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from cascade import logs
+from cascade import dev, logs
 from cascade.app import Cascade
 from cascade.win32.instance import SingleInstance
 
@@ -48,6 +48,13 @@ def main() -> int:
     # ve program ayakta gorunurken hicbir tus calismiyor.
     sys.setswitchinterval(0.001)
     logs.setup()
+    # Zorlama varsa EN BASTA soyle: "gelistirme modu kapali sanmistim"
+    # diye bir sasirma olmasin -- bayrak ayari yeniyor ve ayar ekraninda
+    # gorunmuyor. (Bu import ayrica dev ayarlarini ILK kaydeden satir:
+    # ayar ekranindaki bolum sirasi kayit sirasindan geliyor.)
+    note = dev.override_note()
+    if note:
+        logs.lifecycle("gelistirme modu zorlandi -- %s", note)
     logs.install_qt_handler()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -78,6 +85,10 @@ def main() -> int:
     try:
         return app.exec()  # EXIT_RESTART ise yerimize bir cocuk baslatildi
     finally:
+        # Sebep verilmiyor: buraya olay dongusu bittikten SONRA geliniyor
+        # ve gercek sebep (kullanici cikisi, devralma, oturum sonu) coktan
+        # on_exit'i calistirmis olur. Bos kalirsa sebebi shutdown.py'nin
+        # biraktigi isaret soyler.
         cascade.on_exit()
         lock.release()
 

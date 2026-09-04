@@ -306,6 +306,16 @@ class ClipController:
     def save(self) -> bool:
         return self.store.save_entries(self.history.entries)
 
+    @property
+    def saved_count(self) -> int:
+        """DOSYADAKI kayit sayisi -- `save()` sonrasi gecerli.
+
+        Kapanis satiri eskiden `len(self.history)` yaziyordu; o bellek
+        listesi ve tavani 50, yani sayi her kapanista 50 cikiyor ve
+        dosyadaki 2500 kaydi gizliyordu.
+        """
+        return self.store.loaded_count
+
     def close(self) -> None:
         self.watcher.stop()
         self.images.close()

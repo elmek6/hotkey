@@ -24,6 +24,10 @@ class FakeHook:
         self.reinstalls = 0
         self.max_callback_ms = 0.0
         self.dropped = 0
+        self.last_event = 0.0
+        #: Gercek HookThread'de nobetcinin karar GEREKCESI burada durur ve
+        #: uyari satirina basilir (bkz. win32/hook.looks_dead).
+        self.verdict = "test"
         #: Nobetci testinin cevirdigi dugme: "hook dusmus gibi davran".
         self.dead = False
 
@@ -195,7 +199,7 @@ def restartable(cascade, monkeypatch):
     `on_exit` GERCEK dosyalara yaziyor (settings.json, clipboards.bin) --
     testin isi degil. Gozetmen yoklamasi da beklemeden yapiliyor.
     """
-    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self: None)
+    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self, reason="": None)
     monkeypatch.setattr(app_module, "SUPERVISOR_PROBE_SECONDS", 0.0)
     # Gozetmensiz yol: bayrak yoksa cocugu uygulama kendisi aciyor.
     monkeypatch.setattr(app_module.sys, "argv", ["main.py"])
@@ -233,7 +237,7 @@ def test_gozetmen_aninda_olurse_dogrudan_python_ile_denenir(restartable):
 
 
 def test_gozetmen_ayaktaysa_ikinci_surec_baslatilmaz(cascade, monkeypatch):
-    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self: None)
+    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self, reason="": None)
     monkeypatch.setattr(app_module, "SUPERVISOR_PROBE_SECONDS", 0.0)
     monkeypatch.setattr(app_module.sys, "argv", ["main.py"])
     monkeypatch.setattr(cascade.app, "exit", lambda _code: None)
@@ -256,7 +260,7 @@ def test_bekci_altindayken_HIC_SUREC_BASLATILMAZ(cascade, monkeypatch):
     iki bekci birden yasiyordu -- ikisi de ayni konsol gunlugunu yazmak
     isteyince cmd "dosya kullanimda" deyip cocugu hic baslatmiyordu.
     """
-    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self: None)
+    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self, reason="": None)
     monkeypatch.setattr(app_module.sys, "argv", ["main.py", "--supervised"])
     codes: list[int] = []
     monkeypatch.setattr(cascade.app, "exit", codes.append)

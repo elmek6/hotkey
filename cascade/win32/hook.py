@@ -157,6 +157,9 @@ class HookThread:
         self._ms_proc: HOOKPROC | None = None
         self._kb_hook = None
         self._ms_hook = None
+        #: Nobetcinin son kararinin GEREKCESI -- "hook dusmustu" satiri
+        #: bunu basiyor (bkz. looks_dead).
+        self.verdict = ""
 
     # ---- hook callback'leri (hook thread'inde calisir) ----
 
@@ -310,12 +313,28 @@ class HookThread:
 
         Kullanici bosta otururken yanlis alarm vermez: kimse dokunmuyorsa
         iki sure birlikte buyur, fark acilmaz.
+
+        Karar OLCUMU `verdict`e yaziliyor. Sebep: log'da yalnizca "hook
+        dusmustu, yeniden kuruldu" yaziyordu ve bu satir iki cok farkli
+        seyin ayni yuzu -- gercekten dusen bir hook da, esigi kil payi
+        gecen bir yanlis alarm da ayni cumleyi biraktigi surece nobetcinin
+        ise yarayip yaramadigi ANLASILAMIYOR. Sayilar satirdaysa ayrim
+        bakisla yapiliyor: "bizimki 9 sn once, sistemin 0,2 sn once" ise
+        gercekten kor kalmisiz; ikisi de yakinsa esik kil payi asilmistir.
         """
         if self._thread is None or not self._thread.is_alive():
+            self.verdict = "hook thread'i yasamiyor"
             return True
         if not self._kb_hook or not self._ms_hook:
+            self.verdict = "hook tutamaci bos"
             return True
-        gap = (now - self.last_event) * 1000.0 - system_idle_ms()
+        age = (now - self.last_event) * 1000.0
+        idle = system_idle_ms()
+        gap = age - idle
+        self.verdict = (
+            f"bizim son olayimiz {age:.0f} ms once, sistemin girdisi {idle:.0f} ms "
+            f"once; fark {gap:.0f} ms (esik {WATCHDOG_GAP_MS:.0f})"
+        )
         return gap > WATCHDOG_GAP_MS
 
     def ensure_alive(self, now: float) -> bool:

@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from cascade.settings import Category, setting
@@ -36,6 +36,11 @@ PAUSED_BACKGROUND = QColor("#6e7681")
 ERROR_BACKGROUND = QColor("#da3633")
 WARN_BACKGROUND = QColor("#bb8009")
 BAR = QColor("#ffffff")
+#: Gelistirme modu (cascade/dev.py) acikken simgenin cevresine cizilen
+#: halka. ZEMIN DEGIL cerceve: zemin renkleri zaten dolu (duraklatildi /
+#: hata / uyari) ve mor onlarin yerine gecseydi gelistirme modu hata
+#: isaretini ORTERDI. Halka ayri bir kanal -- ikisi ayni anda gorunur.
+DEV_RING = QColor("#a371f7")
 
 #: Cift tiklama eylemleri. Ayara KIMLIK yazilir, menude ETIKET gorunur --
 #: menu metnini degistirmek kayitli secimi bozmasin.
@@ -74,6 +79,7 @@ def make_icon(
     paused: bool = False,
     error: bool = False,
     warn: bool = False,
+    dev: bool = False,
 ) -> QIcon:
     """Kaskadi anlatan basit simge: saga dogru inen uc cubuk.
 
@@ -114,6 +120,22 @@ def make_icon(
             unit * 1.1,
             unit * 1.1,
         )
+
+    # Gelistirme modu: mor halka. Simge tepside 16 px'e inecegi icin
+    # cizgi kalinligi oranli veriliyor ve dikdortgen yarim kalinlik iceri
+    # cekiliyor -- yoksa halkanin disi kirpiliyor.
+    if dev:
+        stroke = size * 0.09
+        pen = QPen(DEV_RING)
+        pen.setWidthF(stroke)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        inset = stroke / 2.0
+        painter.drawRoundedRect(
+            QRectF(inset, inset, size - stroke, size - stroke),
+            size * 0.20,
+            size * 0.20,
+        )
     painter.end()
     return QIcon(pixmap)
 
@@ -136,6 +158,9 @@ class Tray(QSystemTrayIcon):
         super().__init__(make_icon(), parent)
         self.version = version
         self.paused = False
+        #: Gelistirme modu acik mi -- simgede mor halka, ipucunda etiket.
+        #: Ayardan da gelebilir bayraktan da; tepsi ayrimi bilmiyor.
+        self.dev = False
         self.error_count = 0
         #: Bunlarin kaci ERROR+ -- simgeyi KIRMIZI yapan sayi budur.
         self.severe_count = 0
@@ -210,6 +235,19 @@ class Tray(QSystemTrayIcon):
         )
         self._refresh()
 
+    def set_dev(self, active: bool) -> None:
+        """Gelistirme modunu simgede goster.
+
+        Neden gorunur olmali: mod, programin davranisini degistiriyor
+        (nobetci calisir, log sisirir) ve komut satirindan da acilabiliyor
+        -- yani ayar ekraninda KAPALI gorunurken acik olabilir. Boyle bir
+        sey ekranda hicbir iz birakmadan durmamali.
+        """
+        if active == self.dev:
+            return
+        self.dev = active
+        self._refresh()
+
     def set_error_count(self, count: int, severe: int = 0) -> None:
         """Kayit sayisi: menude sayi gorunur, simge renk degistirir.
 
@@ -230,9 +268,12 @@ class Tray(QSystemTrayIcon):
                 paused=self.paused,
                 error=bool(self.severe_count),
                 warn=bool(self.error_count),
+                dev=self.dev,
             )
         )
         tip = f"cascade {self.version}"
+        if self.dev:
+            tip += " - GELISTIRME"
         if self.paused:
             tip += " - paused"
         # Arac ipucu de ayirir: "1 error" ile "1 warning" cok farkli iki haber.

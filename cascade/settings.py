@@ -50,6 +50,12 @@ class Category:
     WINDOW = "window"
     OCR = "ocr"
     MACRO = "macro"  # macro_recorder.ahk: Cat.Macro
+    #: Gunluk kullanimin parcasi OLMAYAN mekanizmalar: nobetciler,
+    #: ayrinti log'lari. Hepsi varsayilan kapali ve ana salteri var
+    #: (cascade/dev.py). Adi BUYUK harf: gunluk ayarlarla karisip
+    #: yanlislikla acilmasin. Ekranda en uste dusuyor cunku `main.py`
+    #: `cascade.dev`i ilk import ediyor ve sira kayit sirasi.
+    DEVELOPMENT = "development"
 
     LABELS = {
         GENERAL: "Genel",
@@ -61,6 +67,7 @@ class Category:
         WINDOW: "Pencere",
         OCR: "OCR",
         MACRO: "Makro",
+        DEVELOPMENT: "GELISTIRME",
     }
 
     @classmethod

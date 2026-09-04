@@ -64,11 +64,14 @@ FILE_INFO = setting(
     "log.fileInfo",
     "Log dosyasina INFO da yaz",
     default=False,
-    category=Category.GENERAL,
-    tags="log kayit info ayrinti dosya",
+    # Gunluk bir tercih degil, sorun ararken acilan bir ayrinti muslugu:
+    # yeri gelistirme bolumu (cascade/dev.py).
+    category=Category.DEVELOPMENT,
+    tags="log kayit info ayrinti dosya gelistirme",
     desc=(
         "Acikken Files/log.txt her ayrintiyi (INFO) alir -- sorun ararken. "
-        "Kapaliyken yalnizca uyari ve hatalar yazilir."
+        "Kapaliyken yalnizca uyari ve hatalar yazilir. Gelistirme modu kapaliysa "
+        "bu ayar da yok sayilir."
     ),
     on_change=lambda value, _old: _apply_file_level(),
 )
@@ -98,8 +101,19 @@ def _apply_file_level() -> None:
     seviye kontrolunu suzgeclerden ONCE yapar, yani `setLevel(WARNING)` ile
     `lifecycle()` satirlarini geri getirmenin yolu kalmazdi.
     """
+    from cascade import dev
+
     global _file_info
-    _file_info = bool(FILE_INFO.get())
+    _file_info = dev.file_info()
+
+
+def refresh_dev_switches() -> None:
+    """Gelistirme salteri degisince cagrilir (cascade/dev.py).
+
+    FILE_INFO'nun kendi `on_change`i yetmiyor: ana salter degistiginde o
+    ayarin DEGERI degismiyor, yalnizca gecerliligi degisiyor.
+    """
+    _apply_file_level()
 
 
 def _file_filter(record: logging.LogRecord) -> bool:

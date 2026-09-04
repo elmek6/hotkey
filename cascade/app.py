@@ -35,7 +35,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from cascade import autostart, keymap, logs, paths, repository, theme
+from cascade import autostart, dev, keymap, logs, paths, repository, theme
 from cascade.actions import ActionRunner, beep, command
 from cascade.app_shorts import ShortcutStore, stroke_kind
 from cascade.clip_ctl import ClipController
@@ -71,6 +71,7 @@ from cascade.win32.hook import HookThread
 from cascade.win32.instance import SingleInstance
 from cascade.win32.magnifier import Magnifier
 from cascade.win32.screen import monitors
+from cascade.win32.shutdown import ExitWatch
 from cascade.win32.window import (
     WindowPins,
     foreground_window,
@@ -109,6 +110,11 @@ EXIT_RESTART = 3
 #: olmali. Bayrak yoksa (VSCode F5 / dogrudan python) eski yol geceli:
 #: cocugu kendimiz baslatiyoruz, yoksa "yeniden baslat" cikis olurdu.
 SUPERVISED_FLAG = "--supervised"
+
+#: Nobetci turlari arasinda bu kadar sure gectiyse SUREC durmus demektir
+#: (uyku, hibernate, uzun bir askida kalma). Zamanlayici 2 sn'de bir
+#: kosuyor; bunun kat kat ustu ancak donmayla olur.
+WATCHDOG_FREEZE_MS = 10_000.0
 
 #: Gozetmenin aninda olup olmadigini anlamak icin beklenen sure. Cocuk
 #: saglamsa wscript uygulama boyunca ayakta kalir; bu surede olduyse
@@ -272,6 +278,9 @@ class Cascade:
         self._idle_count = IDLE_TICKS  # ekran koruyucu engelleyici sayaci
         #: Fare kimildatma bir kez engellendi mi (bkz. _idle_tick).
         self._idle_blocked = False
+        #: Nobetcinin son turu -- iki tur arasi acilirsa surec donmustur
+        #: ve olcum kanit degildir (bkz. _watchdog_tick).
+        self._last_watchdog_tick = time.perf_counter()
         self._exited = False
         # Yeni bir ornek acildi mi (win32/instance.py devralmasi). Hook
         # disi bir thread kaldiriyor, `_tick` gorup kapatiyor.
@@ -287,6 +296,12 @@ class Cascade:
         self.save_on_exit = True
         #: Cikista sabitlenen pencereler birakilsin mi. `restart` kapatiyor.
         self._release_pins_on_exit = True
+        #: Kapanis sebebi. `on_exit` BIZDEN baska yerlerden de kosuyor
+        #: (oturum kapanmasi, konsolun olmesi, devralma) ve eskiden hepsi
+        #: log'a AYNI satiri birakiyordu -- "program neden kapandi"nin
+        #: cevabi yoktu. Disaridan gelen haberi `_note_exit_signal`
+        #: buraya yaziyor, kapanis satiri onu basiyor.
+        self._exit_reason = ""
 
         self.actions: queue.Queue = queue.Queue(maxsize=4096)
         self.seen: queue.Queue = queue.Queue(maxsize=4096)
@@ -433,6 +448,17 @@ class Cascade:
             on_show_errors=self.show_errors,
         )
         self.tray.show()
+        # GELISTIRME MODU GORUNUR OLMALI: davranisi degistiriyor (nobetci
+        # calisir, log sisirir) ve komut satirindan da acilabiliyor, yani
+        # ayar ekraninda KAPALI gorunurken acik olabilir. Simgedeki mor
+        # halka o farkin tek isareti (ui/tray.set_dev).
+        self.tray.set_dev(dev.enabled())
+        dev.DEV_MODE.subscribe(lambda _value, _old: self.tray.set_dev(dev.enabled()))
+        # Gelistirme modu simgede gorunsun: ayardan acilmis da olabilir
+        # komut satirindan zorlanmis da (bkz. dev.forced_source) -- ikinci
+        # halde ayar ekrani KAPALI gosterir, tek iz tepsideki mor halka.
+        self.tray.set_dev(dev.enabled())
+        dev.DEV_MODE.subscribe(lambda _value, _old: self.tray.set_dev(dev.enabled()))
 
         # Hata olunca tepsi simgesi kirmizi olsun. Hata BASKA THREAD'den
         # gelebiliyor (hook, beep), Qt'ye oradan dokunulamaz -- sinyal
@@ -469,6 +495,10 @@ class Cascade:
 
         # Oturum kapanmasi / gorev sonlandirma da OnExit'i calistirsin.
         app.aboutToQuit.connect(self.on_exit)
+        # ... ve NEDEN kapandigimizi da yazsin: oturum sonu, konsolun
+        # kapanmasi, sinyal. Bkz. win32/shutdown.py.
+        self._exit_watch = ExitWatch(self._note_exit_signal)
+        self._exit_watch.install(app)
         self.on_start()
 
         self._drain_timer = QTimer(app)
@@ -491,10 +521,14 @@ class Cascade:
         self.hook.start()
 
         # NOBETCI: hook sessizce dusuruldu mu diye yokluyor, dusmusse
-        # yeniden kuruyor (win32/hook.py `looks_dead`).
+        # yeniden kuruyor (win32/hook.py `looks_dead`). GELISTIRME AYARI ve
+        # varsayilan KAPALI (cascade/dev.py): surekli donen bir mekanizma,
+        # gunluk kullanimin parcasi olmasi istenmedi.
         self._watchdog_timer = QTimer(app)
         self._watchdog_timer.timeout.connect(self._watchdog_tick)
-        self._watchdog_timer.start(2000)
+        self._apply_watchdog()
+        dev.DEV_MODE.subscribe(lambda _value, _old: self._apply_watchdog())
+        dev.HOOK_WATCHDOG_MS.subscribe(lambda _value, _old: self._apply_watchdog())
 
 
     # ---- pano (ana thread) ----
@@ -1442,7 +1476,11 @@ class Cascade:
         # ANA THREAD'de olmali -- istegi kaldiran thread Qt'ye dokunamaz.
         if self._quit_requested:
             self._quit_requested = False
-            self.quit()
+            # `quit()` DEGIL: o, sebebi "kullanici: cikis" diye yaziyor ve
+            # devralmayi kullanicinin cikisi gibi gosteriyordu. Sebep zaten
+            # `request_quit`in biraktigi isarette.
+            self.on_exit()
+            self.app.quit()
             return
         if self.paused:
             return
@@ -1452,6 +1490,25 @@ class Cascade:
         for vk, action in self.dispatcher.tick(now):
             log.debug("basili tutma: %s -> %s", key_name(vk), action)
             self.runner.run(action)
+
+    def _apply_watchdog(self) -> None:
+        """Nobetciyi ayara gore baslatir/durdurur.
+
+        Ayar degisince de cagriliyor: acip kapatmak icin programi yeniden
+        baslatmak gerekmesin -- gelistirme ayarinin butun anlami "su an
+        bakiyorum" oldugu icin, o an devreye girmeli.
+        """
+        interval = dev.hook_watchdog_ms()
+        if interval <= 0:
+            if self._watchdog_timer.isActive():
+                self._watchdog_timer.stop()
+                logs.lifecycle("hook nobetcisi kapatildi")
+            return
+        if self._watchdog_timer.isActive() and self._watchdog_timer.interval() == interval:
+            return
+        self._last_watchdog_tick = time.perf_counter()
+        self._watchdog_timer.start(interval)
+        logs.lifecycle("hook nobetcisi acik (%d ms'de bir yoklama)", interval)
 
     def _watchdog_tick(self) -> None:
         """Hook hala ayakta mi? Degilse yeniden kur -- KENDI KENDINI TAMIR.
@@ -1465,8 +1522,23 @@ class Cascade:
         """
         if self._exited:
             return
+        now = time.perf_counter()
+        # SUREC DONMUSSA KARAR VERME. Uykuda (ve uzun bir askida kalmada)
+        # bu zamanlayici hic kosmuyor; uyaninca ilk turda "bizim son
+        # olayimiz cok eski" cikiyor ve hook saglamken yeniden kuruluyordu
+        # -- her uyanista bir tane. Zamanlayicinin KENDISI gecikmisse
+        # olcum kanit degil: bir tur atlanip damga tazeleniyor.
+        since_tick = (now - self._last_watchdog_tick) * 1000.0
+        self._last_watchdog_tick = now
+        if since_tick > WATCHDOG_FREEZE_MS:
+            self.hook.last_event = now
+            log.info(
+                "nobetci: surec %.0f sn durmustu (uyku/aski), bu tur atlandi",
+                since_tick / 1000.0,
+            )
+            return
         try:
-            if not self.hook.ensure_alive(time.perf_counter()):
+            if not self.hook.ensure_alive(now):
                 return
         except Exception:
             # SetWindowsHookEx her zaman basarili olmaz (oturum degisimi,
@@ -1475,10 +1547,13 @@ class Cascade:
             log.exception("hook yeniden kurulamadi, sonraki turda tekrar denenecek")
             return
         self.dispatcher.reset()
+        # Gerekce de yaziliyor: "dusmustu" satiri tek basina gercek bir
+        # dusmeyi de kil payi asilan bir esigi de ayni gosteriyordu.
         log.warning(
-            "hook dusmustu, yeniden kuruldu (%d. kez, en uzun callback %.1f ms)",
+            "hook dusmustu, yeniden kuruldu (%d. kez, en uzun callback %.1f ms) -- %s",
             self.hook.reinstalls,
             self.hook.max_callback_ms,
+            self.hook.verdict,
         )
         self.tip.show_html(
             "🔁 <b>hook yeniden kuruldu</b><br>"
@@ -1645,6 +1720,10 @@ class Cascade:
     def on_start(self) -> None:
         """AHK: LoadSettings() -- OnExit'in karsiti."""
         logs.lifecycle("cascade %s basladi", full_version())
+        for problem in dev.problems():
+            # Bayragi yanlis yazmak ETKISIZ kalir ama sessiz kalmaz:
+            # "bayragi verdim, hicbir sey olmadi" en can sikici hata turu.
+            log.warning("gelistirme bayragi: %s", problem)
         # AHK LoadSettings: Settings.load() + applyAll(). Ayarlari OKUMAK
         # yetmiyor, abonelere haber vermek de gerek -- yoksa moduller kod
         # icindeki varsayilanla calismaya devam eder.
@@ -1737,15 +1816,33 @@ class Cascade:
                     exc,
                 )
 
-    def on_exit(self) -> None:
+    def _note_exit_signal(self, reason: str) -> None:
+        """Disaridan gelen kapanis haberi (win32/shutdown.py).
+
+        BASKA THREAD'den gelebilir -- konsol denetleyicisini Windows kendi
+        thread'inde cagiriyor. Bu yuzden burada Qt'ye DOKUNULMUYOR: sebep
+        bir metne yaziliyor ve log'a dusuyor. Sebebi aninda basiyoruz,
+        cunku pesinden gelen kapanis satirini yazacak vaktimiz olmayabilir.
+        """
+        self._exit_reason = reason
+        logs.lifecycle("kapanis isareti: %s", reason)
+
+    def on_exit(self, reason: str = "") -> None:
         """AHK: ExitSettings() -- OnExit ile kayitli.
 
         Iki yerden cagriliyor (kendi quit'imiz ve Qt'nin aboutToQuit'i, yani
         oturum kapanmasi), o yuzden bir kez calismasi garantiye alinmis.
+
+        `reason` KENDI cikislarimizda doluyor. Bos gelirse sebep disaridan
+        gelmis demektir ve `_note_exit_signal`in biraktigi metin kullanilir;
+        o da yoksa gercekten bilmiyoruz (Qt'nin aboutToQuit'i sebep
+        soylemez) -- bunu da oldugu gibi yaziyoruz, "normal cikis" gibi
+        gostermek tam da aranan bilgiyi orterdi.
         """
         if self._exited:
             return
         self._exited = True
+        reason = reason or self._exit_reason or "BILINMIYOR (disaridan kapatildik)"
         for action in keymap.EXIT_ACTIONS:
             self.runner.run(action)
         # Incognito ACIK KALAMAZ: kapatmadan cikarsak jump list dosyalari
@@ -1769,10 +1866,16 @@ class Cascade:
             if self.save_on_exit
             else False
         )
+        # SAYI DISKTEN: `clip.history` bellek listesi ve tavani 50
+        # (ClipHistory.MAX_ITEMS), yani bu satir her kapanista "50 pano
+        # kaydi" yaziyordu -- dosyada 2500 kayit varken. Anlamli olan,
+        # az once dosyaya YAZILAN kayit sayisi.
         logs.lifecycle(
-            "cascade kapaniyor (%d pano kaydi, diske yazildi: %s)",
-            len(self.clip.history),
-            "evet" if saved else "HAYIR",
+            "cascade kapaniyor (sebep: %s; pano: %s)",
+            reason,
+            f"{self.clip.saved_count} kayit diske yazildi"
+            if saved
+            else "diske YAZILMADI",
         )
         self._shutdown()
 
@@ -1808,7 +1911,7 @@ class Cascade:
         # SIRA: bayrak on_exit'ten ONCE. Sonda kaldigi surece hicbir ise
         # yaramiyordu -- sabitleri birakan kod coktan kosmus oluyordu.
         self._release_pins_on_exit = False
-        self.on_exit()
+        self.on_exit("yeniden baslatma (kullanici)")
         if self.lock is not None:
             self.lock.release()
 
@@ -1832,9 +1935,14 @@ class Cascade:
         supervisor = os.path.join(paths.ROOT, "hotkey.vbs")
         windir = os.environ.get("SYSTEMROOT") or "C:\\Windows"
         wscript = os.path.join(windir, "System32", "wscript.exe")
-        direct = [executable, script, RESTART_FLAG]
+        # `--dev ...` cocuga da gecsin: gelistirme modu bir CALISMAYI baglar
+        # ve "reload edince kapandi" surprizi olmasin (bkz. dev.argv_flags).
+        dev_flag = dev.argv_flags()
+        direct = [executable, script, RESTART_FLAG, *dev_flag]
         via_supervisor = os.path.exists(supervisor) and os.path.exists(wscript)
-        command = [wscript, supervisor, RESTART_FLAG] if via_supervisor else direct
+        command = (
+            [wscript, supervisor, RESTART_FLAG, *dev_flag] if via_supervisor else direct
+        )
         try:
             child = self._spawn(command)
         except OSError as exc:
@@ -1897,13 +2005,14 @@ class Cascade:
         bayrak kalkiyor; kapanisi ana thread'deki `_tick` yapiyor.
         """
         logs.lifecycle("yeni ornek acildi, kapaniyoruz")
+        self._exit_reason = "yeni bir ornek yerimizi devraldi"
         self._release_pins_on_exit = False
         self._quit_requested = True
 
     @command("app.exit")
     def quit(self, _argument: str = "") -> None:
         """AHK: Pause & End -> ExitApp()"""
-        self.on_exit()
+        self.on_exit("kullanici: cikis (tepsi menusu / Pause+End)")
         self.app.quit()
 
     def _shutdown(self) -> None:

@@ -29,6 +29,7 @@ SETTINGS = FILES / "settings.json"  # settings.ahk bicimi -- cascade.settings
 # AHK ile PAYLASILMIYOR -- zaten `repository.ahk` port edilmemisti.
 REPOSITORY = FILES / "repository.md"
 
+
 # TODO(AHK): port edilmemis veri dosyalari (kaynak: _AutoHotKey/Files/)
 #   bigclips.bin   1 MB ustu kopyalar -- clip_hist.ahk buyuk metni ayri
 #                  dosyaya tasiyor, biz simdilik hic almiyoruz
