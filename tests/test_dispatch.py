@@ -408,6 +408,7 @@ def test_arizali_farenin_cift_basimi_yutulur():
     altindaki ikinci basim insan eli degil.
     """
     box = make_dispatcher()
+    box.bounce_guard_left = True  # ayarda kapali gelir, kullanici aciyor
     assert box.mouse_filter(_lclick(1.00)) is False
     assert box.mouse_filter(_lclick(1.03)) is True  # 30 ms: ariza
     assert [a.action.split(":")[0] for a in _drain(box.actions)] == ["click.bounce"]
@@ -416,6 +417,40 @@ def test_arizali_farenin_cift_basimi_yutulur():
     assert box.mouse_filter(_lclick(1.04, down=False)) is True
     assert box.mouse_filter(_lclick(1.40)) is False  # gercek ikinci tik
     assert box.mouse_filter(_lclick(1.45, down=False)) is False
+
+
+def _mclick(t: float, down: bool = True):
+    from keypilot.core.mouse import WM_MBUTTONDOWN, WM_MBUTTONUP
+    from keypilot.win32.hook import MouseEvent
+
+    return MouseEvent(
+        message=WM_MBUTTONDOWN if down else WM_MBUTTONUP, x=0, y=0, data=0,
+        injected=False, ours=False, time_ms=0, t=t,
+    )
+
+
+def test_orta_tusun_cift_basimi_da_yutulur():
+    """Filtre sol tusa ozel degil: olcumde yipranan anahtar orta tusta da
+    ayni imzayi birakti (ard arda basimlar arasi 0-16 ms). Tarayicida
+    karsiligi ya fazladan sekme ya da hic acilmayan sekme."""
+    box = make_dispatcher()
+    box.bounce_guard_middle = True
+    assert box.mouse_filter(_mclick(1.00)) is False
+    assert box.mouse_filter(_mclick(1.02)) is True  # 20 ms: ariza
+    assert [a.action.split(":")[0] for a in _drain(box.actions)] == ["click.bounce"]
+    assert box.mouse_filter(_mclick(1.03, down=False)) is True
+
+
+def test_filtre_tus_basina_kapatilabilir():
+    """Ayarlar tus basina ayri: bir dugmenin filtresini kapatmak otekini
+    savunmasiz birakmamali (sayaclar da ayri tutuluyor)."""
+    box = make_dispatcher()
+    box.bounce_guard_left = True
+    box.bounce_guard_middle = False
+    assert box.mouse_filter(_mclick(1.00)) is False
+    assert box.mouse_filter(_mclick(1.02)) is False  # filtre kapali: gecer
+    assert box.mouse_filter(_lclick(2.00)) is False
+    assert box.mouse_filter(_lclick(2.02)) is True  # sol tus hala korunuyor
 
 
 def _tr_box(layout: int):

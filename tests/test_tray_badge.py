@@ -36,3 +36,51 @@ def test_set_error_count_uyariyi_kirmizi_saymaz(qapp):
     t.set_error_count(3, severe=1)
     assert t.severe_count == 1
     assert "1 error" in t.toolTip() and "2 warning" in t.toolTip()
+
+
+def test_tek_tiklama_varsayilanda_hicbir_sey_yapmaz(qapp):
+    """Tek tik cift tiklamanin ilk yarisi: varsayilan olarak sessiz."""
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    calls = []
+    t = tray.Tray(
+        "test",
+        lambda: None,
+        lambda: None,
+        lambda: None,
+        on_toggle_pause=lambda: calls.append("pause"),
+        on_settings=lambda: calls.append("settings"),
+    )
+    t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
+    assert calls == []
+
+    tray.SINGLE_CLICK.set("settings")
+    try:
+        t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
+        assert calls == ["settings"]
+        # Cift tiklama kendi ayarindan: iki ayar birbirine karismiyor.
+        t._on_activated(QSystemTrayIcon.ActivationReason.DoubleClick)
+        assert calls == ["settings", "pause"]
+    finally:
+        tray.SINGLE_CLICK.reset()
+
+
+def test_isaretli_simgede_tek_tik_da_hatalari_acar(qapp):
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    calls = []
+    t = tray.Tray(
+        "test",
+        lambda: None,
+        lambda: None,
+        lambda: None,
+        on_toggle_pause=lambda: calls.append("pause"),
+        on_show_errors=lambda: calls.append("errors"),
+    )
+    t.set_error_count(1, severe=1)
+    tray.SINGLE_CLICK.set("pause")
+    try:
+        t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
+        assert calls == ["errors"]
+    finally:
+        tray.SINGLE_CLICK.reset()

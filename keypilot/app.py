@@ -328,6 +328,16 @@ class KeyPilot:
         keymap.VECTOR_IGNORE_PX.subscribe(
             lambda value, _old: setattr(self.dispatcher, "drag_px", int(value))
         )
+        # Arizali fare filtresi tus basina aciliyor: bir dugme yipranirken
+        # otekinin filtresini kapatmak gerekmesin.
+        self.dispatcher.bounce_guard_left = bool(keymap.BOUNCE_LEFT.get())
+        keymap.BOUNCE_LEFT.subscribe(
+            lambda value, _old: setattr(self.dispatcher, "bounce_guard_left", bool(value))
+        )
+        self.dispatcher.bounce_guard_middle = bool(keymap.BOUNCE_MIDDLE.get())
+        keymap.BOUNCE_MIDDLE.subscribe(
+            lambda value, _old: setattr(self.dispatcher, "bounce_guard_middle", bool(value))
+        )
         # Sanal fare kombolari TABLODA duruyor (bkz. keymap.build_hotkeys):
         # ayar degisince tablo yeniden kurulmali. Abonelik burada, cunku
         # ayar tepsi menusunden de ayar EKRANINDAN da degisebiliyor -- iki
@@ -1241,7 +1251,7 @@ class KeyPilot:
         dusuyor: fare yaslaniyor demek, program hatasi degil.
         """
         self._bounce_count += 1
-        log.warning("cift tiklama yutuldu (%s ms, toplam %d)", argument, self._bounce_count)
+        log.warning("cift tiklama yutuldu (%s, toplam %d)", argument, self._bounce_count)
         beep(1000, 100)
 
     @command("caps.toggle")

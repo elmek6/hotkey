@@ -92,6 +92,8 @@ class Setting:
         legacy: dict | None = None,
         validate: Callable[[object], str] | None = None,
         on_change: Callable[[object, object], None] | None = None,
+        hidden: bool = False,
+        info: str = "",
     ) -> None:
         self.key = key
         self.name = name
@@ -108,10 +110,30 @@ class Setting:
         #: bir surum gecisinde varsayilana dusmesin.
         self.legacy: dict = dict(legacy or {})
         self.validate = validate
+        #: Ayar ekraninda degerin YANINDA duran kisa bilgi ("0=yok 500-60000ms").
+        #: Verilmezse `between` dogrulayicisinin sinirlarindan turetiliyor;
+        #: elle yazmak yalniz aralik disi kurallari olan ayarlarda gerekiyor.
+        self.info = info
+        #: AYAR EKRANINDA GORUNMEZ. Ayarin kendisi tam ayar: diske yazilir,
+        #: abonelikleri calisir, `SETTINGS.get` ile okunur -- yalniz listede
+        #: yeri yoktur, cunku asil anahtari baska bir yerde (menu, tepsi).
+        #: Iki yerden degistirilebilen ayar kullanicida "hangisi gecerli"
+        #: sorusu birakiyordu.
+        self.hidden = hidden
         self._value = default
         self._subs: list[Callable[[object, object], None]] = []
         if on_change is not None:
             self._subs.append(on_change)
+
+    def info_text(self) -> str:
+        """Deger kutusunun yanindaki kisa bilgi -- yoksa bos."""
+        if self.info:
+            return self.info
+        limits = getattr(self.validate, "limits", None)
+        if not limits:
+            return ""
+        low, high, unit = limits
+        return f"{low}-{high}{' ' + unit if unit else ''}"
 
     def label_for(self, value) -> str:
         """enum kimliginin ekranda gorunen adi."""
@@ -229,8 +251,20 @@ class Registry:
 
     @property
     def categories(self) -> list[str]:
-        """Tanim sirasi -- alfabetik degil (AHK: catOrder)."""
-        return list(self.tree)
+        """Tanim sirasi -- alfabetik degil (AHK: catOrder).
+
+        GORUNUR ayari olmayan kategori hic listelenmiyor: bir kategorinin
+        tek ayari gizlenirse geride bos bir baslik kalmasin.
+        """
+        return [name for name, items in self.tree.items() if any(not i.hidden for i in items)]
+
+    @property
+    def visible(self) -> list[Setting]:
+        """Ayar ekraninda gosterilecekler (bkz. `Setting.hidden`)."""
+        return [item for item in self.all if not item.hidden]
+
+    def visible_in(self, category: str) -> list[Setting]:
+        return [item for item in self.tree.get(category, ()) if not item.hidden]
 
     def get(self, key: str, fallback=None):
         item = self.by_key.get(key)
@@ -295,13 +329,17 @@ class Registry:
             item.reset()
 
     def search(self, query: str) -> list[Setting]:
-        """Bosluk = AND; ad, anahtar, aciklama, etiket ve secenekler icinde."""
+        """Bosluk = AND; ad, anahtar, aciklama, etiket ve secenekler icinde.
+
+        Gizli ayarlar aramaya da girmiyor: ekranda acilamayan bir satiri
+        arama sonucunda gostermek daha da kafa karistirici olurdu.
+        """
         query = query.strip().lower()
         if not query:
-            return list(self.all)
+            return self.visible
         terms = query.split()
         found = []
-        for item in self.all:
+        for item in self.visible:
             hay = " ".join(
                 (
                     item.name,
@@ -319,6 +357,28 @@ class Registry:
 
 
 SETTINGS = Registry()
+
+
+def between(low, high, unit: str = ""):
+    """Aralik dogrulayicisi. Ret gerekcesi ayar ekraninda kutunun saginda
+    kirmizi olarak gorunuyor, o yuzden BIRIMI de tasiyor: "0-500 arasi
+    olmali" ile "0-500 ms arasi olmali" ayni cumle degil.
+
+    Tek tek yazilan `lambda v: "" if 0 <= v <= 500 else "..."` satirlarinin
+    yerine geciyor: sinir ile gerekce metni ayri yerlerde durunca biri
+    degisip oteki eski kaliyordu.
+    """
+
+    def check(value) -> str:
+        if low <= value <= high:
+            return ""
+        return f"{low}-{high}{' ' + unit if unit else ''} arasi olmali"
+
+    #: Ayar ekrani sinirlari OKUYOR: deger kutusunun yanindaki bilgi buradan
+    #: turetiliyor (bkz. `Setting.info_text`). Kapanisin icine gomulseydi
+    #: her ayar araligini bir de elle yazmak zorunda kalirdi.
+    check.limits = (low, high, unit)
+    return check
 
 
 def setting(key: str, name: str, default, **kwargs) -> Setting:

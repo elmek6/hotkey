@@ -85,10 +85,13 @@ HOOK_WATCHDOG_MS = setting(
         "baslangic). DIKKAT: kapaliyken dusen bir kanca kendiliginden geri "
         "gelmez; tuslar sessizce olur ve programi yeniden baslatmak gerekir."
     ),
+    # Duz aralik degil ("0 ya da 500-60000"), o yuzden `between` kullanilmiyor
+    # ve ekranda gorunecek kisa bilgi elle veriliyor.
+    info=f"0=yok {MIN_WATCHDOG_MS}-{MAX_WATCHDOG_MS}ms",
     validate=lambda value: (
         ""
         if value == 0 or MIN_WATCHDOG_MS <= value <= MAX_WATCHDOG_MS
-        else f"0 (kapali) ya da {MIN_WATCHDOG_MS}-{MAX_WATCHDOG_MS} ms olmali"
+        else f"0=yok {MIN_WATCHDOG_MS}-{MAX_WATCHDOG_MS}ms"
     ),
 )
 

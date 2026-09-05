@@ -30,7 +30,7 @@ from keypilot.core.combo import ComboTracker
 from keypilot.core.hot_vectors import HotVectors
 from keypilot.core.hotkey import HotkeyTable
 from keypilot.core.keynames import MODIFIER_VKS, key_name
-from keypilot.core.mouse import WM_MOUSEMOVE, MouseSeen, mouse_key
+from keypilot.core.mouse import VK_MBUTTON, WM_MOUSEMOVE, MouseSeen, mouse_key
 from keypilot.core.prefix import Outcome, PrefixTracker
 from keypilot.core.turkish import TurkishLayout
 from keypilot.win32 import send
@@ -143,12 +143,17 @@ class Dispatcher:
         # durumu hook'un kendisinden tutuyoruz.
         self._watch_vk = 0
         self._watch_down = False
-        # Arizali fare filtresi: son sol tus BASIMININ ani ve "yuttugumuz
-        # basimin BIRAKMASI da yutulsun" bayragi.
-        self._lbutton_t = 0.0
-        self._bounce_up = False
-        #: Filtre kapatilabilsin diye ayri bayrak (tepsi/menu ile acilir).
-        self.double_click_guard = True
+        # Arizali fare filtresi: TUS BASINA son basimin ani ve "yuttugumuz
+        # basimin BIRAKMASI da yutulsun" isareti. Tus basina tutuluyor
+        # cunku filtre birden fazla dugmeye uygulanabiliyor ve sol tusun
+        # sayaci orta tusunkini sifirlamamali.
+        self._bounce_t: dict[int, float] = {}
+        self._bounce_up: set[int] = set()
+        #: Hangi dugmelere uygulanacagi AYARDAN geliyor (app.py bagliyor).
+        #: Sol tus AHK'den beri filtreliydi; orta tus sonradan eklendi --
+        #: olculdu, yipranan anahtar orada da ayni imzayi birakiyor.
+        self.bounce_guard_left = False
+        self.bounce_guard_middle = False
         #: Son hayalet tus taramasinin ani ve toplam dusurulen tus sayisi
         #: (tani ekraninda gorunuyor -- app.show_monitor).
         self._reconcile_t = 0.0
@@ -264,18 +269,22 @@ class Dispatcher:
         # Arizali fare: cok hizli gelen IKINCI basim yutulur. Karar burada,
         # kaskad/kombo yollarindan ONCE: yutulan basim hicbir duruma
         # dokunmamali, yoksa onek takipcisi ac kapali kalir.
-        if vk == VK_LBUTTON and self.double_click_guard:
+        if self._bounce_guarded(vk):
             if down:
-                gap = (event.t - self._lbutton_t) * 1000.0
-                self._lbutton_t = event.t
-                self._bounce_up = 0.0 < gap < DOUBLE_CLICK_MS
-                if self._bounce_up:
-                    self._put(Run(f"click.bounce:{gap:.0f}", key=vk))
+                gap = (event.t - self._bounce_t.get(vk, 0.0)) * 1000.0
+                self._bounce_t[vk] = event.t
+                if 0.0 < gap < DOUBLE_CLICK_MS:
+                    self._bounce_up.add(vk)
+                    # Tus adi da gidiyor: filtre iki dugmeye birden
+                    # uygulanabildigi icin "hangisi yaslaniyor" sorusunun
+                    # cevabi log satirinda durmali.
+                    self._put(Run(f"click.bounce:{key_name(vk)} {gap:.0f} ms", key=vk))
                     return True
-            elif self._bounce_up:
+                self._bounce_up.discard(vk)
+            elif vk in self._bounce_up:
                 # Yuttugumuz basimin birakmasi: uygulamaya tek basina
                 # gitseydi "basilmadan birakildi" gibi gorunurdu.
-                self._bounce_up = False
+                self._bounce_up.discard(vk)
                 return True
 
         # Gercek basimini gecirdigimiz onek (surukleme): birakmasi da gecsin.
@@ -571,6 +580,14 @@ class Dispatcher:
             self._hk_swallowed.discard(vk)
             self.prefixes.combo_used(vk)
             self._put(Run(f"button_down:{key_name(vk)}", key=vk))
+
+    def _bounce_guarded(self, vk: int) -> bool:
+        """Bu dugmeye arizali fare filtresi uygulaniyor mu (ayardan)."""
+        if vk == VK_LBUTTON:
+            return self.bounce_guard_left
+        if vk == VK_MBUTTON:
+            return self.bounce_guard_middle
+        return False
 
     def _dispatch(
         self, vk: int, down: bool, t: float, momentary: bool = False

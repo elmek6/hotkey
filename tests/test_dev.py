@@ -25,9 +25,7 @@ def ayarlar():
 
 
 def zorla(monkeypatch, mode, ms) -> None:
-    monkeypatch.setattr(
-        dev, "OVERRIDE", dev.Override(mode=mode, hook_ms=ms, source="test")
-    )
+    monkeypatch.setattr(dev, "OVERRIDE", dev.Override(mode=mode, hook_ms=ms, source="test"))
 
 
 # ---- gramer: bayrak acar/kapar, ayrinti anahtar=deger ----
@@ -48,12 +46,8 @@ def test_yalin_bayrak_yalnizca_acar(monkeypatch):
 
 def test_baska_bayrakta_duruyor(monkeypatch):
     """`--dev hook=300 --supervised` dogru bolunmeli."""
-    monkeypatch.setattr(
-        dev.sys, "argv", ["main.py", "--dev", "--supervised", "hook=300"]
-    )
-    assert dev._from_argv().hook_ms is None, (
-        "sonraki bayragin ardindaki parca bize ait degil"
-    )
+    monkeypatch.setattr(dev.sys, "argv", ["main.py", "--dev", "--supervised", "hook=300"])
+    assert dev._from_argv().hook_ms is None, "sonraki bayragin ardindaki parca bize ait degil"
 
 
 def test_anlasilmayan_anahtar_sessizce_yutulmaz(monkeypatch):
@@ -91,9 +85,7 @@ def test_bayrak_yoksa_zorlama_yok(monkeypatch):
 
 def test_bayraklar_cocuga_aynen_gecer(monkeypatch):
     """Reload edince gelistirme modu kapanmamali (app.restart bunu tasiyor)."""
-    monkeypatch.setattr(
-        dev.sys, "argv", ["main.py", "--dev", "hook=300", "--supervised"]
-    )
+    monkeypatch.setattr(dev.sys, "argv", ["main.py", "--dev", "hook=300", "--supervised"])
     assert dev.argv_flags() == ["--dev", "hook=300"]
 
 
@@ -120,7 +112,7 @@ def test_ana_salter_kapaliyken_alt_ayar_okunmaz(monkeypatch, ayarlar):
 
 
 def test_nobetci_araligi_dogrulaniyor(ayarlar):
-    """0 (kapali) ya da makul bir aralik; arada bir sey yok."""
+    """0=yok,500-60000 ms."""
     assert dev.HOOK_WATCHDOG_MS.set(0) == ""
     assert dev.HOOK_WATCHDOG_MS.set(2000) == ""
     assert dev.HOOK_WATCHDOG_MS.set(50) != "", "cok kucuk deger reddedilmeli"
@@ -138,10 +130,7 @@ def test_gelistirme_kategorisi_en_ustte():
     import subprocess
     import sys
 
-    probe = (
-        "import main; from keypilot.settings import SETTINGS; "
-        "print(SETTINGS.categories[0])"
-    )
+    probe = "import main; from keypilot.settings import SETTINGS; print(SETTINGS.categories[0])"
     result = subprocess.run(
         [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
     )

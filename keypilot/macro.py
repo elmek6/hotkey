@@ -53,7 +53,7 @@ from pathlib import Path
 
 from keypilot import paths
 from keypilot.core import mouse
-from keypilot.settings import Category, setting
+from keypilot.settings import Category, between, setting
 
 log = logging.getLogger("keypilot.macro")
 
@@ -107,7 +107,7 @@ SLOT_COUNT = setting(
     category=Category.MACRO,
     tags="macro kayit slot",
     desc="Macro Recorder ekranindaki rec dosyasi sayisi",
-    validate=lambda v: "" if 1 <= int(v) <= 9 else "1-9 arasi olmali",
+    validate=between(1, 9),
 )
 KEY_DELAY = setting(
     "macro.keyDelay",
@@ -116,7 +116,7 @@ KEY_DELAY = setting(
     category=Category.MACRO,
     tags="macro oynatma hiz gecikme",
     desc="Oynatmada tuslar arasi bekleme (ms)",
-    validate=lambda v: "" if 0 <= int(v) <= 500 else "0-500 ms olmali",
+    validate=between(0, 500, "ms"),
 )
 SPEED_UP = setting(
     "macro.speedUp",
@@ -125,7 +125,7 @@ SPEED_UP = setting(
     category=Category.MACRO,
     tags="macro oynatma hiz",
     desc="Kayittaki beklemeler bu katsayiyla carpilir (0 = beklemesiz)",
-    validate=lambda v: "" if 0.0 <= float(v) <= 10.0 else "0-10 arasi olmali",
+    validate=between(0.0, 10.0),
 )
 MOUSE_MODE = setting(
     "macro.mouseMode",

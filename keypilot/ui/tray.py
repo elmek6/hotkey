@@ -56,6 +56,13 @@ DOUBLE_CLICK_LABELS = {
 #: settings.json'da duran eski (metin) degerler.
 DOUBLE_CLICK_LEGACY = {label: name for name, label in DOUBLE_CLICK_LABELS.items()}
 
+#: TEK tiklama secenekleri: cift tiklamanin ayni maddeleri + "hicbir sey".
+#: Varsayilan `none` cunku tek tik cift tiklamanin ilk yarisidir -- bir is
+#: baglanirsa cift tiklama ayarindaki eylem her seferinde ONCE tek tikin
+#: isini yapar. Ikisini birden kullanacak olan bunu bilerek seciyor.
+SINGLE_CLICK_LABELS = {"none": "Hicbir sey", **DOUBLE_CLICK_LABELS}
+SINGLE_CLICK_LEGACY = {label: name for name, label in SINGLE_CLICK_LABELS.items()}
+
 DOUBLE_CLICK = setting(
     "tray.doubleClick",
     "Tepsi simgesine cift tiklama",
@@ -70,6 +77,26 @@ DOUBLE_CLICK = setting(
         "tepsi menusundeki maddelerin ayni. Tek tiklama Windows'un kendi isi "
         "(menuyu acar), ona karisilmiyor. Simge ISARETLI iken (kirmizi = hata, "
         "sari = uyari) bu ayar gecersiz: son hatalar penceresi acilir."
+    ),
+)
+
+SINGLE_CLICK = setting(
+    "tray.singleClick",
+    "Tepsi simgesine tek tiklama",
+    default="none",
+    choices=tuple(SINGLE_CLICK_LABELS),
+    labels=SINGLE_CLICK_LABELS,
+    legacy=SINGLE_CLICK_LEGACY,
+    category=Category.TRAY,
+    tags="tepsi tray tek tiklama sol tik simge",
+    desc=(
+        "Sistem tepsisindeki simgeye SOL tek tiklayinca ne olsun. Sag tik "
+        "menuyu acar, ona karisilmiyor.\n\n"
+        "Cift tiklama ayariyla birlikte kullanilirsa tek tikin isi HER "
+        "SEFERINDE once calisir (cift tiklama tek tikla baslar) -- ikisine "
+        "birden is baglamadan once bunu hesaba kat. Simge ISARETLI iken "
+        "(kirmizi = hata, sari = uyari) bu ayar gecersiz: son hatalar "
+        "penceresi acilir."
     ),
 )
 
@@ -216,12 +243,27 @@ class Tray(QSystemTrayIcon):
         return action
 
     def _on_activated(self, reason) -> None:
-        if reason != QSystemTrayIcon.ActivationReason.DoubleClick:
+        """Tek / cift tiklama -- ikisi de ayardan.
+
+        Windows tek tikta once `Trigger`, cift tikta `Trigger` VE ardindan
+        `DoubleClick` gonderir; ayirmak icin zamanlayiciyla beklemek
+        gerekirdi ve o bekleme tek tiki hissedilir sekilde yavaslatirdi.
+        Bunun yerine tek tikin varsayilani "hicbir sey": iki ayara birden
+        is baglayan, tek tikin de calisacagini bilerek yapiyor (ayarin
+        aciklamasinda yaziyor).
+        """
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            name = str(SINGLE_CLICK.get())
+            if name == "none":
+                return
+        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            name = str(DOUBLE_CLICK.get())
+        else:
             return
+        # Isaretli simge her iki tiklamada da "ne oldu" demektir.
         if self.error_count:
             self._on_show_errors()
             return
-        name = str(DOUBLE_CLICK.get())
         self._handlers.get(name, self._handlers["pause"])()
 
     # ---- durum ----

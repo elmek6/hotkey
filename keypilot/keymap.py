@@ -48,18 +48,9 @@ from keypilot.core.hot_vectors import (
 )
 from keypilot.core.hotkey import HotkeyTable
 from keypilot.core.keynames import register_name
-from keypilot.settings import Category, setting
+from keypilot.settings import Category, between, setting
 from keypilot.win32 import send
 from keypilot.win32.menu import CHECKED, COLUMN
-
-
-def _range(low: int, high: int):
-    """AHK Setting.validate ile ayni is: araligin disi ret gerekcesi doner."""
-    def check(value) -> str:
-        return "" if low <= value <= high else f"{low}-{high} arasi olmali"
-
-    return check
-
 
 # AHK hot_vectors.ahk: prefDirThreshold / prefStepSize. Ivme carpani
 # (prefAcceleration) PORT EDILMEDI -- AHK 3.0 da kaldirmisti, duz piksel
@@ -75,7 +66,7 @@ VECTOR_LOCK_PX = setting(
         "kilitlenir. Kucuk deger: jest cabuk baslar ama yanlislikla da baslar. "
         "Buyuk deger: baslatmak icin daha cok surukleman gerekir."
     ),
-    validate=_range(1, 100),
+    validate=between(1, 100, "px"),
 )
 VECTOR_LOCK_MODE = setting(
     "hotVector.lockMode",
@@ -121,7 +112,7 @@ VECTOR_IGNORE_PX = setting(
         "hareket surukleme SAYILMAZ -- F14 ile ekran alani secimi ya da sag "
         "tus suruklemesi bosuna baslamasin diye."
     ),
-    validate=_range(0, 50),
+    validate=between(0, 50, "px"),
 )
 VECTOR_STEP_PX = setting(
     "hotVector.stepSize",
@@ -134,7 +125,7 @@ VECTOR_STEP_PX = setting(
         "adim sayisi kadar calisir (ses kac kademe artacak, buyutec ne kadar "
         "yakinlasacak). Kucultursen jest hizlanir."
     ),
-    validate=_range(1, 400),
+    validate=between(1, 400, "px"),
 )
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
@@ -182,13 +173,54 @@ VIRTUAL_MOUSE = setting(
     default=False,
     category=Category.MOUSE,
     tags="fare klavye wasd win sanal imlec",
+    #: AYAR EKRANINDA YOK. Kipin asil yeri ScrollLock menusu: orada tuslarin
+    #: listesiyle birlikte duruyor ve acilir acilmaz denenebiliyor. Ayar
+    #: ekranindaki ikinci kopya ayni salteri iki yerden gostermekten baska
+    #: is yapmiyordu. Deger yine diske yaziliyor, kip acik kalmaya devam eder.
+    hidden=True,
     desc=(
         "Win+WASD imleci oynatir, Win+Q/E tiklar, Win+Y Enter yollar. "
         "KAPALIYKEN bu kombolar hic yutulmaz -- Win+D (masaustunu goster), "
         "Win+E (Gezgin), Win+W gibi Windows kisayollari serbest kalir. "
-        "ScrollLock'u basili tutunca acilan menuden de degistirilebilir."
+        "ScrollLock'u basili tutunca acilan menuden degistirilir."
     ),
 )
+
+#: Arizali (yipranmis) fare filtresi. Mikro anahtar eskidikce tek basimi
+#: iki basim olarak gonderiyor; ikinci basim ilkinden 70 ms'den once
+#: geliyorsa (dispatch.DOUBLE_CLICK_MS) insan eli degildir ve yutuluyor.
+#: Esik AHK'den beri sabit: gercek cift tiklamada iki basim arasi 100
+#: ms'nin altina inmiyor, yani normal kullanim bu filtreden etkilenmiyor.
+BOUNCE_LEFT = setting(
+    "mouse.bounceGuardLeft",
+    "Sol tus: arizali fare filtresi",
+    default=False,
+    category=Category.MOUSE,
+    tags="fare arizali cift tiklama bounce sol tus yipranmis",
+    desc=(
+        "Sol tusta 70 ms'den kisa arayla gelen IKINCI basimi yutar -- yipranmis "
+        "mikro anahtarin tek tiklamayi ikiye bolmesine karsi. Yutulan her basim "
+        "log'a uyari olarak dusuyor ve kisa bir bip caliyor: fare yasleniyor "
+        "demek, program hatasi degil.\n\n"
+        "KAPATMA: cok hizli ard arda tiklaman gereken bir isteyse (oyun, cizim) "
+        "kapatilabilir; o zaman arizali basimlar da uygulamaya gider."
+    ),
+)
+
+BOUNCE_MIDDLE = setting(
+    "mouse.bounceGuardMiddle",
+    "Orta tus: arizali fare filtresi",
+    default=False,
+    category=Category.MOUSE,
+    tags="fare arizali cift tiklama bounce orta tus mbutton yipranmis",
+    desc=(
+        "Ayni filtre orta tus icin. Orta tus tarayicida 'yeni sekmede ac' "
+        "demek, yani arizali ikinci basim ya fazladan sekme aciyor ya da "
+        "tarayici iki basimi tek tiklama saymayip HICBIR sey yapmiyor -- "
+        "'tusa bastim, olmadi' halinin sebebi cogu zaman bu."
+    ),
+)
+
 
 def turkish_keys() -> dict[int, str]:
     """Turkce eklentisinin ilgilendigi tuslar: VK -> tusun kucuk harfi.

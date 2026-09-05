@@ -157,7 +157,9 @@ def test_dispatcher_yolundan_gelen_fare_kaydedilir(ctl):
         seen=seen,
         menu_open=lambda: False,
     )
-    dispatcher.double_click_guard = False  # ard arda gelen sahte tik yutulmasin
+    # ard arda gelen sahte tik yutulmasin
+    dispatcher.bounce_guard_left = False
+    dispatcher.bounce_guard_middle = False
 
     ctl.start_record(1, macro.HYBRID)
     dispatcher.mouse_filter(mouse(0x0201))  # WM_LBUTTONDOWN
