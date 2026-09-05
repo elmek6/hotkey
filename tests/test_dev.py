@@ -1,4 +1,4 @@
-"""Gelistirme modu salteri -- cascade/dev.py.
+"""Gelistirme modu salteri -- keypilot/dev.py.
 
 Burada sinanan sey davranis degil KARAR: hangi kaynak hangisini yeniyor,
 yanlis yazilmis bir anahtar ne yapiyor, zorlama kullanicinin ayarina
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from cascade import dev
-from cascade.settings import Category
+from keypilot import dev
+from keypilot.settings import Category
 
 
 @pytest.fixture
@@ -130,16 +130,16 @@ def test_nobetci_araligi_dogrulaniyor(ayarlar):
 def test_gelistirme_kategorisi_en_ustte():
     """Bolum ayar ekraninin EN USTUNDE dursun.
 
-    Ayri bir sira listesi YOK: sira KAYIT sirasi ve `main.py` `cascade.dev`i
+    Ayri bir sira listesi YOK: sira KAYIT sirasi ve `main.py` `keypilot.dev`i
     ilk import ediyor. Bu yuzden test ayri bir surecte kosuyor -- ayni
-    surecte baska testler cascade modullerini coktan import etmis olur ve
+    surecte baska testler keypilot modullerini coktan import etmis olur ve
     kayit sirasi onlarin izini tasir. Sinanan sey gercek acilis yolu.
     """
     import subprocess
     import sys
 
     probe = (
-        "import main; from cascade.settings import SETTINGS; "
+        "import main; from keypilot.settings import SETTINGS; "
         "print(SETTINGS.categories[0])"
     )
     result = subprocess.run(

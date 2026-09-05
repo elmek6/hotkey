@@ -1,5 +1,5 @@
-from cascade.core.clip_history import ClipHistory
-from cascade.core.state import ClipboardMode, ClipboardState
+from keypilot.core.clip_history import ClipHistory
+from keypilot.core.state import ClipboardMode, ClipboardState
 
 
 def test_kopyalanan_metin_basa_girer():

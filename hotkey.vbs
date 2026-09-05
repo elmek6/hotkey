@@ -1,4 +1,4 @@
-' cascade - sessiz baslatma (konsol penceresi acilmaz).
+' KeyPilot - sessiz baslatma (konsol penceresi acilmaz).
 ' Cift tiklayarak calistir. Windows ile birlikte acilmasi icin
 ' bu dosyanin kisayolunu  shell:startup  klasorune koy.
 '
@@ -10,7 +10,7 @@
 ' SAYILMAZ, cunku ikisi normal yasam dongusunun parcasi:
 '
 '     0                normal cikis
-'     2 ALREADY        bu oturumda zaten bir cascade var
+'     2 ALREADY        bu oturumda zaten bir KeyPilot var
 '     3 RESTART        "beni yeniden calistir" (Pause+Home / tepsi menusu)
 '     digeri           gercek cokme
 '
@@ -41,7 +41,7 @@
 ' dosyanin kanitla bulusmamasiydi -- kullanici konsolu actiginda hata
 ' coktan gecmis oluyordu.
 '
-' Programin kalici gunlugu TEK dosya: Files\log.txt (cascade/logs.py).
+' Programin kalici gunlugu TEK dosya: Files\log.txt (keypilot/logs.py).
 ' Buradaki son-konsol.log ikinci bir gunluk DEGIL: CALISAN surecin konsol
 ' ciktisi, cikista siliniyor. Cokme aninda kopyasi
 ' Files\hata-<tarih-saat>.log olarak SAKLANIR (son KEEP_CRASH tanesi);
@@ -95,12 +95,12 @@ If Not fso.FileExists(py) Then
         MsgBox "Sanal ortam yok ve `uv sync` calistirilamadi." & vbCrLf & vbCrLf & _
                base & "\.venv" & vbCrLf & vbCrLf & _
                "uv kurulu mu? Kurmak icin bu klasorde:" & vbCrLf & "    uv sync", _
-               vbCritical, "cascade baslatilamadi"
+               vbCritical, "KeyPilot baslatilamadi"
         WScript.Quit 1
     End If
     If Not fso.FileExists(py) Then
         MsgBox "`uv sync` calisti ama sanal ortam yine yok:" & vbCrLf & _
-               base & "\.venv", vbCritical, "cascade baslatilamadi"
+               base & "\.venv", vbCritical, "KeyPilot baslatilamadi"
         WScript.Quit 1
     End If
 End If
@@ -123,12 +123,12 @@ Else
     ' bir ornek son-konsol.log'un uzerine yaziyor.
     saved = KeepCrashLog()
     Discard logf
-    If MsgBox("cascade hata ile kapandi (cikis kodu " & rc & "):" & vbCrLf & vbCrLf & _
+    If MsgBox("KeyPilot hata ile kapandi (cikis kodu " & rc & "):" & vbCrLf & vbCrLf & _
               Tail(saved) & vbCrLf & _
               "Hata gunlugu: " & saved & vbCrLf & vbCrLf & _
               "Konsolda (gorunur pencerede) yeniden baslatilsin mi?" & vbCrLf & _
               "Hayir dersen gunluk Not Defteri'nde acilir.", _
-              vbCritical + vbYesNo, "cascade") = vbYes Then
+              vbCritical + vbYesNo, "KeyPilot") = vbYes Then
         RunConsole()
     ElseIf saved <> "" Then
         On Error Resume Next
@@ -173,9 +173,9 @@ Function RunUntilDone()
             floods = 0
         End If
     Loop While floods <= MAX_RESTARTS
-    MsgBox "cascade ust uste " & (MAX_RESTARTS + 1) & " kez aninda kendini " & _
+    MsgBox "KeyPilot ust uste " & (MAX_RESTARTS + 1) & " kez aninda kendini " & _
            "yeniden baslatti; dongu kirildi." & vbCrLf & vbCrLf & _
-           "Gunluk: " & base & "\Files\log.txt", vbExclamation, "cascade"
+           "Gunluk: " & base & "\Files\log.txt", vbExclamation, "KeyPilot"
     RunUntilDone = 0
 End Function
 
@@ -241,7 +241,7 @@ End Sub
 Sub RunConsole()
     On Error Resume Next
     sh.Run "cmd /k " & q & "echo Hata ayiklama modu. Bu pencereyi kapatirsan " & _
-           "cascade de kapanir. & echo. & " & q & py & q & " " & _
+           "KeyPilot de kapanir. & echo. & " & q & py & q & " " & _
            q & base & "\main.py" & q & extra & q, 1, False
     Err.Clear
     On Error GoTo 0

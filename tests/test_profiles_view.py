@@ -10,8 +10,8 @@ import codecs
 import orjson
 import pytest
 
-from cascade.app_shorts import ShortcutStore
-from cascade.ui.profiles_view import ProfilesView
+from keypilot.app_shorts import ShortcutStore
+from keypilot.ui.profiles_view import ProfilesView
 
 ORNEK = {
     "projectName": "ProfileManager",
@@ -290,7 +290,7 @@ def test_yaz_oku_dongusu_veriyi_degistirmez(qapp, tmp_path):
 
 def test_yazma_yarim_kalirsa_eski_dosya_yerinde_kalir(view, monkeypatch):
     """`.tmp` + `os.replace`: AHK dosyayi tek parca yaziyordu."""
-    import cascade.app_shorts as modul
+    import keypilot.app_shorts as modul
 
     monkeypatch.setattr(
         modul.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("disk dolu"))

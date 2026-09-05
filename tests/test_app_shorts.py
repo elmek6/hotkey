@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import codecs
 
-from cascade.app_shorts import ShortcutStore, stroke_kind
+from keypilot.app_shorts import ShortcutStore, stroke_kind
 
 SAMPLE = (
     '{"projectName":"ProfileManager","profiles":['

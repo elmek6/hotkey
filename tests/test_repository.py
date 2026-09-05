@@ -1,11 +1,11 @@
-"""Kod parcasi deposunun METIN bicimi (cascade/repository.py).
+"""Kod parcasi deposunun METIN bicimi (keypilot/repository.py).
 
 Bicimin tek isi elle okunup elle duzenlenebilmek; bu yuzden testlerin agirligi
 "bozuk/garip girdi ne oluyor" tarafinda. AHK tarafinda bu katman hic test
 edilemiyordu, dosya okuma GUI'nin icindeydi.
 """
 
-from cascade.repository import Item, Repository, dump, parse
+from keypilot.repository import Item, Repository, dump, parse
 
 ORNEK = """===
 uuid: 05/11/2025_00:45_1692013593

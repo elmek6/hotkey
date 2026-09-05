@@ -20,9 +20,9 @@ import threading
 
 import pytest
 
-from cascade import incognito as inc_module
-from cascade.incognito import Incognito
-from cascade.tracestore import FileGlobStore, TraceStore
+from keypilot import incognito as inc_module
+from keypilot.incognito import Incognito
+from keypilot.tracestore import FileGlobStore, TraceStore
 
 
 class SpyStore(TraceStore):

@@ -1,6 +1,6 @@
-from cascade.core.hotkey import HotkeyTable, parse_hotkey
-from cascade.core.keynames import VK_WHEEL_DOWN, VK_WHEEL_UP, register_name
-from cascade.core.mouse import (
+from keypilot.core.hotkey import HotkeyTable, parse_hotkey
+from keypilot.core.keynames import VK_WHEEL_DOWN, VK_WHEEL_UP, register_name
+from keypilot.core.mouse import (
     WM_MBUTTONDOWN,
     WM_MOUSEMOVE,
     WM_MOUSEWHEEL,

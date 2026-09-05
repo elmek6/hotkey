@@ -1,6 +1,6 @@
 """Turkce eklentisi -- turkish_layout_addon.ahk kurallari (saf katman)."""
 
-from cascade.core.turkish import TurkishLayout
+from keypilot.core.turkish import TurkishLayout
 
 
 def _tr(layout: int = 1) -> TurkishLayout:

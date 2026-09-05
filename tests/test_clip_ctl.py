@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from cascade.clip_ctl import ClipController
-from cascade.core.state import ClipboardMode
+from keypilot.clip_ctl import ClipController
+from keypilot.core.state import ClipboardMode
 
 
 class Recorder:

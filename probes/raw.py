@@ -14,11 +14,11 @@ import queue
 import sys
 import time
 
-from cascade.core.keynames import key_name
-from cascade.win32 import consts as C
-from cascade.win32 import send
-from cascade.win32.hook import PASS, SWALLOW, HookThread, KeyEvent, MouseEvent
-from cascade.win32.structs import user32
+from keypilot.core.keynames import key_name
+from keypilot.win32 import consts as C
+from keypilot.win32 import send
+from keypilot.win32.hook import PASS, SWALLOW, HookThread, KeyEvent, MouseEvent
+from keypilot.win32.structs import user32
 
 VK_F8, VK_F9, VK_F10, VK_Q = 0x77, 0x78, 0x79, 0x51
 VK_CONTROL, VK_MENU = 0x11, 0x12
@@ -50,7 +50,7 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    print("cascade -- klavye/fare sondaji")
+    print("KeyPilot -- klavye/fare sondaji")
     print("-" * 62)
     print("  herhangi bir tus / fare      -> olay dokumu")
     print("  F8                           -> YUTULUR (hicbir uygulamaya gitmez)")
@@ -99,7 +99,7 @@ def main() -> int:
                         break
                     if event.vk == VK_F9:
                         time.sleep(0.05)
-                        send.type_text("cascade ✓ ıİğĞşŞçÇöÖüÜ ")
+                        send.type_text("KeyPilot ✓ ıİğĞşŞçÇöÖüÜ ")
                         send.tap(0x41, 0xA0)  # Shift+A -> scancode yolu
                         print("      -> type_text + tap(Shift+A) gonderildi")
                     elif event.vk == VK_F10:

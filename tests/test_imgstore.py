@@ -11,7 +11,7 @@ import zlib
 import pytest
 from PIL import Image
 
-from cascade.imgstore import (
+from keypilot.imgstore import (
     BLOB_HDR,
     HDR_BYTES,
     MAGIC,
@@ -238,7 +238,7 @@ def test_crc32_ntdll_ile_ayni():
     """
     import ctypes
 
-    data = b"cascade gorsel deposu testi 0123456789"
+    data = b"keypilot gorsel deposu testi 0123456789"
     buffer = ctypes.create_string_buffer(data, len(data))
     ntdll = ctypes.WinDLL("ntdll")
     ntdll.RtlComputeCrc32.restype = ctypes.c_uint32

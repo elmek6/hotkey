@@ -3,7 +3,7 @@ gercek ekran ve gercek motor gerekiyordu. Burada girdi sadece kelime
 kutulari oldugu icin motorsuz test edilebiliyor.
 """
 
-from cascade.core.ocr_layout import (
+from keypilot.core.ocr_layout import (
     LayoutMode,
     Word,
     column_index,

@@ -7,11 +7,11 @@ callback'inin icinde calisan kod.
 
 import queue
 
-from cascade.core.cascade import CascadeMachine
-from cascade.core.hot_vectors import HotVectors
-from cascade.core.hotkey import HotkeyTable
-from cascade.core.keynames import VK_WHEEL_UP, register_name
-from cascade.dispatch import Dispatcher
+from keypilot.core.cascade import CascadeMachine
+from keypilot.core.hot_vectors import HotVectors
+from keypilot.core.hotkey import HotkeyTable
+from keypilot.core.keynames import VK_WHEEL_UP, register_name
+from keypilot.dispatch import Dispatcher
 
 F13, F14, CARET, ONE = 0x7C, 0x7D, 0xDC, 0x31
 LBUTTON, MBUTTON, F16 = 0x01, 0x04, 0x7F
@@ -265,7 +265,7 @@ def test_surukleme_bir_kez_tetiklenir():
 
 def make_dispatcher_with_cascade() -> Dispatcher:
     """F15 hem kaskad tusu hem de `F13 & F15` kombosunun yancisi."""
-    from cascade.core.builder import KeyBuilder, PressType
+    from keypilot.core.builder import KeyBuilder, PressType
 
     f15_def = (
         KeyBuilder("F15", short=350)
@@ -369,7 +369,7 @@ def test_izlenen_tusun_birakilmasi_ui_acikken_de_gorulur():
     GetAsyncKeyState burada ise yaramiyor -- yutulan keydown Windows'un
     tus durumu tablosunu guncellemiyor (bkz. ui/snip.py `_poll_key`).
     """
-    from cascade.win32.hook import KeyEvent
+    from keypilot.win32.hook import KeyEvent
 
     box = make_dispatcher()
     feed(box, CARET, True, 0.0)  # secimi baslatan tus basili
@@ -392,8 +392,8 @@ def test_izlenen_tusun_birakilmasi_ui_acikken_de_gorulur():
 
 
 def _lclick(t: float, down: bool = True):
-    from cascade.core.mouse import WM_LBUTTONDOWN, WM_LBUTTONUP
-    from cascade.win32.hook import MouseEvent
+    from keypilot.core.mouse import WM_LBUTTONDOWN, WM_LBUTTONUP
+    from keypilot.win32.hook import MouseEvent
 
     return MouseEvent(
         message=WM_LBUTTONDOWN if down else WM_LBUTTONUP, x=0, y=0, data=0,
@@ -427,7 +427,7 @@ def _tr_box(layout: int):
 
 
 def _press(vk: int, t: float):
-    from cascade.win32.hook import KeyEvent
+    from keypilot.win32.hook import KeyEvent
 
     return KeyEvent(
         vk=vk, scan=0, down=True, extended=False,
@@ -539,7 +539,7 @@ def test_temizleyici_yoldaki_birakmayi_hayalet_SANMAZ():
 def test_temizleyici_geri_basilan_tusun_suphesini_unutur(monkeypatch):
     """Bir tarama "basili degil" dedi, sonraki "basili" diyor: sayac sifirlanir,
     yoksa suphe birikip ucuncu taramada masum tusu dusururdu."""
-    from cascade import dispatch as dispatch_module
+    from keypilot import dispatch as dispatch_module
 
     box = make_dispatcher()
     feed(box, CTRL, True, 0.0)
@@ -553,7 +553,7 @@ def test_temizleyici_geri_basilan_tusun_suphesini_unutur(monkeypatch):
 
 def test_temizleyici_gercekten_basili_tusa_dokunmaz(monkeypatch):
     """Olcut GetAsyncKeyState: kullanici Ctrl'yi hala tutuyorsa dusurulmez."""
-    from cascade import dispatch as dispatch_module
+    from keypilot import dispatch as dispatch_module
 
     monkeypatch.setattr(dispatch_module.send, "is_down", lambda vk: vk == CTRL)
     box = make_dispatcher()
@@ -614,7 +614,7 @@ def _hook(monkeypatch, idle_ms: float, alive: bool = True):
     import queue as _queue
     import threading
 
-    from cascade.win32 import hook as hook_module
+    from keypilot.win32 import hook as hook_module
 
     monkeypatch.setattr(hook_module, "system_idle_ms", lambda: idle_ms)
     thread = hook_module.HookThread(_queue.Queue())

@@ -2,13 +2,13 @@
 
 import logging
 
-from cascade import logs
-from cascade.logs import ErrorStore, recent_text
+from keypilot import logs
+from keypilot.logs import ErrorStore, recent_text
 
 
 def test_uyari_ve_ustu_toplanir():
     store = ErrorStore()
-    logger = logging.getLogger("test.cascade.store")
+    logger = logging.getLogger("test.keypilot.store")
     logger.propagate = False
     logger.setLevel(logging.DEBUG)
     logger.addHandler(store)
@@ -26,7 +26,7 @@ def test_uyari_ve_ustu_toplanir():
 
 def test_exception_izi_metne_girer():
     store = ErrorStore()
-    logger = logging.getLogger("test.cascade.exc")
+    logger = logging.getLogger("test.keypilot.exc")
     logger.propagate = False
     logger.addHandler(store)
     try:
@@ -64,11 +64,11 @@ def test_lifecycle_satiri_FILE_INFO_kapaliyken_de_dosyaya_gecer():
     NEDEN kapandigi hicbir yerde yazmiyordu.
     """
     logs._file_info = False
-    duz = logging.LogRecord("cascade", logging.INFO, __file__, 1, "duz", None, None)
+    duz = logging.LogRecord("keypilot", logging.INFO, __file__, 1, "duz", None, None)
     assert not logs._file_filter(duz)
 
     isaretli = logging.LogRecord(
-        "cascade", logging.INFO, __file__, 1, "kapaniyor", None, None
+        "keypilot", logging.INFO, __file__, 1, "kapaniyor", None, None
     )
     setattr(isaretli, logs.ALWAYS, True)
     assert logs._file_filter(isaretli)
@@ -77,7 +77,7 @@ def test_lifecycle_satiri_FILE_INFO_kapaliyken_de_dosyaya_gecer():
 def test_FILE_INFO_acikken_her_INFO_gecer():
     logs._file_info = True
     try:
-        duz = logging.LogRecord("cascade", logging.INFO, __file__, 1, "duz", None, None)
+        duz = logging.LogRecord("keypilot", logging.INFO, __file__, 1, "duz", None, None)
         assert logs._file_filter(duz)
     finally:
         logs._file_info = False

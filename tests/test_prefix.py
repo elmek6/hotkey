@@ -1,7 +1,7 @@
 """Onek tusu durum makinesi. AHK'de bu mantik bloke eden KeyWait'in
 icindeydi ve hic denenemiyordu."""
 
-from cascade.core.prefix import Outcome, PrefixDef, PrefixTracker
+from keypilot.core.prefix import Outcome, PrefixDef, PrefixTracker
 
 CARET, F13, LBUTTON = 0xDC, 0x7C, 0x01
 

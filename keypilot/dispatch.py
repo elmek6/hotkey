@@ -1,0 +1,723 @@
+"""Tus dagitimi -- CEKIRDEK katman. AHK'deki key_handler_*.ahk'lerin toplami.
+
+Donanimdan gelen HER olay tek kapidan gecer: win32/hook.py olayi yakalar,
+buradaki Dispatcher yut/birak kararini verir ve yapilacak isleri kuyruga
+atar. Diger moduller tusa DOGRUDAN dokunmaz; ne yapilacagini keymap.py'deki
+tablolarla buraya kayit ettirir, isin kendisi kuyruktan app.py'de calisir.
+
+Mimari kural: bu sinifin key_filter/mouse_filter metotlari hook thread'inde
+kosar. O(1) kalmak zorundalar -- karar ver, kuyruga at, don. Icinde I/O,
+kilit bekleme, SendInput YOK (jest sirasindaki SetCursorPos tek istisna ve
+yeniden girissiz). 300 ms asilirsa Windows hook'u sessizce dusurur.
+
+Karar sirasi (her iki filtre icin ayni):
+
+    1. kaskad makinesi (CascadeMachine.feed_key)  -- F15..F20, ScrollLock
+    2. kombo takibi + kisayol tablosu (_dispatch)  -- F13 & F14, ^ & 1 ...
+    3. onek durum makinesi (PrefixTracker)         -- yutma / geri gonderme
+    4. jest ve surukleme ozel yollari              -- fare hareketi
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import queue
+from collections.abc import Callable
+
+from keypilot.core.cascade import CascadeMachine, Phase, Run
+from keypilot.core.combo import ComboTracker
+from keypilot.core.hot_vectors import HotVectors
+from keypilot.core.hotkey import HotkeyTable
+from keypilot.core.keynames import MODIFIER_VKS, key_name
+from keypilot.core.mouse import WM_MOUSEMOVE, MouseSeen, mouse_key
+from keypilot.core.prefix import Outcome, PrefixTracker
+from keypilot.core.turkish import TurkishLayout
+from keypilot.win32 import send
+from keypilot.win32.hook import KeyEvent, MouseEvent
+
+VK_ESCAPE = 0x1B
+
+VK_LBUTTON = 0x01
+
+# ARIZALI FARE FILTRESI (AHK: AutoHotkey.ahk `A_TimeSincePriorHotkey < 70`).
+# Yipranmis mikro anahtar tek basimi iki basim olarak gonderir; ikinci basim
+# ilkinden bu suren once gelirse insan eli degildir, yutuluyor. Gercek cift
+# tiklamada iki basim arasi 100 ms'nin altina inmez (Windows'un cift tik
+# suresi 500 ms), o yuzden bu esik normal kullanimi bozmaz.
+DOUBLE_CLICK_MS = 70.0
+
+log = logging.getLogger("keypilot.dispatch")
+
+# HAYALET TUS TEMIZLEYICISI (bkz. Dispatcher._reconcile). Tarama Qt
+# thread'inde, `tick` icinden yapilir -- hook callback'ine dokunulmaz.
+#: Iki tarama arasindaki en kisa sure. 250 ms: kullanicinin "tuslar oldu"
+#: diyecek kadar bekleyemeyecegi, ama saniyede 50 kez GetAsyncKeyState
+#: cagirmayacak kadar seyrek.
+RECONCILE_SECONDS = 0.25
+#: YUTTUGUMUZ tusun gercek durumu Windows'a sorulamaz: yutulan keydown tus
+#: durumu tablosuna hic islemez, GetAsyncKeyState her zaman "basili degil"
+#: der. Onlar icin tek olcut sure -- bu kadar suredir basili gorunen bir
+#: onek insan eli degildir.
+STALE_HOLD_SECONDS = 30.0
+#: GetAsyncKeyState olcutu TEK taramayla karar VERMEZ: hook callback'i ayri
+#: thread'de kosar ve GIL'i ana thread'den devralmasi milisaniye alabilir --
+#: kullanici tusu birakmisken BIRAKMA OLAYI henuz islenmemis olur. O aralikta
+#: tus hem "basili" listesinde durur hem de Windows "basili degil" der; normal
+#: yazarken dakikada birkac tus sahte hayalet sayiliyordu ("0.0 sn basili
+#: gorunuyordu" satirlari tam olarak bunlardi ve WARNING olduklari icin tepsi
+#: rozetine dusuyorlardi). Gercek hayalet (UAC / Win+L) sonsuza kadar durur,
+#: ikinci taramayi beklemenin bedeli yok. Sure olcutu (STALE_HOLD_SECONDS) bu
+#: kapiya girmez: 30 saniye zaten en guclu dogrulama.
+
+
+class Dispatcher:
+    """Yut/birak kararlarinin tek sahibi.
+
+    `paused` ve `ui_open` bayraklarini app.py yazar: duraklatmada ve filtreli
+    liste penceresi acikken hicbir karara girilmez, tuslar dokunulmadan gecer.
+    """
+
+    def __init__(
+        self,
+        machine: CascadeMachine,
+        hotkeys: HotkeyTable,
+        gestures: HotVectors,
+        actions: queue.Queue,
+        seen: queue.Queue,
+        menu_open: Callable[[], bool],
+    ) -> None:
+        self.machine = machine
+        self.hotkeys = hotkeys
+        # Onek tuslari ayri bir durum makinesinde: yutma, basili tutma esigi
+        # ve "kombo yapildi mi" bilgisi orada (core/prefix.py).
+        self.prefixes = PrefixTracker(hotkeys.prefix_defs)
+        # tracker basili tuslari bilir (hangi modifier, hangi onek);
+        # tablo "bu kombo bize mi ait" sorusunu cevaplar.
+        self.tracker = ComboTracker()
+        # Jestler ayri bir izleyicide: fare hareketi sadece jest tanimli bir
+        # onek basiliyken isleniyor, geri kalan zamanda hicbir sey yapmiyor.
+        self.gestures = gestures
+        self.actions = actions
+        self.seen = seen  # (olay, yutuldu mu) -> olay izleyicisi
+        self._menu_open = menu_open
+        #: Cift basim icin BEKLETILEN kisa basim eylemleri:
+        #: vk -> (eylem, aciklama, calisma ani). AHK'deki
+        #: `KeyWait(key, "D T0.1")` beklemesinin karsiligi.
+        self._pending_tap: dict[int, tuple[str, str, float]] = {}
+        #: Son FIZIKSEL girdi ani (enjekte edilen girdi sayilmaz) --
+        #: AHK `A_TimeIdlePhysical`. Ekran koruyucu engelleyici kullaniyor.
+        self.last_physical = 0.0
+
+        # Turkce eklentisi (AHK turkish_layout_addon.ahk). ScrollLock ile
+        # acilir; hangi VK hangi harf, `turkish_keys` ile app.py'den gelir
+        # (duzene bagli, calisma aninda soruluyor).
+        self.turkish = TurkishLayout()
+        self.turkish_keys: dict[int, str] = {}
+
+        self.paused = False
+        self._ui_open = False
+        self._hk_swallowed: set[int] = set()  # yuttugumuz keydown'in keyup'i
+        # Jest sirasinda imlecin tutulacagi nokta ve son geri bildirim ani.
+        self._freeze_at: tuple[int, int] | None = None
+        #: Jest sirasinda EN SON gorulen imlec noktasi -- fark buradan
+        #: aliniyor (bkz. `_gesture_move`).
+        self._gesture_at: tuple[int, int] | None = None
+        #: `hotVector.freezeCursor`: imlec jest boyunca yerinde durur (HV-3).
+        #: app.py ayardan dolduruyor.
+        self.freeze_cursor = True
+        #: `hotVector.ignorePx`: surukleme sayilmayan titreme. Fare onegi
+        #: basiliyken imlec bir iki piksel oynar. app.py ayardan dolduruyor.
+        self.drag_px = 6
+        self._prefix_at: tuple[int, int] | None = None
+        self._tip_t = 0.0
+        # Yutup beklettigimiz fare onegi surukleme oldugu anlasilinca gercek
+        # basimi enjekte ediliyor; bu kume onlari tutuyor ki birakma olayi
+        # da uygulamaya gecsin.
+        self._passed_through: set[int] = set()
+        # `ui_open` acikken hicbir olay islenmiyor, ama SECIMI YAPAN tusun
+        # birakilmasi yine de ogrenilmek zorunda: F14 basili tutulurken snip
+        # acilir ve tus birakilinca secim biter. GetAsyncKeyState burada ise
+        # yaramaz -- LL hook'ta YUTULAN keydown Windows'un tus durumu
+        # tablosunu guncellemez, F14 hic basilmamis gorunur. Bu yuzden
+        # durumu hook'un kendisinden tutuyoruz.
+        self._watch_vk = 0
+        self._watch_down = False
+        # Arizali fare filtresi: son sol tus BASIMININ ani ve "yuttugumuz
+        # basimin BIRAKMASI da yutulsun" bayragi.
+        self._lbutton_t = 0.0
+        self._bounce_up = False
+        #: Filtre kapatilabilsin diye ayri bayrak (tepsi/menu ile acilir).
+        self.double_click_guard = True
+        #: Son hayalet tus taramasinin ani ve toplam dusurulen tus sayisi
+        #: (tani ekraninda gorunuyor -- app.show_monitor).
+        self._reconcile_t = 0.0
+        self.phantom_drops = 0
+        #: Bir onceki taramada hayalet GORUNEN tuslar: sure olcutu disinda
+        #: dusurmek icin ust uste iki tarama sart (bkz. STALE_HOLD_SECONDS
+        #: altindaki aciklama).
+        self._suspects: set[int] = set()
+
+    def watch(self, vk: int) -> None:
+        """Bu tusun basili/birakildi durumunu izle (ui/snip.py yokluyor).
+
+        Baslangic durumu onek takipcisinden: eylem kuyruktan gecerken
+        kullanici tusu coktan birakmis olabilir; o zaman "basili" demek
+        secimi sonsuza dek acik birakirdi.
+        """
+        self._watch_vk = vk
+        self._watch_down = bool(vk) and vk in self.prefixes.held
+
+    def watch_held(self) -> bool:
+        """Izlenen tus hala basili mi? (ui/snip.py yokluyor.)"""
+        return self._watch_down
+
+    # ---- hook thread ----
+
+    def key_filter(self, event: KeyEvent) -> bool:
+        """Hook thread'inde calisir. O(1): karar ver, kuyruga at, don."""
+        if event.ours:
+            return False
+        # Izlenen tusun (F14) durumu her kosulda kaydedilir: menu/filtre
+        # penceresi acikken olay asagida durdurulsa bile secimi bitiren
+        # BIRAKMA kaybolmamali. Olayin kendisi yutulmuyor.
+        if self._watch_vk and event.vk == self._watch_vk:
+            self._watch_down = event.down
+        if not event.injected:
+            self.last_physical = event.t
+        if self.paused or self.ui_open:
+            return False
+
+        # TURKCE ASAMASI kaskaddan ve kisayol tablosundan ONCE, ama yalniz
+        # makine BOSTA ve hicbir onek basili degilken: `F15 & c` gibi bir
+        # kombo Turkce harfe yem olmasin. Kapaliyken tek bayrak kontrolu.
+        if (
+            self.turkish.enabled
+            and not self.prefixes.held
+            and self.machine.phase == Phase.IDLE
+        ):
+            char = self.turkish_keys.get(event.vk)
+            if char and not send.hard_modifier_down():
+                upper = send.caps_on() != send.shift_down()
+                swallow, actions = self.turkish.feed(char, event.down, event.t, upper)
+                if swallow:
+                    for action in actions:
+                        self._put(Run(action, key=event.vk))
+                    with contextlib.suppress(queue.Full):
+                        self.seen.put_nowait((event, True))
+                    return True
+
+        # Acik menuyu Esc kapatsin. Menu klavye yakalamasini her zaman
+        # alamiyor (tepsi uygulamasinin aktif penceresi yok), ama hook
+        # her tusu goruyor -- en guvenli yer burasi.
+        if event.down and event.vk == VK_ESCAPE and self._menu_open():
+            self._put(Run("menu.close"))
+            return True
+
+        # Onek basiliyken kisayol tablosu kaskaddan ONCE denenir: `F13 & F15`
+        # yazilabilsin diye. F15 ayni zamanda kaskad tusu; once makineye
+        # sorulsa F13'u gormeden kendi kaskadini baslatirdi. Makine mesgulken
+        # (HELD/MENU) sira degismez -- kaskad kombolari makinenin isi.
+        if self.prefixes.held and self.machine.phase == Phase.IDLE:
+            swallow, actions = self._dispatch(event.vk, event.down, event.t)
+            if not swallow:
+                swallow, extra = self.machine.feed_key(event.vk, event.down, event.t)
+                actions += extra
+        else:
+            swallow, actions = self.machine.feed_key(event.vk, event.down, event.t)
+            if not swallow:
+                swallow, extra = self._dispatch(event.vk, event.down, event.t)
+                actions += extra
+
+        for action in actions:
+            self._put(action)
+        with contextlib.suppress(queue.Full):
+            self.seen.put_nowait((event, swallow))
+        return swallow
+
+    def mouse_filter(self, event: MouseEvent) -> bool:
+        """Fare de ayni yoldan gecer: dugme bir tus koduna cevrilir ve ayni
+        tabloya sorulur. Boylece `~LButton & F16` yazimi calisiyor -- fare
+        ile klavye tek bir kombo evreninde.
+
+        Tekerlegin birakma olayi yok: basili kalmis gorunmesin diye
+        ComboTracker'a basim ve birakma ard arda veriliyor. Verilmezse
+        WheelUp sonsuza kadar "basili" sayilir ve sonraki tuslara onek olur.
+        """
+        if not event.injected:
+            self.last_physical = event.t
+        if event.ours or self.paused or self.ui_open:
+            return False
+
+        if event.message == WM_MOUSEMOVE:
+            # Sicak yol: jest izlenmiyorsa tek bir bayrak kontrolu.
+            if not self.gestures.watching:
+                self._drag_check(event)
+                return False
+            return self._gesture_move(event)
+
+        key = mouse_key(event.message, event.data)
+        if key is None:
+            return False
+        vk, down = key
+
+        # Arizali fare: cok hizli gelen IKINCI basim yutulur. Karar burada,
+        # kaskad/kombo yollarindan ONCE: yutulan basim hicbir duruma
+        # dokunmamali, yoksa onek takipcisi ac kapali kalir.
+        if vk == VK_LBUTTON and self.double_click_guard:
+            if down:
+                gap = (event.t - self._lbutton_t) * 1000.0
+                self._lbutton_t = event.t
+                self._bounce_up = 0.0 < gap < DOUBLE_CLICK_MS
+                if self._bounce_up:
+                    self._put(Run(f"click.bounce:{gap:.0f}", key=vk))
+                    return True
+            elif self._bounce_up:
+                # Yuttugumuz basimin birakmasi: uygulamaya tek basina
+                # gitseydi "basilmadan birakildi" gibi gorunurdu.
+                self._bounce_up = False
+                return True
+
+        # Gercek basimini gecirdigimiz onek (surukleme): birakmasi da gecsin.
+        if not down and vk in self._passed_through:
+            self._passed_through.discard(vk)
+            self._prefix_at = None
+            self.prefixes.key_up(vk, event.t)
+            self.tracker.key_up(vk, event.t)
+            return False
+
+        # keymap F19'daki `.combo("LButton", ...)` icin: fare dugmesi
+        # kaskad makinesine de gidiyor, yoksa F19 basiliyken sol tik
+        # gorunmezdi.
+        swallow, actions = self.machine.feed_key(vk, down, event.t)
+        if not swallow:
+            swallow, extra = self._dispatch(vk, down, event.t, momentary=vk > 0xFF)
+            actions += extra
+        for action in actions:
+            self._put(action)
+        # Fare dugmeleri de olay izleyicisine dusuyor (klavye gibi). Hareket
+        # buraya HIC gelmiyor -- yukarida erken donuyor, yoksa liste saniyede
+        # yuzlerce satirla dolardi.
+        with contextlib.suppress(queue.Full):
+            self.seen.put_nowait(
+                (
+                    MouseSeen(
+                        vk=vk, down=down, t=event.t, x=event.x, y=event.y, raw=event
+                    ),
+                    swallow,
+                )
+            )
+        return swallow
+
+    def tick(self, now: float) -> list[tuple[int, str]]:
+        """Bekletilen kisa basim eylemleri -- Qt zamanlayicisi cagirir.
+
+        Basili tutma esigi ARTIK burada yoklanmiyor: basim turune tus
+        birakilinca karar veriliyor (AHK ile ayni, bkz. `PrefixTracker.key_up`).
+        Geriye yalniz cift basim penceresi kaldi.
+        """
+        self._reconcile(now)
+        fired: list[tuple[int, str]] = []
+        # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
+        for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
+            if now >= deadline:
+                del self._pending_tap[vk]
+                fired.append((vk, action))
+        return fired
+
+    # ---- hayalet tus temizleyicisi (Qt thread) ----
+
+    def _reconcile(self, now: float) -> list[int]:
+        """Birakma olayi KAYBOLMUS tuslari dusurur -- kendi kendini tamir.
+
+        Bir tusun keyup'i hook'a hic ulasmayabilir: UAC / Ctrl+Alt+Del
+        guvenli masaustunde LL hook calismaz, Win+L ile kilitlenen oturumda
+        da oyle; Windows hook'u zaman asimindan dusurup geri takarsa da
+        aradaki olaylar kaybolur. Geride kalan hayaletin iki zarari var:
+
+            hayalet MODIFIER -- `_hotkey_key`'in onek yoluna girmesi icin
+            `not chord.modifiers` sarti var. Sahte bir Ctrl F13 ve F14'u
+            SESSIZCE oldurur: hicbir sey yutulmaz, hicbir eylem uretilmez.
+            F15..F20 kaskad makinesinden geciyor ve o makine modifier'a hic
+            bakmiyor, yani calismaya devam ederler -- "fare tuslarinin bir
+            kismi oldu, otekiler duruyor" tablosunun sebebi tam olarak bu.
+
+            hayalet ONEK -- ondan sonraki her tus `F13 & X` sanilir.
+            (`_rescue_match` yalnizca eslesme BOSA CIKINCA kurtariyor;
+            gecerli bir kombo varsa yanlis eylem calisir.)
+
+        Olcut ikiye ayriliyor, cunku YUTTUGUMUZ tusun gercek durumu
+        Windows'a sorulamaz: yutulan keydown tus durumu tablosuna hic
+        islemez, GetAsyncKeyState onlara her zaman "basili degil" der --
+        sorsaydik F13 basiliyken onegi kendi elimizle dusururduk.
+
+        GetAsyncKeyState olcutu ust uste IKI taramada ayni cevabi vermeden
+        kimseyi dusurmez -- sebebi STALE_HOLD_SECONDS'in altinda yaziyor.
+        """
+        if now - self._reconcile_t < RECONCILE_SECONDS:
+            return []
+        self._reconcile_t = now
+        # (vk, basildigi an) -- sure LOG icin gerekiyor ve `_forget`ten sonra
+        # sorulamaz. `or` ile secilemez: ilk tusun ani 0.0 olabilir.
+        phantoms: list[tuple[int, float | None]] = []
+        suspects: set[int] = set()
+        seen: set[int] = set()
+        for vk in (*self.tracker.held, *self.prefixes.held):
+            if vk in seen or vk > 0xFF:
+                continue  # tekerlek takma kodu: birakma olayi zaten yok
+            seen.add(vk)
+            started = self.tracker.held_since(vk)
+            if started is None:
+                started = self.prefixes.held_since(vk)
+            stale = started is not None and (now - started) > STALE_HOLD_SECONDS
+            if vk in self._hk_swallowed:
+                if not stale:
+                    continue  # yutuldu: Windows'a soramayiz, sure disinda olcut yok
+            elif send.is_down(vk) and not stale:
+                continue  # gercekten basili
+            elif not stale:
+                # Windows "basili degil" diyor ama sure olcutu dolmadi:
+                # birakma olayi YOLDA olabilir, ikinci taramayi bekle.
+                suspects.add(vk)
+                if vk not in self._suspects:
+                    continue
+            phantoms.append((vk, started))
+        self._suspects = suspects
+        for vk, started in phantoms:
+            log.warning(
+                "hayalet tus dusuruldu: %s (%.1f sn basili gorunuyordu)",
+                key_name(vk),
+                now - started if started is not None else 0.0,
+            )
+            self._forget(vk, now)
+        self.phantom_drops += len(phantoms)
+        return [vk for vk, _started in phantoms]
+
+    def _forget(self, vk: int, now: float) -> None:
+        """Hayalet tusu durumdan HIC EYLEM URETMEDEN siler.
+
+        `prefixes.key_up` degil `prefixes.forget`: birincisi basim turune
+        karar verip tap/hold eylemi dondururdu -- kimsenin basmadigi bir
+        tusun menusunu acmak, duzeltmek istedigimiz seyin ta kendisi.
+        """
+        self.tracker.key_up(vk, now)
+        self.prefixes.forget(vk)
+        self._hk_swallowed.discard(vk)
+        self._passed_through.discard(vk)
+        self._pending_tap.pop(vk, None)
+        if self._watch_vk == vk:
+            self._watch_down = False
+        # Jest kapanisi YALNIZCA bu tus jest yapiyorduysa: `_end_gesture`
+        # ipucunu gizleyen bir eylem kuyruga atiyor, her hayalette bir
+        # `tip.hide` uretmek gereksiz gurultu olurdu.
+        if self.gestures.stop(vk) and not self.gestures.watching:
+            self._end_gesture()
+        if vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
+            self._prefix_at = None
+
+    @property
+    def ui_open(self) -> bool:
+        return self._ui_open
+
+    @ui_open.setter
+    def ui_open(self, state: bool) -> None:
+        """Pencere/menu acilirken ve kapanirken hayalet durumu temizler.
+
+        Bayrak acikken `key_filter` / `mouse_filter` olaylari erkenden
+        birakiyor -- BIRAKMA olaylari da dahil. F14'u basili tutup secim
+        aracini acan kullanici tusu birakinca o keyup yutuluyor ve
+        PrefixTracker F14'u sonsuza dek "basili" saniyordu: secim
+        kapandiktan sonra her tekerlek `F14 & WheelUp` sayilip sesi
+        oynatiyordu. Gecisin iki yaninda da temizlemek bunu bitirir.
+        """
+        if state == self._ui_open:
+            return
+        self._ui_open = state
+        self.reset()
+
+    def reset(self) -> None:
+        """Duraklatma / busy kilidini acma: hayalet durumu temizler."""
+        self.machine.reset()
+        self.prefixes.reset()
+        self.tracker.reset()
+        self.gestures.reset()
+        self._freeze_at = None
+        self._gesture_at = None
+        self._tip_t = 0.0
+        self._put(Run("tip.hide"))
+        self._prefix_at = None
+        self._pending_tap.clear()
+        self._passed_through.clear()
+        self._hk_swallowed.clear()
+        self._suspects.clear()
+
+    # ---- ic akis (hepsi hook thread'inde) ----
+
+    def _put(self, action) -> None:
+        with contextlib.suppress(queue.Full):
+            self.actions.put_nowait(action)
+
+    def _has_drag(self, vk: int) -> bool:
+        definition = self.prefixes.definition(vk)
+        return definition is not None and bool(definition.drag_action)
+
+    def _gesture_move(self, event: MouseEvent) -> bool:
+        """Jest sirasindaki fare hareketi (HV-3).
+
+        Hareket olayi YUTULUR ve imlec her olayda baslangica geri konur, yani
+        `last` hep origin: mesafe `olay - baslangic` diye olculur. Geri
+        koymazsak imlec zaten ilerlemedigi icin ardisik olaylarin farki
+        +1/-1 diye sifirlanir ve yavas hareket esigi hic gecemez
+        (`hotVector.freezeCursor` kapatilinca gorulen bozuk davranis).
+        """
+        origin = self._freeze_at
+        if origin is None:
+            return False
+        last = self._gesture_at or origin
+        dx = event.x - last[0]
+        dy = event.y - last[1]
+        if dx or dy:
+            self._gesture_at = (event.x, event.y)
+            events = self.gestures.move(dx, dy)
+            for prefix in self.gestures.active:
+                # HV-14: eksen kilitlendigi an onek "kullanildi" sayilir --
+                # birakilinca ne menu acilir ne tus geri gonderilir.
+                if self.gestures.fired(prefix):
+                    self.prefixes.combo_used(prefix)
+            for gesture in events:
+                for _ in range(gesture.steps):
+                    self._put(Run(gesture.action, key=gesture.prefix, desc=gesture.desc))
+            self._gesture_tip(event.t)
+        if self.freeze_cursor:
+            # Cagri hook thread'inde ama SendInput degil, yeniden girisli degil.
+            send.set_cursor_pos(*origin)
+            self._gesture_at = origin
+        return True
+
+    def _end_gesture(self) -> None:
+        """Jest bitti: sayaclari ve ipucunu birak.
+
+        Dondurma acikken imlec zaten baslangic noktasinda duruyor; kapaliysa
+        buradan geri konuyor.
+        """
+        origin = self._freeze_at
+        if origin is not None and not self.freeze_cursor and self._gesture_at:
+            send.set_cursor_pos(*origin)
+        self._freeze_at = None
+        self._gesture_at = None
+        self._tip_t = 0.0
+        self._put(Run("tip.hide"))
+
+    def _gesture_tip(self, t: float) -> None:
+        """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
+
+        Kisilmis: hareket olayi saniyede yuzlerce geliyor, ipucunu o hizda
+        yeniden cizmek gereksiz. 60 ms'de bir yeter.
+        """
+        if (t - self._tip_t) < 0.06:
+            return
+        self._tip_t = t
+        for prefix in self.gestures.active:
+            status = self.gestures.status(prefix)
+            # Eksen kilitlenene kadar gosterilecek bir sey yok: "...  5 px"
+            # bir an gorunup kayboluyor ve okunamiyordu.
+            if status is None or status.axis is None:
+                continue
+            self._put(Run(f"tip:{status.text}", key=prefix))
+
+    def _drag_check(self, event: MouseEvent) -> None:
+        """Onek basiliyken fare suruldu mu? Iki ayri is yapar.
+
+        1. **Surukleme eylemi olan onek** (F14): tusa basip fareyi kimildatmak
+           tusun anlamini degistirir -- F14 icin ekran alani secimi baslar.
+           Kimildatmadan birakilirsa onek kendi tap eylemini calistirir
+           (slot menusu). AHK'de bu ayrim yoktu; tusa basar basmaz secim
+           gelirdi ve tusun oteki isleri kullanilamazdi.
+        2. **Yutup beklettigimiz fare onegi** (sag tus): basimi yutuyoruz ki
+           tekerlek cevrilince baglam menusu acilmasin. Kullanici sag tusu
+           basili tutup fareyi suruyorsa bu bir SURUKLEME -- beklemeyi
+           bitirip gercek basimi enjekte ediyoruz, o andan sonra her sey
+           uygulamaya geciyor. Tuketme YALNIZCA tekerlek cevrildiginde.
+        """
+        origin = self._prefix_at
+        if origin is not None:
+            drift = max(abs(event.x - origin[0]), abs(event.y - origin[1]))
+            if drift < self.drag_px:
+                return  # titreme: tusa basarken imlec bir iki piksel oynar
+        for vk in self.prefixes.held:
+            definition = self.prefixes.definition(vk)
+            if definition is not None and definition.drag_action:
+                if self.prefixes.is_used(vk):
+                    continue  # bu basimda bir kez calisti, yeter
+                self.prefixes.combo_used(vk)  # birakilinca tap eylemi calismasin
+                # `{x}` / `{y}` yer tutuculari: eylem, suruklemenin BASLADIGI
+                # noktayi bilmek isteyebilir. F14 secimi icin sart -- pencere
+                # acilana kadar (ekran yakalama ~100 ms) imlec coktan
+                # kimildamis olur ve cerceve yanlis yerden baslardi.
+                action = definition.drag_action
+                if origin is not None and "{x}" in action:
+                    action = action.format(x=origin[0], y=origin[1])
+                self._put(Run(action, key=vk, desc=definition.desc))
+                continue
+            if vk not in send.MOUSE_VK_NAMES or vk in self._passed_through:
+                continue
+            if vk not in self._hk_swallowed:
+                # Yutmadigimiz onek (`~LButton`) zaten uygulamaya gitti;
+                # bir de biz basim enjekte edersek CIFT basim olur ve
+                # Paint'te cizgi cekmek gibi surukleme isleri bozulur.
+                # Sol tus hicbir kosulda tuketilmez.
+                continue
+            self._passed_through.add(vk)
+            self._hk_swallowed.discard(vk)
+            self.prefixes.combo_used(vk)
+            self._put(Run(f"button_down:{key_name(vk)}", key=vk))
+
+    def _dispatch(
+        self, vk: int, down: bool, t: float, momentary: bool = False
+    ) -> tuple[bool, list]:
+        """Klavye ve farenin ortak yolu: kombo takibi + kisayol tablosu."""
+        if down:
+            chord = self.tracker.key_down(vk, t)
+            if momentary:  # tekerlek: basili kalmaz
+                self.tracker.key_up(vk, t)
+        else:
+            self.tracker.key_up(vk, t)
+            chord = None
+        return self._hotkey_key(vk, down, t, chord)
+
+    def _hotkey_key(self, vk: int, down: bool, t: float, chord) -> tuple[bool, list]:
+        """Kaskadin ilgilenmedigi tus: kisayol tablosuna bakilir.
+
+        Onek tusu (F13, `^`) basildigi anda karar verilmek zorunda -- LL hook
+        keydown'da cevap veriyor, AHK gibi bekleyemez. Yutup yutmamayi
+        PrefixTracker soyler (`~` ile tanimlananlar yutulmaz); ne olacagi
+        birakildiginda ya da esik gecince belli olur.
+        """
+        if not down:
+            return self._hotkey_up(vk, t)
+
+        if chord is None:  # modifier'in kendisi: dokunma
+            return False, []
+
+        # Onek tusu, uzerinde baska onek YOKKEN ve modifier basili
+        # DEGILKEN: karari ertele. Modifier sarti Tab/CapsLock onek olunca
+        # sart oldu -- Alt+Tab, Ctrl+Tab, Shift+Tab yutulup birakilinca
+        # gonderilseydi pencere/sekme degistirme bozulurdu. Modifierli
+        # basimda onek hic devreye girmez, tus dogrudan uygulamaya gider.
+        if self.prefixes.is_prefix(vk) and chord.prefix is None and not chord.modifiers:
+            swallow = self.prefixes.key_down(vk, t)
+            pending = self._pending_tap.pop(vk, None)
+            if pending is not None and not chord.repeat:
+                # AHK: pressType 4. Tek basim eylemi hic calismadi -- bu
+                # basimin da kendi isi yok, birakilinca sessizce bitsin.
+                definition = self.prefixes.definition(vk)
+                self.prefixes.combo_used(vk)
+                if swallow:
+                    self._hk_swallowed.add(vk)
+                action = definition.double_action if definition else ""
+                return swallow, [Run(action, key=vk, desc="cift basim")] if action else []
+            if swallow:
+                self._hk_swallowed.add(vk)
+            # Jest baslar: sayaclar sifirlanir ve baslangic noktasi not
+            # edilir. Hareket olaylari bundan sonra yutulur.
+            #
+            # BASILI TUTMA TEKRARI baslatmaz: F13 basili tutuldugunda Windows
+            # saniyede ~30 keydown daha uretiyor. Her biri jesti sifirdan
+            # baslatinca birikim silinip duruyordu -- ekranda "jest bekliyor /
+            # yatay kilitli / jest bekliyor..." donup hicbir adim uretmemesinin
+            # sebebi buydu.
+            if self.gestures.has(vk) and vk not in self.gestures.active:
+                self.gestures.start(vk)
+                self._freeze_at = send.cursor_pos()
+                self._gesture_at = self._freeze_at
+            elif vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
+                # Surukleme olcumunun baslangic noktasi: fare onegi icin
+                # "surukleme mi tekerlek mi", F14 icin "secim mi menu mu".
+                self._prefix_at = send.cursor_pos()
+            return swallow, []
+
+        binding = self.hotkeys.match(vk, chord.modifiers, chord.prefix)
+        prefix = chord.prefix
+        if binding is None and prefix is not None:
+            binding, prefix = self._rescue_match(vk, chord)
+        if binding is None:
+            return False, []
+        if prefix is not None:
+            self.prefixes.combo_used(prefix)
+        # Tek basina `~` ile yazilan tus (orta tus, Insert): eylem calisir,
+        # tus uygulamaya AYNEN gider. Kombodaki `~` bundan ayri: orada
+        # yutulmayan sey ONEK, kombo tusu yine yutulur.
+        keep = binding.hotkey.passthrough and binding.hotkey.prefix is None
+        if vk <= 0xFF and not keep:  # tekerlegin birakma olayi yok
+            self._hk_swallowed.add(vk)
+        if chord.repeat:  # basili tutmada eylem tekrarlanmaz, yutma surer
+            return not keep, []
+        return not keep, [Run(binding.action, key=vk, desc=binding.desc)]
+
+    def _rescue_match(self, vk: int, chord) -> tuple[object | None, int | None]:
+        """Onek eslesmedi: basili DIGER tuslari da onek olarak dene.
+
+        Chord'un onegi, basili tuslarin SIRASINDAKI ilki (core/combo.py).
+        Bir tusun birakma olayi kaybolursa (onek basiliyken pencere araya
+        girer ve birakma hook'a hic ulasmaz) o hayalet tus sirada basta
+        kalir ve ondan sonraki her kombonun onegi olur: `Pause & End`
+        yazilir ama chord `F14 & End` cikar, hicbir tanim eslesmez ve
+        program kurtarilamaz hale gelir -- kurtarma kisayolunun kendisi de
+        dahil.
+
+        Bu yuzden birincil eslesme BOSA CIKTIGINDA, basili tuslar EN YENIDEN
+        eskiye dogru onek olarak deneniyor. Sadece basarisizlik yolunda
+        calisiyor: gecerli bir kombo varsa buraya hic gelinmiyor, yani
+        mevcut davranis degismiyor.
+        """
+        for candidate in reversed(self.tracker.held):
+            if candidate in (vk, chord.prefix) or candidate in MODIFIER_VKS:
+                continue
+            binding = self.hotkeys.match(vk, chord.modifiers, candidate)
+            if binding is not None:
+                return binding, candidate
+        return None, None
+
+    def _hotkey_up(self, vk: int, t: float) -> tuple[bool, list]:
+        was_ours = vk in self._hk_swallowed
+        self._hk_swallowed.discard(vk)
+        if not self.prefixes.is_prefix(vk):
+            return was_ours, []
+
+        # Jest yapildiysa tusun isi bitti: ne menu, ne tap eylemi, ne de
+        # tusun geri gonderilmesi. Istenen davranis buydu.
+        if self.gestures.stop(vk):
+            self.prefixes.key_up(vk, t)
+            if not self.gestures.watching:
+                self._end_gesture()
+            return was_ours, []
+
+        outcome = self.prefixes.key_up(vk, t)
+        if outcome is Outcome.NOTHING:
+            return was_ours, []  # kombo ya da surukleme yapildi
+
+        if not self.gestures.watching:
+            self._end_gesture()
+        if vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
+            self._prefix_at = None
+
+        definition = self.prefixes.definition(vk)
+        if outcome is Outcome.HOLD and definition is not None:
+            # Basili tutma esigi gecildi: cift basim beklenmez (AHK'de de
+            # cift basim kontrolu yalniz KISA basimda yapiliyor).
+            return was_ours, [Run(definition.hold_action, key=vk, desc=definition.desc)]
+
+        binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi
+        if binding is not None:
+            if definition is not None and definition.double_action:
+                # AHK `KeyWait(key, "D T0.1")`: ikinci basim gelir mi diye
+                # beklenir. Gelmezse `tick` bu eylemi calistirir.
+                self._pending_tap[vk] = (
+                    binding.action, binding.desc, t + definition.double_ms / 1000.0
+                )
+                return was_ours, []
+            return was_ours, [Run(binding.action, key=vk, desc=binding.desc)]
+        if was_ours:
+            # Hicbir sey olmadi: yuttugumuz tusu geri ver, `^` yazilabilsin.
+            return was_ours, [Run(f"send_key:{key_name(vk)}", key=vk)]
+        return was_ours, []

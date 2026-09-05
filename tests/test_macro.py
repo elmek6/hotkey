@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from cascade import macro
+from keypilot import macro
 
 
 @pytest.fixture(autouse=True)

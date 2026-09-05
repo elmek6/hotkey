@@ -1,4 +1,4 @@
-from cascade.core.keynames import MODIFIER_VKS, key_name, vk_from_name
+from keypilot.core.keynames import MODIFIER_VKS, key_name, vk_from_name
 
 
 def test_sol_sag_modifier_ayrimi():

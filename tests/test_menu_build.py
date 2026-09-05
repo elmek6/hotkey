@@ -10,7 +10,7 @@ from ctypes import wintypes
 
 import pytest
 
-from cascade.win32 import menu as win32_menu
+from keypilot.win32 import menu as win32_menu
 
 pytestmark = pytest.mark.skipif(
     not hasattr(ctypes, "windll"), reason="yalniz Windows"

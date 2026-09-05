@@ -13,10 +13,10 @@ from __future__ import annotations
 import queue
 import time
 
-from cascade.core.combo import ComboTracker
-from cascade.core.keynames import key_name
-from cascade.win32 import consts as C
-from cascade.win32.hook import PASS, SWALLOW, HookThread, KeyEvent, MouseEvent
+from keypilot.core.combo import ComboTracker
+from keypilot.core.keynames import key_name
+from keypilot.win32 import consts as C
+from keypilot.win32.hook import PASS, SWALLOW, HookThread, KeyEvent, MouseEvent
 from probes._console import banner, is_quit, setup_console, stats
 
 VK_LBUTTON, VK_RBUTTON, VK_MBUTTON = 0x01, 0x02, 0x04

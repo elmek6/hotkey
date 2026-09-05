@@ -6,8 +6,8 @@ patliyordu: tablolar yalnizca app.py kurulurken kuruluyor, testler ise kendi
 kucuk tablolarini yaziyordu.
 """
 
-from cascade import keymap
-from cascade.win32.menu import COLUMN
+from keypilot import keymap
+from keypilot.win32.menu import COLUMN
 
 
 def test_kisayol_tablosu_kurulur():

@@ -30,10 +30,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cascade.core.combo import ComboTracker, Thresholds
-from cascade.core.keynames import MODIFIER_VKS, key_name
-from cascade.win32 import consts as C
-from cascade.win32.hook import PASS, SWALLOW, HookThread, KeyEvent, MouseEvent
+from keypilot.core.combo import ComboTracker, Thresholds
+from keypilot.core.keynames import MODIFIER_VKS, key_name
+from keypilot.win32 import consts as C
+from keypilot.win32.hook import PASS, SWALLOW, HookThread, KeyEvent, MouseEvent
 
 VK_CAPSLOCK = 0x14
 VK_XBUTTON2 = 0x06
@@ -101,7 +101,7 @@ class Monitor(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("cascade - canli olay izleyici")
+        self.setWindowTitle("KeyPilot - canli olay izleyici")
         self.resize(940, 640)
 
         self.events: queue.Queue = queue.Queue(maxsize=8192)

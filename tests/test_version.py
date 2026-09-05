@@ -6,7 +6,7 @@ yeniden baslatan hala DUNUN tarihini goruyordu, cunku islememisti.
 
 import re
 
-from cascade import version
+from keypilot import version
 
 
 def _stamp(monkeypatch, git):
@@ -22,7 +22,7 @@ def test_kirli_agac_YILDIZLA_biter(monkeypatch):
     """ASIL SORUN BUYDU: kaydedilmis ama islenmemis degisiklik."""
 
     def git(*args):
-        return " M cascade/app.py" if args[0] == "status" else "0903_2259"
+        return " M keypilot/app.py" if args[0] == "status" else "0903_2259"
 
     stamp = _stamp(monkeypatch, git)
     assert stamp.endswith(version.DIRTY_MARK)

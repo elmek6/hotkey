@@ -22,7 +22,7 @@ def _ctrl_c(widget) -> None:
 
 def _open_bar(qapp):
     """Secim yapilmis, islem cubugu acilmis bir orutu dondurur."""
-    from cascade.ui.snip import SnipOverlay
+    from keypilot.ui.snip import SnipOverlay
 
     snip = SnipOverlay()
     snip.start()
@@ -62,7 +62,7 @@ def test_metin_kutusunda_yazarken_secimi_kopyalamaz(qapp):
 
 def test_secim_yokken_kopyalama_calismaz(qapp):
     """Bos cerceve: kirpilacak bir sey yok, tus uygulamaya gitsin."""
-    from cascade.ui.snip import SnipOverlay
+    from keypilot.ui.snip import SnipOverlay
 
     snip = SnipOverlay()
     snip.start()

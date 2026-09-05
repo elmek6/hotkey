@@ -14,9 +14,9 @@ from __future__ import annotations
 import queue
 import time
 
-from cascade.core.combo import ComboTracker, Thresholds
-from cascade.core.keynames import MODIFIER_VKS, key_name
-from cascade.win32.hook import PASS, SWALLOW, HookThread, KeyEvent
+from keypilot.core.combo import ComboTracker, Thresholds
+from keypilot.core.keynames import MODIFIER_VKS, key_name
+from keypilot.win32.hook import PASS, SWALLOW, HookThread, KeyEvent
 from probes._console import banner, is_quit, setup_console, stats
 
 VK_CAPSLOCK = 0x14

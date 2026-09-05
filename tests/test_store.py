@@ -4,8 +4,8 @@ hata pencereleri); burada tmp_path ile insansiz kosuyor."""
 import orjson
 import pytest
 
-from cascade.core.clip_history import ClipEntry, ClipHistory
-from cascade.store import ClipStore, JsonStore, SlotStore
+from keypilot.core.clip_history import ClipEntry, ClipHistory
+from keypilot.store import ClipStore, JsonStore, SlotStore
 
 
 @pytest.fixture
@@ -236,7 +236,7 @@ def test_yuklemede_tekrar_eden_metin_bir_kez_girer():
 
 
 def _slot_store(tmp_path):
-    from cascade.store import SlotStore
+    from keypilot.store import SlotStore
 
     store = SlotStore(directory=tmp_path)
     store.load()
@@ -253,7 +253,7 @@ def test_grup_eklenir_ve_on_bos_slotla_acilir(tmp_path):
 
 
 def test_yan_grup_secimi_diske_yazilir(tmp_path):
-    from cascade.store import SlotStore
+    from keypilot.store import SlotStore
 
     store = _slot_store(tmp_path)
     store.add_group("is")
@@ -277,7 +277,7 @@ def test_grup_silinince_yan_grup_secimi_bosa_duser(tmp_path):
 
 
 def test_slot_adi_ve_icerigi_yazilir(tmp_path):
-    from cascade.store import SlotStore
+    from keypilot.store import SlotStore
 
     store = _slot_store(tmp_path)
     assert store.set_slot_name("", 3, "  fan ow  ") is True
@@ -303,7 +303,7 @@ def test_olmayan_grubu_okumak_grup_yaratmaz(tmp_path):
     uyduruluyor ve ilk `save()` onu DISKE yaziyordu."""
     import orjson
 
-    from cascade.store import BOM, SlotStore
+    from keypilot.store import BOM, SlotStore
 
     store = _slot_store(tmp_path)
     store.add_group("is")
@@ -326,7 +326,7 @@ def test_dizgi_olmayan_slot_alani_bos_sayilir(tmp_path):
     dolduruyordu: slot dolu gorunuyor ve o metin yapistirilabiliyordu."""
     import orjson
 
-    from cascade.store import BOM, SlotStore
+    from keypilot.store import BOM, SlotStore
 
     (tmp_path / "slots.json").write_bytes(
         BOM

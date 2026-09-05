@@ -18,8 +18,8 @@ import logging
 import orjson
 import pytest
 
-from cascade import logs
-from cascade.store import ClipStore, JsonStore, SlotStore
+from keypilot import logs
+from keypilot.store import ClipStore, JsonStore, SlotStore
 
 BOZUK = b"{ bu json degil ]]"
 
@@ -135,7 +135,7 @@ def test_hata_sayaci_simgeyi_kirmizi_yapar(qapp):
     goruntu uretip piksel okuyoruz -- "sarili mi" degil "gercekten farkli
     mi" sorusunu soruyor.
     """
-    from cascade.ui.tray import ERROR_BACKGROUND, make_icon
+    from keypilot.ui.tray import ERROR_BACKGROUND, make_icon
 
     boyut = 64
     normal = make_icon(boyut).pixmap(boyut, boyut).toImage()
@@ -149,7 +149,7 @@ def test_hata_sayaci_simgeyi_kirmizi_yapar(qapp):
 def test_duraklatma_hatadan_oncelikli(qapp):
     """Ikisi birdense duraklatma gosteriliyor: o an ne oldugunu bilmek
     daha onemli (ui/tray.make_icon)."""
-    from cascade.ui.tray import make_icon
+    from keypilot.ui.tray import make_icon
 
     boyut = 64
     kose = (boyut // 2, 4)
@@ -207,11 +207,11 @@ def test_saglam_dosya_kritik_uretmez(tmp_path, hata_kaydi):
     assert "CRITICAL" not in seviyeler
 
 
-def _sahte_cascade(monkeypatch, acilan: list):
-    """`__init__` calistirmadan Cascade: hook, tepsi, pencere kurulmasin."""
+def _sahte_keypilot(monkeypatch, acilan: list):
+    """`__init__` calistirmadan KeyPilot: hook, tepsi, pencere kurulmasin."""
     from PySide6.QtWidgets import QMessageBox
 
-    from cascade.app import Cascade
+    from keypilot.app import KeyPilot
 
     class SahteKutu:
         def __init__(self, *a, **kw):
@@ -231,7 +231,7 @@ def _sahte_cascade(monkeypatch, acilan: list):
 
     monkeypatch.setattr(QMessageBox, "__new__", lambda cls, *a, **kw: SahteKutu())
 
-    sahte = Cascade.__new__(Cascade)
+    sahte = KeyPilot.__new__(KeyPilot)
     sahte._critical_open = False
     sahte._critical_pending = []
     sahte._critical_scheduled = False
@@ -259,7 +259,7 @@ def test_ARDISIK_uc_kritik_hata_TEK_pencere_acar(qapp, monkeypatch):
     zaten olusmuyor. Cozum pencereyi bir sonraki olay turuna birakmak.
     """
     acilan: list[str] = []
-    sahte = _sahte_cascade(monkeypatch, acilan)
+    sahte = _sahte_keypilot(monkeypatch, acilan)
 
     for isim in ("slots.json", "profiles.json", "clipboards.bin"):
         sahte._on_error_logged("CRITICAL", f"{isim} bozuk: yedeklendi")
@@ -276,7 +276,7 @@ def test_ARDISIK_uc_kritik_hata_TEK_pencere_acar(qapp, monkeypatch):
 
 def test_tek_kritik_hata_sayi_yazmaz(qapp, monkeypatch):
     acilan: list[str] = []
-    sahte = _sahte_cascade(monkeypatch, acilan)
+    sahte = _sahte_keypilot(monkeypatch, acilan)
     sahte._on_error_logged("CRITICAL", "slots.json bozuk: yedeklendi")
     sahte._flush_critical()
     assert acilan.count("<ACILDI>") == 1
@@ -287,7 +287,7 @@ def test_pencere_acikken_gelen_hata_YUTULMAZ(qapp, monkeypatch):
     """Toplamayi eklerken hata GIZLEMEYELIM: pencere acikken dusen kayit
     kuyrukta kalmali ve pencere kapaninca gosterilmeli."""
     acilan: list[str] = []
-    sahte = _sahte_cascade(monkeypatch, acilan)
+    sahte = _sahte_keypilot(monkeypatch, acilan)
 
     sahte._critical_open = True  # pencere acik
     sahte._on_error_logged("CRITICAL", "acikken dusen hata")
@@ -303,7 +303,7 @@ def test_pencere_acikken_gelen_hata_YUTULMAZ(qapp, monkeypatch):
 
 def test_ERROR_pencere_acmaz(qapp, monkeypatch):
     acilan: list[str] = []
-    sahte = _sahte_cascade(monkeypatch, acilan)
+    sahte = _sahte_keypilot(monkeypatch, acilan)
     sahte._on_error_logged("ERROR", "sadece rozet")
     sahte._flush_critical()
     assert acilan == []
@@ -313,10 +313,10 @@ def test_ERROR_pencere_acmaz(qapp, monkeypatch):
 
 
 def test_utf8_olmayan_repository_acilisi_kilitlemez(tmp_path):
-    """`Repository.load` `Cascade.__init__` icinden cagriliyor: burada cikan
+    """`Repository.load` `KeyPilot.__init__` icinden cagriliyor: burada cikan
     istisna programin HIC acilmamasi demek. Baska kodlamada duzenlenmis
     (ya da bozulmus) bir dosya tam olarak bunu yapiyordu."""
-    from cascade.repository import Repository
+    from keypilot.repository import Repository
 
     path = tmp_path / "repository.md"
     path.write_bytes(bytes([0xFF, 0xFE]) + b" bu UTF-8 degil")
@@ -330,7 +330,7 @@ def test_utf8_olmayan_repository_acilisi_kilitlemez(tmp_path):
 def test_bozuk_settings_yedeklenir(tmp_path):
     """Bozuk settings.json kapanista uzerine yazilip yok oluyordu; diger
     depolar gibi yaninda saklanmali."""
-    from cascade.settings import Registry
+    from keypilot.settings import Registry
 
     path = tmp_path / "settings.json"
     path.write_bytes(BOZUK)

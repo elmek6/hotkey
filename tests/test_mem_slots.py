@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from cascade.ui.mem_slots import SLOT_COUNT, MemSlots, preview
+from keypilot.ui.mem_slots import SLOT_COUNT, MemSlots, preview
 
 
 class Kayit:

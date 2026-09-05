@@ -1,5 +1,5 @@
 [project]
-name = "cascade"
+name = "keypilot"
 version = "1.2.0"
 requires-python = ">=3.13"
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
     "pydantic>=2.13.5",
     "pyside6>=6.11.2",
     "pywin32>=312",
-    # QR uretimi (cascade/qr.py) -- saf Python, bagimliliksiz.
+    # QR uretimi (keypilot/qr.py) -- saf Python, bagimliliksiz.
     "segno>=1.6.6",
     "watchdog>=6.0.0",
     # Windows OCR (F14 secimi). Not: pip ile kuruldu; uv.lock henuz
@@ -45,7 +45,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pyright]
 pythonVersion = "3.13"
-include = ["cascade", "tests"]
+include = ["keypilot", "tests"]
 typeCheckingMode = "standard"
 # Sanal ortami ELLE gostermek gerekiyor: aksi halde pyright sistem
 # Python'ini kullanip PySide6/PIL/pytest'i "bulunamadi" diye isaretliyor

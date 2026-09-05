@@ -1,7 +1,7 @@
 """array_filter.ahk'nin arama mantigi. AHK'de pencere acmadan tek bir
 eslesme bile denenemiyordu; ayrildigi icin artik denenebiliyor."""
 
-from cascade.core.filter import (
+from keypilot.core.filter import (
     FilterItem,
     FilterMode,
     Query,

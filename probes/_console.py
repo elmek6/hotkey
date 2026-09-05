@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from cascade.win32.structs import user32
+from keypilot.win32.structs import user32
 
 VK_CONTROL, VK_MENU, VK_Q = 0x11, 0x12, 0x51
 
@@ -24,7 +24,7 @@ def is_quit(vk: int) -> bool:
 
 
 def banner(title: str, lines: list[str]) -> None:
-    print(f"cascade -- {title}")
+    print(f"KeyPilot -- {title}")
     print("-" * 66)
     for line in lines:
         print("  " + line)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from cascade import qr
+from keypilot import qr
 
 
 def build(key: str, **values: str) -> str:

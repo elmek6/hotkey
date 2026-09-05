@@ -1,4 +1,4 @@
-# cascade — AHK'den Python'a geçiş
+# KeyPilot — AHK'den Python'a geçiş
 
 Kaynak: AHK projesinin kopyası `_AutoHotKey/` içinde — `AutoHotkey.ahk` +
 `Lib/` 30 modül, **~14.000 satır**.
@@ -14,7 +14,7 @@ pyproject.toml     ← pubspec.yaml        bağımlılıklar + araç ayarları
 uv.lock            ← pubspec.lock        kilitlenmiş sürümler (git'e girer)
 .venv/             ← .dart_tool/ + build/  indirilen paketler (git'e girmez)
 
-cascade/           ← lib/                asıl kaynak
+keypilot/           ← lib/                asıl kaynak
   keymap.py        SCRIPT katmanı: tuş tabloları, menüler ← AutoHotkey.ahk
   dispatch.py      tuşların çalışma mantığı: yutma/önek/jest ← key_handler_*.ahk
   app.py           kurulum + yaşam döngüsü + pano/slot/büyüteç bağlantıları
@@ -35,42 +35,42 @@ birlikte açılır).
 
 | Dosya | İş |
 |---|---|
-| `cascade/win32/consts.py` | Windows sabitleri, sadece sayı |
-| `cascade/win32/structs.py` | `KBDLLHOOKSTRUCT`, `INPUT` + `user32` imzaları |
-| `cascade/win32/hook.py` | LL hook, ayrı thread + kendi `GetMessage` döngüsü |
-| `cascade/win32/send.py` | `SendInput` — scancode, Unicode, fare |
-| `cascade/core/keynames.py` | VK ↔ isim (`0xA0` → `LShift`), AHK adlandırmasına yakın |
-| `cascade/core/combo.py` | fiziksel tuş durumu, kombo metni, basım süresi |
-| `cascade/core/builder.py` | `key_builder.ahk` portu: kaskad tanımı, `press_type` |
-| `cascade/core/cascade.py` | kaskad durum makinesi (IDLE → HELD → MENU) |
-| `cascade/core/hotkey.py` | AHK sözdizimi: önek kombosu (`F13 & F14`) + modifier kombosu (`^!k`) + kısayol tablosu |
-| `cascade/core/mouse.py` | fare mesajı → tuş kodu (henüz bağlı değil, `F13 & WheelUp` için hazır) |
-| `cascade/core/state.py` | `script_state.ahk` portu: ClipboardState (Busy port edilmedi, gerekçe dosya başında) |
-| `cascade/core/prefix.py` | önek tuşu durum makinesi (`A & B::` yazımının arkası) |
-| `cascade/core/gesture.py` | eksen kilitli jest sayacı (`hot_vectors.ahk`in gereken kadarı) |
-| `cascade/core/clip_history.py` | pano geçmişi listesi (`clip_hist.ahk` bellek tarafı) |
-| `cascade/store.py` | disk: `clipboards.bin` + `slots.json` — AHK ile aynı biçim |
-| `cascade/actions.py` | eylem kimliği → gerçek iş (`send_text:`, `app.exit` …) |
-| `cascade/keymap.py` | tuş tabloları + menü içerikleri (script/soft code) |
-| `cascade/dispatch.py` | yut/bırak kararları, olay akışının tek kapısı |
-| `cascade/app.py` | kurulum, pano/slot/büyüteç bağlantıları, reload/exit |
-| `cascade/ui/tray.py` | tepsi simgesi + menü, Duraklat/Devam (AHK `Suspend`) |
-| `cascade/ui/tip.py` | AHK `ToolTip` karşılığı — zengin metin, emoji, renk, rozetli menü |
-| `cascade/ui/array_filter.py` | filtreli liste penceresi (`array_filter.ahk`) |
-| `cascade/ui/mem_slots.py` | hafıza slotları penceresi (`memory_slots.ahk`) |
-| `cascade/ui/menu.py` | imleç yanında açılır menü (`menus.ahk`in Qt hali) |
-| `cascade/ui/clipboard.py` | pano dinleyicisi (gecikmeli + tazelik kontrollü) |
-| `cascade/win32/magnifier.py` | Windows büyüteci (`magnifier.ahk`) |
-| `cascade/ui/snip.py` | F14 ekran alanı seçimi: tutamaçlı çerçeve + işlem çubuğu |
-| `cascade/win32/ocr.py` | Windows OCR motoru (`OCR.ahk`in pywinrt ile ~100 satırı) |
-| `cascade/core/ocr_layout.py` | OCR çıktısının dizilmesi: kolon/tablo (saf, test edilebilir) |
-| `cascade/ui/ocr_view.py` | Gelişmiş OCR paneli: dil, biçim, ayraç, ölçek, kolon eşiği |
-| `cascade/win32/window.py` | Hep-üstte pencere yönetimi (`WindowModule` + `menuAlwaysOnTop`) |
-| `cascade/win32/screen.py` | Tüm monitörleri tek BitBlt ile fiziksel pikselde yakalama |
-| `cascade/imgstore.py` | Görsel pano deposu (`clip_image_store.ahk`, biçim birebir) |
-| `cascade/ui/clip_images.py` | Görsel geçmişi penceresi (`clip_image_dialog.ahk`) |
-| `cascade/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
-| `main.py` | yalnız giriş noktası: kilit + Qt + Cascade kurulumu |
+| `keypilot/win32/consts.py` | Windows sabitleri, sadece sayı |
+| `keypilot/win32/structs.py` | `KBDLLHOOKSTRUCT`, `INPUT` + `user32` imzaları |
+| `keypilot/win32/hook.py` | LL hook, ayrı thread + kendi `GetMessage` döngüsü |
+| `keypilot/win32/send.py` | `SendInput` — scancode, Unicode, fare |
+| `keypilot/core/keynames.py` | VK ↔ isim (`0xA0` → `LShift`), AHK adlandırmasına yakın |
+| `keypilot/core/combo.py` | fiziksel tuş durumu, kombo metni, basım süresi |
+| `keypilot/core/builder.py` | `key_builder.ahk` portu: kaskad tanımı, `press_type` |
+| `keypilot/core/cascade.py` | kaskad durum makinesi (IDLE → HELD → MENU) |
+| `keypilot/core/hotkey.py` | AHK sözdizimi: önek kombosu (`F13 & F14`) + modifier kombosu (`^!k`) + kısayol tablosu |
+| `keypilot/core/mouse.py` | fare mesajı → tuş kodu (henüz bağlı değil, `F13 & WheelUp` için hazır) |
+| `keypilot/core/state.py` | `script_state.ahk` portu: ClipboardState (Busy port edilmedi, gerekçe dosya başında) |
+| `keypilot/core/prefix.py` | önek tuşu durum makinesi (`A & B::` yazımının arkası) |
+| `keypilot/core/gesture.py` | eksen kilitli jest sayacı (`hot_vectors.ahk`in gereken kadarı) |
+| `keypilot/core/clip_history.py` | pano geçmişi listesi (`clip_hist.ahk` bellek tarafı) |
+| `keypilot/store.py` | disk: `clipboards.bin` + `slots.json` — AHK ile aynı biçim |
+| `keypilot/actions.py` | eylem kimliği → gerçek iş (`send_text:`, `app.exit` …) |
+| `keypilot/keymap.py` | tuş tabloları + menü içerikleri (script/soft code) |
+| `keypilot/dispatch.py` | yut/bırak kararları, olay akışının tek kapısı |
+| `keypilot/app.py` | kurulum, pano/slot/büyüteç bağlantıları, reload/exit |
+| `keypilot/ui/tray.py` | tepsi simgesi + menü, Duraklat/Devam (AHK `Suspend`) |
+| `keypilot/ui/tip.py` | AHK `ToolTip` karşılığı — zengin metin, emoji, renk, rozetli menü |
+| `keypilot/ui/array_filter.py` | filtreli liste penceresi (`array_filter.ahk`) |
+| `keypilot/ui/mem_slots.py` | hafıza slotları penceresi (`memory_slots.ahk`) |
+| `keypilot/ui/menu.py` | imleç yanında açılır menü (`menus.ahk`in Qt hali) |
+| `keypilot/ui/clipboard.py` | pano dinleyicisi (gecikmeli + tazelik kontrollü) |
+| `keypilot/win32/magnifier.py` | Windows büyüteci (`magnifier.ahk`) |
+| `keypilot/ui/snip.py` | F14 ekran alanı seçimi: tutamaçlı çerçeve + işlem çubuğu |
+| `keypilot/win32/ocr.py` | Windows OCR motoru (`OCR.ahk`in pywinrt ile ~100 satırı) |
+| `keypilot/core/ocr_layout.py` | OCR çıktısının dizilmesi: kolon/tablo (saf, test edilebilir) |
+| `keypilot/ui/ocr_view.py` | Gelişmiş OCR paneli: dil, biçim, ayraç, ölçek, kolon eşiği |
+| `keypilot/win32/window.py` | Hep-üstte pencere yönetimi (`WindowModule` + `menuAlwaysOnTop`) |
+| `keypilot/win32/screen.py` | Tüm monitörleri tek BitBlt ile fiziksel pikselde yakalama |
+| `keypilot/imgstore.py` | Görsel pano deposu (`clip_image_store.ahk`, biçim birebir) |
+| `keypilot/ui/clip_images.py` | Görsel geçmişi penceresi (`clip_image_dialog.ahk`) |
+| `keypilot/win32/instance.py` | `#SingleInstance Force` → adlandırılmış mutex, restart'ta bekleyerek devralır |
+| `main.py` | yalnız giriş noktası: kilit + Qt + KeyPilot kurulumu |
 
 ---
 

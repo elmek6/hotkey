@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from cascade.slots_ctl import SlotController
-from cascade.store import PASSWORD_SLOT, SlotStore
+from keypilot.slots_ctl import SlotController
+from keypilot.store import PASSWORD_SLOT, SlotStore
 
 
 class Recorder:

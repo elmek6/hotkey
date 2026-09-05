@@ -10,9 +10,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from cascade import macro
-from cascade.macro_ctl import MacroController
-from cascade.win32.hook import KeyEvent, MouseEvent
+from keypilot import macro
+from keypilot.macro_ctl import MacroController
+from keypilot.win32.hook import KeyEvent, MouseEvent
 
 
 @pytest.fixture(autouse=True)
@@ -143,10 +143,10 @@ def test_dispatcher_yolundan_gelen_fare_kaydedilir(ctl):
     """
     import queue
 
-    from cascade.core.cascade import CascadeMachine
-    from cascade.core.hot_vectors import HotVectors
-    from cascade.core.hotkey import HotkeyTable
-    from cascade.dispatch import Dispatcher
+    from keypilot.core.cascade import CascadeMachine
+    from keypilot.core.hot_vectors import HotVectors
+    from keypilot.core.hotkey import HotkeyTable
+    from keypilot.dispatch import Dispatcher
 
     seen: queue.Queue = queue.Queue()
     dispatcher = Dispatcher(

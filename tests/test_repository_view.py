@@ -7,8 +7,8 @@ edilemiyordu -- suzgec mantigi GUI olaylarinin icindeydi.
 
 import pytest
 
-from cascade.repository import Item, Repository, parse
-from cascade.ui.repository_view import TUMU, RepositoryView
+from keypilot.repository import Item, Repository, parse
+from keypilot.ui.repository_view import TUMU, RepositoryView
 
 ORNEK = """===
 uuid: u-1

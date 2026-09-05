@@ -1,5 +1,5 @@
-from cascade.core.builder import PressType
-from cascade.core.combo import ComboTracker, Thresholds
+from keypilot.core.builder import PressType
+from keypilot.core.combo import ComboTracker, Thresholds
 
 LCTRL, LSHIFT, RALT = 0xA2, 0xA0, 0xA5
 K, A, PAUSE, HOME = 0x4B, 0x41, 0x13, 0x24

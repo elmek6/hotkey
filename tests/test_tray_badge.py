@@ -2,10 +2,10 @@
 
 Once her WARNING+ kaydi simgeyi kirmiziya boyuyordu ve en cok goruleni
 "cift tiklama yutuldu" idi -- kendi log satiri bile "program hatasi degil"
-diyen bir kayit. Simgeye bakan "cascade coktu mu" diye irkiliyordu.
+diyen bir kayit. Simgeye bakan "keypilot coktu mu" diye irkiliyordu.
 """
 
-from cascade.ui import tray
+from keypilot.ui import tray
 
 
 def _zemin(**kw):

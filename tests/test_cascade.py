@@ -6,8 +6,8 @@ Burada gercek klavye de, Windows da, bekleme de yok.
 
 import pytest
 
-from cascade.core.builder import KeyBuilder, PressType, press_type
-from cascade.core.cascade import (
+from keypilot.core.builder import KeyBuilder, PressType, press_type
+from keypilot.core.cascade import (
     Beep,
     CascadeMachine,
     CloseMenu,

@@ -1,4 +1,4 @@
-"""Cascade kurulum testi -- `__init__` bastan sona kosuyor mu.
+"""KeyPilot kurulum testi -- `__init__` bastan sona kosuyor mu.
 
 Bolme sirasinda `self.slot_store` satiri kayboldu ve program acilista
 patladi; birim testleri bunu goremezdi cunku denetleyiciler tek tek
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from cascade import app as app_module
+from keypilot import app as app_module
 
 
 class FakeHook:
@@ -46,20 +46,20 @@ class FakeHook:
 
 
 @pytest.fixture
-def cascade(qapp, monkeypatch):
+def keypilot(qapp, monkeypatch):
     monkeypatch.setattr(app_module, "HookThread", FakeHook)
-    monkeypatch.setattr(app_module.Cascade, "on_start", lambda self: None)
-    instance = app_module.Cascade(qapp)
+    monkeypatch.setattr(app_module.KeyPilot, "on_start", lambda self: None)
+    instance = app_module.KeyPilot(qapp)
     yield instance
     instance._shutdown()
 
 
-def test_construction_binds_every_part(cascade):
+def test_construction_binds_every_part(keypilot):
     for name in ("clip", "slots", "slot_store", "dispatcher", "machine", "incognito"):
-        assert getattr(cascade, name) is not None, f"kurulumda eksik: {name}"
+        assert getattr(keypilot, name) is not None, f"kurulumda eksik: {name}"
 
 
-def test_menu_actions_are_registered(cascade):
+def test_menu_actions_are_registered(keypilot):
     """Menulerde gecen her eylem kimliginin bir kosucusu olmali."""
     for action in (
         "clip.paste",
@@ -74,48 +74,48 @@ def test_menu_actions_are_registered(cascade):
         "menu.side_slots",
         "incognito.open",
     ):
-        assert action in cascade.runner.handlers, f"kayitsiz eylem: {action}"
+        assert action in keypilot.runner.handlers, f"kayitsiz eylem: {action}"
 
 
-def test_menus_can_be_built(cascade):
+def test_menus_can_be_built(keypilot):
     """Menu kurgusu gercek depolarla uretilebiliyor mu (cagri patlamasin)."""
-    assert cascade.slots.menu_spec()
-    assert cascade.slots.side_menu_spec()
-    assert cascade.clip.menu_items()
+    assert keypilot.slots.menu_spec()
+    assert keypilot.slots.side_menu_spec()
+    assert keypilot.clip.menu_items()
 
 
-def test_kapanista_hata_aboneligi_birakilir(cascade):
-    """`logs.errors` MODUL DUZEYINDE tek ornek: kapanan Cascade abone
+def test_kapanista_hata_aboneligi_birakilir(keypilot):
+    """`logs.errors` MODUL DUZEYINDE tek ornek: kapanan KeyPilot abone
     kalirsa olu nesnesine hata akmaya devam eder -- ve o nesne kritik
     hatada modal pencere aciyor. Testleri kilitleyen tam olarak buydu.
     """
-    from cascade import logs
+    from keypilot import logs
 
-    assert cascade._error_sub in logs.errors._subs
-    cascade._shutdown()
-    assert cascade._error_sub not in logs.errors._subs
+    assert keypilot._error_sub in logs.errors._subs
+    keypilot._shutdown()
+    assert keypilot._error_sub not in logs.errors._subs
 
 
-def test_kritik_hatalar_tek_pencerede_toplanir(cascade, monkeypatch):
+def test_kritik_hatalar_tek_pencerede_toplanir(keypilot, monkeypatch):
     """Acilista uc dosya birden bozuk cikabilir. Kayitlar biriktirilip TEK
     pencerede gosteriliyor; ERROR hic pencere acmiyor."""
     acilan: list[list[str]] = []
     monkeypatch.setattr(
-        type(cascade),
+        type(keypilot),
         "_flush_critical",
         lambda self: acilan.append(list(self._critical_pending)),
     )
-    cascade._on_error_logged("CRITICAL", "slots.json bozuk")
-    cascade._on_error_logged("CRITICAL", "profiles.json bozuk")
-    cascade._on_error_logged("ERROR", "sadece rozet")
+    keypilot._on_error_logged("CRITICAL", "slots.json bozuk")
+    keypilot._on_error_logged("CRITICAL", "profiles.json bozuk")
+    keypilot._on_error_logged("ERROR", "sadece rozet")
 
-    assert cascade._critical_pending == ["slots.json bozuk", "profiles.json bozuk"]
-    assert cascade._critical_scheduled  # bir sonraki olay turuna birakildi
-    cascade._flush_critical()
+    assert keypilot._critical_pending == ["slots.json bozuk", "profiles.json bozuk"]
+    assert keypilot._critical_scheduled  # bir sonraki olay turuna birakildi
+    keypilot._flush_critical()
     assert acilan == [["slots.json bozuk", "profiles.json bozuk"]]
 
 
-def test_tablo_yeniden_kurulunca_calisma_anindaki_tuslar_kalir(cascade):
+def test_tablo_yeniden_kurulunca_calisma_anindaki_tuslar_kalir(keypilot):
     """Sanal fareyi ac/kapa yapmak profil ve alan tuslarini DUSURMEMELI.
 
     Tabloda yalniz keymap.py yok: profil kisayollari ve alan kurallari
@@ -123,60 +123,60 @@ def test_tablo_yeniden_kurulunca_calisma_anindaki_tuslar_kalir(cascade):
     ikisi de sessizce oluyordu ve program yeniden baslayana kadar geri
     gelmiyordu.
     """
-    from cascade.areas import Area, Rule
+    from keypilot.areas import Area, Rule
 
-    table = cascade.dispatcher.hotkeys
+    table = keypilot.dispatcher.hotkeys
     table.claim("profile:Test#0", "F4", "send_text:selam", "profil")
     area = Area(name="alan", x=0, y=0, w=10, h=10, rules=[Rule(key="F7")])
-    cascade.snip.store.put(area)
-    cascade._bind_area_rule(area.rule_owner(0), "F7", area.name, 0)
+    keypilot.snip.store.put(area)
+    keypilot._bind_area_rule(area.rule_owner(0), "F7", area.name, 0)
 
     def sahipler() -> set[str]:
-        return {b.owner for b in cascade.dispatcher.hotkeys.bindings}
+        return {b.owner for b in keypilot.dispatcher.hotkeys.bindings}
 
     # Profil tanimi dosyadan geliyor; testte elle tutuldugu icin
     # `bind_profile_keys` onu yeniden kuramaz -- alan kurali yeter.
-    cascade.rebuild_hotkeys()
+    keypilot.rebuild_hotkeys()
     assert area.rule_owner(0) in sahipler()
 
 
-def test_sanal_fare_ayari_tabloyu_gunceller(cascade):
+def test_sanal_fare_ayari_tabloyu_gunceller(keypilot):
     """Ayar EKRANINDAN degistirmek de tabloyu kurmali: eskiden yalniz
     tepsi/menu yolu (`vmouse.toggle`) kuruyordu, ayar ekranindan acilan
     sanal fare yeniden baslatana kadar olu kaliyordu."""
-    from cascade import keymap
+    from keypilot import keymap
 
-    onceki = len(cascade.dispatcher.hotkeys.bindings)
+    onceki = len(keypilot.dispatcher.hotkeys.bindings)
     keymap.VIRTUAL_MOUSE.set(True)
     try:
-        assert len(cascade.dispatcher.hotkeys.bindings) > onceki
+        assert len(keypilot.dispatcher.hotkeys.bindings) > onceki
     finally:
         keymap.VIRTUAL_MOUSE.set(False)
-    assert len(cascade.dispatcher.hotkeys.bindings) == onceki
+    assert len(keypilot.dispatcher.hotkeys.bindings) == onceki
 
 
-def test_nobetci_saglam_hook_da_hicbir_sey_yapmaz(cascade):
-    cascade._watchdog_tick()
-    assert cascade.hook.reinstalls == 0
+def test_nobetci_saglam_hook_da_hicbir_sey_yapmaz(keypilot):
+    keypilot._watchdog_tick()
+    assert keypilot.hook.reinstalls == 0
 
 
-def test_nobetci_hook_dusunce_yeniden_kurar_ve_durumu_temizler(cascade):
+def test_nobetci_hook_dusunce_yeniden_kurar_ve_durumu_temizler(keypilot):
     """Hook olu gectigi surede BIRAKMA olaylari kayboldu; yeniden kurmak
     yetmez, geride kalan hayalet tuslar da silinmeli."""
     ctrl = 0xA2
-    cascade.dispatcher.tracker.key_down(ctrl, 0.0)
-    cascade.hook.dead = True
-    cascade._watchdog_tick()
-    assert cascade.hook.reinstalls == 1
-    assert cascade.dispatcher.tracker.held == ()
+    keypilot.dispatcher.tracker.key_down(ctrl, 0.0)
+    keypilot.hook.dead = True
+    keypilot._watchdog_tick()
+    assert keypilot.hook.reinstalls == 1
+    assert keypilot.dispatcher.tracker.held == ()
 
 
-def test_nobetci_kapanmis_programda_susar(cascade):
+def test_nobetci_kapanmis_programda_susar(keypilot):
     """`_exited` sonrasi hook sokulmus olur; yeniden kurmak onu diriltirdi."""
-    cascade._exited = True
-    cascade.hook.dead = True
-    cascade._watchdog_tick()
-    assert cascade.hook.reinstalls == 0
+    keypilot._exited = True
+    keypilot.hook.dead = True
+    keypilot._watchdog_tick()
+    assert keypilot.hook.reinstalls == 0
 
 
 # ---- yeniden baslatma: cocuk gercekten kalkti mi -------------------------
@@ -193,19 +193,19 @@ class FakeChild:
 
 
 @pytest.fixture
-def restartable(cascade, monkeypatch):
+def restartable(keypilot, monkeypatch):
     """`restart` cagrilabilir hale getirir: disk ve Qt'ye dokunulmaz.
 
     `on_exit` GERCEK dosyalara yaziyor (settings.json, clipboards.bin) --
     testin isi degil. Gozetmen yoklamasi da beklemeden yapiliyor.
     """
-    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self, reason="": None)
+    monkeypatch.setattr(app_module.KeyPilot, "on_exit", lambda self, reason="": None)
     monkeypatch.setattr(app_module, "SUPERVISOR_PROBE_SECONDS", 0.0)
     # Gozetmensiz yol: bayrak yoksa cocugu uygulama kendisi aciyor.
     monkeypatch.setattr(app_module.sys, "argv", ["main.py"])
     codes = []
-    monkeypatch.setattr(cascade.app, "exit", codes.append)
-    monkeypatch.setattr(cascade.app, "quit", lambda: codes.append(0))
+    monkeypatch.setattr(keypilot.app, "exit", codes.append)
+    monkeypatch.setattr(keypilot.app, "quit", lambda: codes.append(0))
     spawned = []
 
     def spawn(self, command):
@@ -213,8 +213,8 @@ def restartable(cascade, monkeypatch):
         # Ilk cagri gozetmen, ikincisi dogrudan python.
         return FakeChild(1) if len(spawned) == 1 and _is_supervisor(command) else FakeChild()
 
-    monkeypatch.setattr(app_module.Cascade, "_spawn", spawn)
-    return cascade, spawned, codes
+    monkeypatch.setattr(app_module.KeyPilot, "_spawn", spawn)
+    return keypilot, spawned, codes
 
 
 def _is_supervisor(command) -> bool:
@@ -228,31 +228,31 @@ def test_gozetmen_aninda_olurse_dogrudan_python_ile_denenir(restartable):
     cocugu hic baslatamamis demektir; eskiden bu sessizce gecilirdi ve
     geriye hicbir sey kalmazdi.
     """
-    cascade, spawned, _codes = restartable
-    cascade.restart()
+    keypilot, spawned, _codes = restartable
+    keypilot.restart()
     assert len(spawned) == 2, "gozetmen olunce dogrudan python denenmeli"
     assert _is_supervisor(spawned[0])
     assert not _is_supervisor(spawned[1])
     assert spawned[1][1].endswith("main.py")
 
 
-def test_gozetmen_ayaktaysa_ikinci_surec_baslatilmaz(cascade, monkeypatch):
-    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self, reason="": None)
+def test_gozetmen_ayaktaysa_ikinci_surec_baslatilmaz(keypilot, monkeypatch):
+    monkeypatch.setattr(app_module.KeyPilot, "on_exit", lambda self, reason="": None)
     monkeypatch.setattr(app_module, "SUPERVISOR_PROBE_SECONDS", 0.0)
     monkeypatch.setattr(app_module.sys, "argv", ["main.py"])
-    monkeypatch.setattr(cascade.app, "exit", lambda _code: None)
-    monkeypatch.setattr(cascade.app, "quit", lambda: None)
+    monkeypatch.setattr(keypilot.app, "exit", lambda _code: None)
+    monkeypatch.setattr(keypilot.app, "quit", lambda: None)
     spawned = []
     monkeypatch.setattr(
-        app_module.Cascade,
+        app_module.KeyPilot,
         "_spawn",
         lambda self, command: (spawned.append(command), FakeChild())[1],
     )
-    cascade.restart()
+    keypilot.restart()
     assert len(spawned) == 1
 
 
-def test_bekci_altindayken_HIC_SUREC_BASLATILMAZ(cascade, monkeypatch):
+def test_bekci_altindayken_HIC_SUREC_BASLATILMAZ(keypilot, monkeypatch):
     """TEK BEKCI. Gozetmen kapida bekliyorsa yeniden baslatma sadece bir
     cikis kodu: programi ayni bekci tekrar calistirir.
 
@@ -260,14 +260,14 @@ def test_bekci_altindayken_HIC_SUREC_BASLATILMAZ(cascade, monkeypatch):
     iki bekci birden yasiyordu -- ikisi de ayni konsol gunlugunu yazmak
     isteyince cmd "dosya kullanimda" deyip cocugu hic baslatmiyordu.
     """
-    monkeypatch.setattr(app_module.Cascade, "on_exit", lambda self, reason="": None)
+    monkeypatch.setattr(app_module.KeyPilot, "on_exit", lambda self, reason="": None)
     monkeypatch.setattr(app_module.sys, "argv", ["main.py", "--supervised"])
     codes: list[int] = []
-    monkeypatch.setattr(cascade.app, "exit", codes.append)
+    monkeypatch.setattr(keypilot.app, "exit", codes.append)
     spawned: list[list[str]] = []
     monkeypatch.setattr(
-        app_module.Cascade, "_spawn", lambda self, cmd: spawned.append(cmd)
+        app_module.KeyPilot, "_spawn", lambda self, cmd: spawned.append(cmd)
     )
-    cascade.restart()
+    keypilot.restart()
     assert spawned == [], "bekci varken surec baslatilmamali"
     assert codes == [app_module.EXIT_RESTART]

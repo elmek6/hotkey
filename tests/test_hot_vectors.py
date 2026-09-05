@@ -6,7 +6,7 @@ Girdinin delta olmasinin sebebi: jest sirasinda imlec donduruluyor
 darbenin ne kadar ittigini soyluyor.
 """
 
-from cascade.core.hot_vectors import LOCK_DIRECTION, Direction, HotVectors
+from keypilot.core.hot_vectors import LOCK_DIRECTION, Direction, HotVectors
 
 F13, F14 = 0x7C, 0x7D
 

@@ -18,7 +18,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
-from cascade.ui.quick_panel import QuickItem, QuickPanel, QuickTab, shortcut, wrap
+from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab, shortcut, wrap
 
 
 def tus(panel: QuickPanel, key, modifiers=Qt.KeyboardModifier.NoModifier, text="") -> None:
