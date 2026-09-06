@@ -10,9 +10,13 @@ yerini aldi; sebebi tek tek soyle:
       menuyu aciyor, sayi/metin dogrudan yaziliyor.
     * SECIM VURGUSU YOK. Tabloda satir mavi boyaniyordu ama secili olmak
       hicbir sey ifade etmiyordu: her kart kendi isini kendi yapiyor,
-      "once sec sonra dokun" diye bir adim kalmadi. Tek tek sifirlama
-      dugmesi de yok: kart basina bir `↺` denendi ve degerlerin hizasini
-      bozdu -- karsiligi altta duran "Tumu varsayilana".
+      "once sec sonra dokun" diye bir adim kalmadi.
+    * SAYI/METIN DEGERI UC PARCALI BIR KUTU: yazili deger | `↺` | silik
+      varsayilan. Ucu de kutunun ICINDE ve kutu oteki tiplerin dugmesiyle
+      ayni genislikte -- disina konsalar sutun genisler ve butun kartlarin
+      hizasi kayardi. Menulu tiplerde (acik/kapali, secenek) bu kutu YOK:
+      dugmenin kendisi kutudur ve varsayilan zaten menude KALIN duruyor.
+      Alttaki "Tumu varsayilana" yerinde -- o toplu, bu tek ayarlik.
     * Bir kart tek ayar: ustte AD ve DEGER yan yana, altinda aciklama.
       Tabloda aciklama ucuncu sutundu ve satir yuksekligini iki katina
       cikariyordu; alt satirda yeri dogal.
@@ -26,6 +30,13 @@ Isaretler:
                     kalin "varsayilan" demek, kartta "varsayilan degil" --
                     ikisi ayri baglam: menude hangisine donecegini, kartta
                     hangisine dokundugunu ariyorsun.)
+    * silik varsayilan  sayi/metin kutusunun icinde, sagda: menude kalin
+                    duran bilgi ile ayni sey, ama o kartta menu yok.
+    * BOS kutu      ayar varsayilanda. Deger degistirilmediyse solda ayni
+                    sayiyi tekrar yazmak ("5 | ↺ | 5") iki farkli sey gibi
+                    okunuyordu; yazili deger yalnizca DEGISTIRILMIS ayarda
+                    bilgi tasiyor. Tersi de gecerli: kutuyu bosaltmak
+                    varsayilana dondurur.
     * ortadaki bilgi  sayinin gecerli araligi (`1-9`, `0-500 ms`). Ayarin
                     `info` alanindan ya da `settings.between`in sinirlarindan
                     geliyor -- elle yazilmiyor. GECERSIZ deger yazilinca ayni
@@ -58,7 +69,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -83,6 +94,8 @@ VALUE_WIDTH = 170
 #: Ortadaki bilgi hucresi. Sabit: yazisi olmayan ayarda bos ara olarak
 #: duruyor ve deger sutunu yerinden oynamiyor.
 INFO_WIDTH = 150
+#: Kutunun ICINDEKI sifirlama dugmesi -- kare, yalniz isaret.
+RESET_WIDTH = 20
 
 CARD_STYLE = """
 QFrame#card {
@@ -90,24 +103,40 @@ QFrame#card {
     border-radius: 6px;
     background: palette(base);
 }
+/* Kategori basligi kart DEGIL: cercevesiz, aralikli ve kucuk harfli --
+   kartlarla ayni cinsten okunmamali. */
+QLabel#group {
+    color: palette(dark);
+    font-weight: bold;
+    padding: 8px 2px 0px 2px;
+}
 QFrame#card QLabel#desc { color: palette(dark); }
 QFrame#card QLabel#info { color: palette(dark); }
+/* Silik varsayilan: okunur ama degerin onune gecmez. */
+QFrame#card QLabel#default { color: palette(mid); }
+QFrame#card QToolButton#reset { border: none; background: transparent; }
+QFrame#card QToolButton#reset:hover { background: palette(midlight); border-radius: 3px; }
 /* Sayi kutusu bir KUTU gibi gorunmeli: cercevesiz haliyle karttaki duz
-   metinden ayirt edilemiyordu ("bu yazi mi, yazabildigim bir sey mi"). */
-QFrame#card QLineEdit#value {
+   metinden ayirt edilemiyordu ("bu yazi mi, yazabildigim bir sey mi").
+   Cerceve KUTUNUN kendisinde (#valuebox): icindeki yazi alani, sifirlama
+   ve silik varsayilan TEK bir kutu gibi okunmali -- ucu ayri cerceveli
+   uc nesne olsaydi satir uc parcaya bolunurdu. */
+QFrame#card QWidget#valuebox {
     border: 1px solid palette(mid);
     border-radius: 4px;
-    padding: 3px 6px;
     background: palette(window);
 }
-QFrame#card QLineEdit#value:focus { border-color: palette(highlight); }
+QFrame#card QLineEdit#value { border: none; background: transparent; }
 """
 
 
 class SettingCard(QFrame):
     """Tek ayar. Ust satir TEK BIR SABLON, uc tip icin de ayni:
 
-        ad (esner)  |  bilgi/dogrulayici (yoksa bos ara)  |  deger (nesne)
+        ad (esner) | bilgi/dogrulayici (yoksa bos ara) | KUTU
+
+    Kutu: menulu tipte dugmenin kendisi, sayi/metin tipinde uc parcali bir
+    kap (deger | sifirlama | silik varsayilan). Genislik ikisinde de ayni.
 
     Deger saga dayali: acik/kapali, secenek ve sayi kartlar boyunca ayni
     sutunda. Ucu icin ayri duzen kurmak (dugmede sutunu atlamak, sayida
@@ -129,8 +158,11 @@ class SettingCard(QFrame):
         self._on_change = on_change
         #: Son yazilan deger reddedildi mi -- kutu kirmizi duruyor.
         self.invalid = False
-        #: Sayi/metin kutusunun ICINDEKI sifirlama dugmesi (yalniz o tipte).
+        #: Sayi/metin kutusunun ICINDEKI sifirlama dugmesi ve silik
+        #: varsayilani -- yalniz o tipte. Menulu tipte varsayilan zaten
+        #: menude KALIN duruyor, ikinci bir yerde tekrarlanmiyor.
         self.reset_action = None
+        self.default = None
 
         self.name = QLabel(item.name)
         self.name.setWordWrap(True)
@@ -141,11 +173,12 @@ class SettingCard(QFrame):
         self.info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.info.setFixedWidth(INFO_WIDTH)
         self.value = self._make_value()
+        self.box = self._wrap_value()
 
         head = QHBoxLayout()
         head.addWidget(self.name, 1)
         head.addWidget(self.info)
-        head.addWidget(self.value)
+        head.addWidget(self.box)
 
         self.desc = QLabel(item.desc or item.key)
         self.desc.setObjectName("desc")
@@ -165,25 +198,10 @@ class SettingCard(QFrame):
         if self.item.type_of() in TYPED_KINDS:
             box = QLineEdit(str(self.item.get()))
             box.setObjectName("value")
-            box.setFixedWidth(VALUE_WIDTH)
             # Enter ya da odagi birakmak: iki yol da ayni seyi yapmali.
             # `textChanged` DEGIL -- her harfte dogrulamak "12" yazarken
             # "1" gecersiz diye kutuyu kirmiziya boyardi.
             box.editingFinished.connect(self._typed)
-            # Varsayilana donus, kutunun ICINDE. Kartin sagina ayri bir
-            # dugme olarak konulmustu ve deger sutununun hizasini bozuyordu.
-            # HEP GORUNUR, varsayilandayken PASIF. Once gizleniyordu:
-            # belirip kaybolan dugme hem "bu da ne" sorusu birakiyor hem de
-            # dondurecek bir sey olmadigini ancak yoklugundan anlatiyordu.
-            # Soluk bir dugme ayni seyi yerinde durarak soyluyor.
-            # QAction ACIKCA kuruluyor ve kutuya ebeveyn veriliyor:
-            # `box.addAction(icon, ...)` bicimiyle donen nesnenin sahipligi
-            # belirsiz kaliyor ve Python tarafi onu toplayabiliyor
-            # ("Internal C++ object already deleted").
-            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
-            self.reset_action = QAction(icon, "", box)
-            self.reset_action.triggered.connect(self._reset)
-            box.addAction(self.reset_action, QLineEdit.ActionPosition.TrailingPosition)
             return box
         button = QPushButton()
         button.setFixedWidth(VALUE_WIDTH)
@@ -192,6 +210,50 @@ class SettingCard(QFrame):
         # tiklamada acmiyor.
         button.clicked.connect(self._open_menu)
         return button
+
+    def _wrap_value(self) -> QWidget:
+        """Yazi kutusunu KUTUYA sarar: deger | `↺` | silik varsayilan.
+
+        Ucu de kutunun ICINDE ve kutu VALUE_WIDTH: sutun genisligi
+        degismiyor, kartlar arasi hiza korunuyor. Ucunu kutunun disina
+        yan yana koymak sutunu genisletiyor ve butun satirlari kaydiriyordu.
+
+        MENULU TIPTE KUTU YOK: dugmenin kendisi zaten bir kutu, varsayilani
+        menude KALIN duruyor ve oraya sifirlama koymak butun kartlara
+        ikinci bir dugme dagitmak demekti.
+        """
+        if not isinstance(self.value, QLineEdit):
+            return self.value
+
+        self.reset_action = QToolButton()
+        self.reset_action.setObjectName("reset")
+        # Isaret, ikon degil: standart tema ikonu her Windows temasinda
+        # baska bir sey ciziyor; alttaki "Tumu varsayilana" ile ayni sekil.
+        self.reset_action.setText("↺")
+        self.reset_action.setFixedWidth(RESET_WIDTH)
+        self.reset_action.setCursor(Qt.CursorShape.ArrowCursor)
+        self.reset_action.clicked.connect(self._reset)
+
+        #: Sifirlamanin sagindaki silik yazi: "dokunmasaydim ne olurdu".
+        #: Sayi/metin kartinda menu yok, yani varsayilani gosterecek baska
+        #: yer de yok.
+        self.default = QLabel(str(self.item.default))
+        self.default.setObjectName("default")
+
+        box = QWidget()
+        box.setObjectName("valuebox")
+        box.setFixedWidth(VALUE_WIDTH)
+        row = QHBoxLayout(box)
+        row.setContentsMargins(6, 2, 6, 2)
+        row.setSpacing(2)
+        # ESNEYEN yalniz DEGER; isaret ile varsayilan yan yana, sagda.
+        # Varsayilana sabit genislik verilmisti ve isaret ortada asili
+        # kaliyordu -- ikisi tek bir "nereye donerim" isareti, arasinda
+        # bosluk olmamali.
+        row.addWidget(self.value, 1)
+        row.addWidget(self.reset_action)
+        row.addWidget(self.default)
+        return box
 
     def _choices(self) -> tuple:
         """Menude gorunecek degerler. bool'un da iki secenegi var: acik/kapali
@@ -240,8 +302,22 @@ class SettingCard(QFrame):
         gerekce kutunun saginda kirmizi duruyor. `refresh` cagrilmiyor:
         kutuyu ayarin gecerli degerine dondururdu.
         """
-        message = self.item.set(self.value.text())
+        text = self.value.text().strip()
+        if not text:
+            # BOS = "varsayilan". Kutu varsayilandayken zaten bos duruyor,
+            # yani yazdigini silmek gorunuse de uyan bir geri alma.
+            # Dogrulayiciya bos metin gondermek yerine sifirliyoruz:
+            # "bos birakamazsin" diye bir ret mesaji cikmasi anlamsizdi.
+            self._reset()
+            return
+        message = self.item.set(text)
         if message:
+            # ODAK HALA KUTUDA (Enter'a basildi): yazdigin yerinde kalir ve
+            # KIRMIZI yanar -- neyi yanlis yazdigini gorebilesin.
+            # ODAK GITTIYSE (baska yere tiklandi, Tab): kirmizi bir kutuyu
+            # arkanda birakamazsin, ayar varsayilana doner. Yoksa ekranda
+            # duran sayi ile YURURLUKTEKI deger birbirini tutmuyordu:
+            # kutuda 999 yaziyor, program 8 ile calisiyor.
             self.invalid = True
             # Ortadaki yazi zaten "kac ile kac arasi" diyor; hata halinde
             # ayni yazi kirmizi yaniyor. Bilgisi olmayan ayarda ret
@@ -268,11 +344,16 @@ class SettingCard(QFrame):
         self.value.setFont(font)
         if self.reset_action is not None:
             self.reset_action.setEnabled(changed)  # varsayilandayken soluk
+            self.default.setText(str(self.item.default))
         self.info.setText(self.item.info_text())
         self.info.setStyleSheet("")
         if isinstance(self.value, QLineEdit):
+            # VARSAYILANDA KUTU BOS. Ayni sayi hem solda hem sagda duruyordu
+            # ("5 | ↺ | 5") ve iki farkli sey gibi okunuyordu; degeri yazili
+            # gormek yalnizca DEGISTIRILMIS ayarda bilgi tasiyor. Bos kutu
+            # ayrica "buraya yazilir"i da soyluyor.
             self.value.blockSignals(True)
-            self.value.setText(str(self.item.get()))
+            self.value.setText(str(self.item.get()) if changed else "")
             self.value.blockSignals(False)
         else:
             self.value.setText(self._label(self.item.get()))
@@ -288,6 +369,10 @@ class SettingsDialog(QWidget):
         self.setStyleSheet(CARD_STYLE)
         self._rows: list[Setting] = []
         self.cards: list[SettingCard] = []
+        #: Kaba KONULAN her sey -- kartlar ve kategori basliklari. Temizlik
+        #: bunun uzerinden: `cards` yalnizca kartlari tuttugu icin basliklar
+        #: kabin icinde birikip kalirdi.
+        self._shown: list[QWidget] = []
         self._category = ""  # "" = Tümü
 
         self.search = QLineEdit()
@@ -391,17 +476,40 @@ class SettingsDialog(QWidget):
             items = [item for item in items if item.category == self._category]
 
         self._rows = items
-        for card in self.cards:
-            self.cards_layout.removeWidget(card)
-            card.setParent(None)
-            card.deleteLater()
+        for widget in self._shown:
+            self.cards_layout.removeWidget(widget)
+            widget.setParent(None)
+            widget.deleteLater()
         self.cards = []
-        for index, item in enumerate(items):
+        self._shown = []
+        # KATEGORI BASLIGI yalnizca suzgec YOKKEN: tek kategoriye bakarken
+        # ayni basligi kirk kez tekrarlamak gurultu, solda zaten secili
+        # duruyor. Aramada da cikiyor -- arama kategori suzgecini devre
+        # disi biraktigi icin sonuclar en cok orada karisik geliyor.
+        grouped = not self._category
+        seen = ""
+        index = 0
+        for item in items:
+            if grouped and item.category != seen:
+                seen = item.category
+                self.cards_layout.insertWidget(index, self._group_header(seen))
+                index += 1
             card = SettingCard(item, self._on_card_change)
             self.cards_layout.insertWidget(index, card)
+            index += 1
             self.cards.append(card)
+            self._shown.append(card)
         self.scroll.verticalScrollBar().setValue(0)
         self._update_status()
+
+    def _group_header(self, name: str) -> QLabel:
+        """Kartlarin arasindaki kategori basligi. Soldaki listedeki adin
+        AYNISI: goz "Fare"ye tikladiginda hangi kartlarin geldigini ayni
+        kelimeyle bulsun."""
+        header = QLabel(Category.label(name))
+        header.setObjectName("group")
+        self._shown.append(header)
+        return header
 
     def _on_card_change(self, message: str = "") -> None:
         """Kart bir ayari degistirdi (ya da reddetti). Liste YENIDEN

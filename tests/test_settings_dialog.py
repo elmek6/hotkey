@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLineEdit, QPushButton
+from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton
 
 from keypilot.settings import Registry, Setting, between
 from keypilot.ui import settings_dialog
@@ -209,7 +209,9 @@ def test_uc_tip_de_ayni_satir_sablonunu_kullanir(qapp):
     ]
     for card in kartlar:
         assert card.info.parent() is card  # hucre HER tipte var
-        assert card.value.width() == settings_dialog.VALUE_WIDTH
+        # Hiza KUTUDA: sayi kartinda kutu degeri sarar, menulu tipte
+        # dugmenin kendisidir -- genislik ucunde de ayni.
+        assert card.box.width() == settings_dialog.VALUE_WIDTH
 
 
 def test_hicbir_yerde_ipucu_yok(qapp):
@@ -280,12 +282,64 @@ def test_sifirlama_dugmesi_kutunun_icinde_varsayilani_geri_yazar(qapp):
     card.value.editingFinished.emit()
     assert card.reset_action.isEnabled() is True
 
-    card.reset_action.trigger()
+    card.reset_action.click()
     assert item.get() == 10
-    assert card.value.text() == "10"
+    assert card.value.text() == ""  # varsayilanda kutu BOS: sagdaki silik 10 yeter
     assert card.reset_action.isEnabled() is False
 
 
-def test_menu_dugmesinde_sifirlama_dugmesi_yok(qapp):
+def test_kutuyu_bosaltmak_varsayilana_dondurur(qapp):
+    """Bos = varsayilan. Kutu varsayilandayken zaten bos duruyor; yazdigini
+    silmek gorunuse uyan bir geri alma olmali, ret mesaji degil."""
+    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    card = _kart(item)
+    card.value.setText("42")
+    card.value.editingFinished.emit()
+    assert item.get() == 42
+
+    card.value.setText("   ")
+    card.value.editingFinished.emit()
+    assert item.get() == 10
+    assert card.value.text() == ""
+    assert card.invalid is False
+
+
+def test_menu_dugmesinde_sifirlama_yok(qapp):
     """Yalniz yazi kutusunda: menude varsayilan zaten KALIN gorunuyor."""
-    assert _kart(Setting("a.bool", "Bool", default=True, category="mouse")).reset_action is None
+    card = _kart(Setting("a.bool", "Bool", default=True, category="mouse"))
+    assert card.reset_action is None
+    assert card.default is None
+    assert card.box is card.value  # menulu tipte dugmenin kendisi kutudur
+
+
+def test_kutuda_silik_varsayilan_yazili(qapp):
+    """Sayi kutusunun ICINDE: deger | sifirlama | silik varsayilan."""
+    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    card = _kart(item)
+    assert card.default.text() == "10"
+    # Ucu de AYNI kutunun icinde -- sutun genisligi degismiyor.
+    assert card.value.parent() is card.box
+    assert card.reset_action.parent() is card.box
+    assert card.default.parent() is card.box
+
+    card.value.setText("42")
+    card.value.editingFinished.emit()
+    assert card.default.text() == "10"  # varsayilan degismez
+
+
+def test_tumu_gorunumunde_kategori_basliklari_var(qapp, defter):
+    """Suzgec yokken kartlar kategoriye gore basliklaniyor; tek kategoriye
+    bakarken ayni basligi tekrarlamak gurultu olurdu."""
+    _kur(
+        defter,
+        Setting("a.bir", "Bir", default=True, category="mouse"),
+        Setting("a.iki", "Iki", default=True, category="mouse"),
+        Setting("b.bir", "Uc", default=True, category="macro"),
+    )
+    dialog = _dialog()
+    adlar = [label.text() for label in dialog.holder.findChildren(QLabel, "group")]
+    assert len(adlar) == 2  # iki kategori, her biri BIR kez
+
+    dialog._category = "mouse"
+    dialog._refresh()
+    assert dialog.holder.findChildren(QLabel, "group") == []
