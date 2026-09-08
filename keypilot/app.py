@@ -42,6 +42,7 @@ from keypilot.clip_ctl import ClipController
 from keypilot.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
+from keypilot.fui.key_map import KeyMapPanel
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
 from keypilot.repository import Repository
@@ -50,7 +51,6 @@ from keypilot.slots_ctl import SlotController
 from keypilot.store import SlotStore, slot_display
 from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.incognito_badge import IncognitoBadge
-from keypilot.ui.key_map_view import KeyMapView
 from keypilot.ui.log_view import LogView
 from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
@@ -193,7 +193,10 @@ class KeyPilot:
         self.log_view = LogView()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
         self._settings_dialog: SettingsDialog | None = None
-        self._key_map_view: KeyMapView | None = None
+        #: FLET'e tasindi (fui/key_map.py). Arayuzu Qt surumuyle ayni:
+        #: `show_rows` + `closed`. Ilk acilis ~3.5 saniye surer -- Flet'in
+        #: kendi istemcisi ayaga kalkiyor -- sonrakiler aninda.
+        self._key_map_view: KeyMapPanel | None = None
         self.runner = ActionRunner()
 
         # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
@@ -645,7 +648,7 @@ class KeyPilot:
             combos = " ".join(f"+{combo.key_text}" for combo in definition.combos)
             rows.append(("keypilot", key_name(vk), combos, detail, False))
         if self._key_map_view is None:
-            self._key_map_view = KeyMapView()
+            self._key_map_view = KeyMapPanel()
             # `ui_open` acik kalirsa hook susar ve pencere kapandiktan
             # sonra HICBIR kisayol calismaz; kapanis sinyali sart.
             self._key_map_view.closed.connect(
@@ -1950,6 +1953,11 @@ class KeyPilot:
         # birakiliyor ki ekranda sahipsiz asili pencere kalmasin.
         if self._release_pins_on_exit:
             self.pins.clear_all()
+        # Flet panelleri: istemcileri AYRI surec (`flet.exe`) ve pencere
+        # kapatilinca olmuyor, gizleniyor. Soylemezsek ardimizdan gorev
+        # cubugunda sahipsiz kaliyor -- her oturum bir tane.
+        if self._key_map_view is not None:
+            self._key_map_view.shutdown()
         saved = (
             self.clip.save()
             if self.save_on_exit
