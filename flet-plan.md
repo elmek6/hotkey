@@ -2,21 +2,23 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **5 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **6 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
-> penceresi (`45f525e`), QR penceresi (`eff1be8`). Kalan 16 pencere hala
-> PySide6'da ve program iki motorla CALISIYOR.
+> penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
+> (ADIM6HASH). Kalan 15 pencere hala PySide6'da ve program iki motorla
+> CALISIYOR.
 >
-> **Asama 1'de geriye tek panel kaldi: `monitor.py`.**
+> **ASAMA 1 BITTI.** Sirada Asama 2 -- durum yazan formlar.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
 > okunur), `keypilot/fui/pause.py` (dugmeli),
-> `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel) ve
-> `keypilot/fui/log_view.py` (en buyugu: iki sekme, zamanlayici, Qt'ye is
-> yaptirma, cizim sinirlama) ve `keypilot/fui/qr.py` (calisma aninda
-> dogan/olen denetimler, resim).
+> `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel),
+> `keypilot/fui/log_view.py` (iki sekme, zamanlayici, Qt'ye is yaptirma,
+> cizim sinirlama), `keypilot/fui/qr.py` (calisma aninda dogan/olen
+> denetimler, resim) ve `keypilot/fui/monitor.py` (CANLI akan liste --
+> artimli cizim).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -97,6 +99,35 @@ ile kuyruga birakiyor, ya da gorunen bir sey degistirmiyor. Kutular
 **Yeni panel yazacak olana kural:** denetim degistirdiysen cizimi KENDIN
 iste. Flet artik arkandan toplamiyor.
 
+**ARTIMLI CIZIM (adim 6'da olculdu).** Yukaridaki tablo "listeyi bastan
+kur" varsayimiyla cikmisti: her cizimde satirlar icin YENI denetim
+nesneleri uretiliyor. Denetim nesneleri YASATILIRSA maliyet coguyor.
+400 satirlik liste, satir basina iki denetim:
+
+| Ne | Sure |
+|---|---|
+| listeyi bastan kur | 145-162 ms |
+| yalnizca 2 yeni satir ekle | 26-31 ms |
+| 20 yeni satir ekle | 31 ms |
+| hicbir sey degistirmeden `update()` | 25-30 ms |
+| tek satirin zemin rengi | 25 ms |
+
+Iki ders. Birincisi **bastan kurmak bes kat pahali** -- akan bir listede
+`listing.controls.append(...)` kullanilmali, `listing.controls = [...]`
+degil. Ikincisi **bir `page.update()`in tabani ~25 ms**: Flet agaci
+degisiklik olmasa bile bastan yuruyor, yani CIZIM SAYISI da kisilmali.
+`fui/monitor.py` ikisini de yapiyor (bkz. `DRAW_MS`).
+
+Gercek yuk altinda olculdu (`probes/flet.py` ile ayni akis, saniyede 240
+olay -- hizli yazan birinin ~12 kati): cizim ortalamasi **41 ms**, 150
+ms'lik pencerenin dortte biri. Insan hizinda (~20 olay/sn) taban degere,
+25-30 ms'ye iniyor.
+
+> **BILINEN SINIR:** `_flush` her turda kosulsuz cizim istiyor. Bir cizim
+> `DRAW_MS`i SUREKLI asarsa istekler birikir. Olculen degerlerde bu
+> olmuyor (yalniz bastan kurma 150 ms'i asiyor ve o tekrarlanmiyor);
+> olursa cozum bir "cizim surerken yenisini isteme" bayragi.
+
 **Bir panelin uc parcasi.** Ucunun de ayni oldugu kalip:
 
 | Parca | Nerede koser | Ornek |
@@ -120,7 +151,7 @@ thread 3.5 saniye donar, tepsi ve tus kuyrugu takilirdi.
 | 3 | `slot_edit.py` | 92 | **BITTI** | Form: ad + eski deger + yeni deger. Ilk kez ICERI veri alan ve DISKE yazan panel; ilk YASAYAN panel (bkz. asagidaki not). |
 | 4 | `qr_view.py` | 341 | **BITTI** | Canli QR + sablona gore degisen alanlar. Planda 4a/4b diye bolunmustu, TEK adimda bitti (bkz. asagidaki not). |
 | 5 | `log_view.py` | 421 | **BITTI** | Salt okunur liste + detay. Iki sekme, yoklama zamanlayicisi, Qt'ye is yaptirma. #4'ten ONCE yapildi (bkz. adim 3 sonu). |
-| 6 | `monitor.py` | 183 | sirada | Canli akan olay listesi. IIk kez "surekli guncelleme" testi. Asama 1'in SON paneli. |
+| 6 | `monitor.py` | 183 | **BITTI** | Canli akan olay listesi. Ilk "surekli guncelleme" paneli: cizim artimli ve zamanlayiciya bagli (bkz. asagidaki not). |
 
 **YASAYAN PANEL kurali (adim 3'te ogrenildi).** Qt'de "her acilista yeni
 pencere kur, kapaninca yok et" ucuzdu (`WA_DeleteOnClose`). Flet'te ayni
@@ -185,6 +216,23 @@ satir oldu ve pencere tek adimda bitti. **Ders:** bir sonraki adimin
 tahmini, bir onceki adimin ogrettikleriyle yeniden bakilmadan
 uygulanmamali.
 
+**CANLI PANEL kurali (adim 6'da ogrenildi).** Bir panel saniyede
+onlarca kez guncelleniyorsa iki sey birden gerekiyor:
+
+* **Biriktir, sonra ciz.** Veriyi alan yol (burada `add`, ana thread)
+  CIZMEZ; yalnizca listeye yazar. Cizimi bir `QTimer` yapar. Boylece
+  cizim sayisi olay sayisindan bagimsizlasir.
+* **Denetimleri yasat.** Cizim yeni satirlari EKLER, listeyi bastan
+  kurmaz (bkz. **ARTIMLI CIZIM**). Bastan kurma yalnizca sira degisince
+  ya da liste temizlenince.
+
+Ucuncu bir sey daha cikti: **"pencere acik mi" sorusu ANA THREAD'de
+cevaplanmali.** `app.py` `_drain` her olayda bunu soruyor ve Qt'de
+`isVisible()` idi; Flet penceresinin durumu Flet thread'inde ve her tus
+icin thread'ler arasi gidip donmek olmaz. `fui/monitor.py` duz bir
+`visible` bayragi tutuyor, `show_monitor` kaldiriyor, `_hide`/`close`
+indiriyor.
+
 ## Asama 2 -- orta: durum yazan formlar
 
 | # | Panel | Satir | Not |
@@ -229,12 +277,14 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+On bir dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
-penceresi ve uc QR girisi (duz metin, link, hazir wifi dizgisi). Log ve
-QR pencereleri GERCEK dosyalari okuyor (`Files/log.txt`, `slots.json`) --
-sahte veri yok; "Log temizle" gercekten siliyor, QR'in grup secimi
-gercekten ayara yaziliyor. Pencerede bakilacak iki sey:
+penceresi, olay izleyici ve uc QR girisi (duz metin, link, hazir wifi
+dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
+(`Files/log.txt`, `slots.json`) -- sahte veri yok; "Log temizle"
+gercekten siliyor, QR'in grup secimi gercekten ayara yaziliyor. Olay
+izleyici SAHTE bir akisla besleniyor: saniyede ~40 olay, yani hizli yazan
+birinin iki kati (tuslara dokunulmuyor). Pencerede bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
   Flet yuzunden takilmis demektir, yani mimari kirik.
@@ -324,6 +374,42 @@ baslamali. Bakilacaklar:
 9. **Esc / X** pencereyi kapatir. Kapattiktan sonra tekrar ac: aninda
    acilmali.
 
+**Olay izleyici** (iki yoldan biri):
+
+* `´` tusu -> menude **4**, ya da
+* Tepsi simgesine sag tikla -> **Event monitor...**
+
+Pencere 820x520 acilmali ve TUSLARA BASTIKCA satir eklenmeli. Qt
+surumunden farkli olarak satirlar aninda degil, en fazla 0.15 saniye
+gecikmeyle giriyor -- akan liste goze aynidir, sebebi planda
+(**CANLI PANEL kurali**). Bakilacaklar:
+
+1. **Sutunlar hizali mi?** `t | tus | vk | sc | yon | durum`. Yazi tipi
+   sabit genislikte; `Media_Play_Pause` gibi uzun bir ad (medya tusu)
+   sutunu kaydirmamali.
+2. **Yutulan olaylar KIRMIZI.** `F13`e bas: menuyu acan tus yutuluyor,
+   satiri kirmizi olmali.
+3. **Fare dugmeleri de listede.** Farenin yan tuslarina bas; `sc`
+   sutununda tarama kodu yerine imlecin konumu (`1920,1080`) yazar.
+4. **Akis hizli mi?** Bir sure hizli yaz. Liste akarken pencere
+   TAKILMAMALI: kaydirma, dugmeler ve X aninda cevap vermeli.
+5. **Duraklat.** Isaretle: liste yazmayi birakir ama kisayollar
+   CALISMAYA DEVAM eder (F13 menuyu hala acmali). Isareti kaldirinca
+   yeniden akar -- duraklatma sirasindaki olaylar KAYIP, Qt surumunde de
+   oyleydi.
+6. **Yeni ustte.** Isaretle: yeni olaylar en uste duser ve liste
+   kaymaz. Isaretsizken liste hep sona kayar.
+7. **Satiri kopyala.** ONCE bir satira tikla (zemini mavi olur), sonra
+   dugmeye bas. Bir yere yapistir: o satir gelmeli.
+8. **Tumunu kopyala.** En fazla 400 satir gelir -- listenin tavani bu,
+   Qt surumundeki sayinin ayni.
+9. **Temizle.** Liste ve alt satirdaki `olay N / yutulan M` sayaclari
+   sifirlanmali; `t` sutunu bir sonraki olayda sifirdan baslamali.
+10. **Esc / X** kapatir. Kapaliyken maliyet SIFIR olmali: kapattiktan
+    sonra program gozle gorulur sekilde hafiflemeli (kapaliyken olaylar
+    panele hic gitmiyor). Tekrar acinca aninda gelmeli ve liste BOS
+    baslamali degil -- kapatmadan onceki olaylar durur.
+
 **QR penceresi** (iki yoldan biri):
 
 * **F14** tusuna KISA bas -> menude **QR kod**, ya da
@@ -362,58 +448,21 @@ Bakilacaklar:
 
 ---
 
-## SIRADAKI ADIM (adim 6): olay izleyici -- ASAMA 1'IN SONU
+## SIRADAKI ADIM (adim 7): makro kayit ekrani -- ASAMA 2'NIN BASI
 
-Dosya: `keypilot/ui/monitor.py` (183 satir) -> `keypilot/fui/monitor.py`
+Dosya: `keypilot/ui/macro_view.py` (213 satir) -> `keypilot/fui/macro.py`
 
-**Neden bu:** Asama 1'de kalan tek panel. Satir sayisi kucuk ama
-**gecisin en riskli panellerinden biri** -- simdiye kadarki hicbir panel
-SANIYEDE ONLARCA KEZ guncellenmiyordu.
+**Neden bu:** Asama 2'nin en kucugu. Asama 1'de ogrenilen her sey burada
+hazir: `ask_qt` (motorda), gecikmeli cizim, yasayan panel, gorunurluk
+bayragi. Yeni olan tek sey panelin DURUM YAZMASI -- kayit basliyor,
+duruyor, makro diske gidiyor.
 
-**ASIL ENGEL: her olayda cizim YAPILAMAZ.** Qt surumunde `add()` her
-klavye/fare olayinda cagriliyor ve tabloya bir satir ekliyor
-(`app.py` `_drain`, satir ~1540). `QTableWidget` bunu tek satir ekleyerek
-hallediyordu. Flet'te ayni sey `page.update()` demek ve adim 4'te olculdu:
-guncelleme suresi denetim sayisiyla dogru orantili, ustelik cizim bitene
-kadar dongu BASKA HICBIR SEYE yanit vermiyor. Hizli yazan birinde bu
-saniyede 20+ tam cizim eder -- pencere kilitlenir.
+**Once bakilacak yer:** `keypilot/macro_ctl.py`. Panelin dugmeleri
+oradaki denetleyiciyi cagiriyor; hangi cagrilarin Qt tarafinda kosmasi
+gerektigi (`ask_qt`) oradan cikacak.
 
-**Cozum yonu (yazacak olana):** olaylari Qt tarafinda BIRIKTIR, ciziMI
-zamanlayiciya bagla.
-
-    add(event, swallowed)   ->  listeye ekle, CIZME (ana thread)
-    QTimer ~100 ms          ->  degistiyse tek `_draw` (Flet thread)
-
-Boylece cizim sayisi saniyede en fazla 10'a iner ve `_drain`in isi
-listeye bir demet eklemekten ibaret kalir. `fui/log_view.py`deki
-`POLL_MS` zamanlayicisi ayni kalibin ornegi.
-
-**Oteki dort mesele:**
-
-1. **`isVisible()` karsiligi.** `app.py` `_drain` her turda
-   `self.monitor.isVisible()` diye soruyor ve pencere kapaliyken hic
-   beslemiyor (maliyet sifir). Flet panelinde bu soru FLET thread'ine
-   sorulamaz -- her tus icin thread'ler arasi gidip donmek olur. Panel
-   gorunurlugunu Qt tarafinda bir bayrakta tutmali (`_hide`/`_show_now`
-   ikisini de guncelleyecek).
-2. **Sag tik menusu.** Qt'de `QMenu` ile hucre/satir/tumu kopyalama var.
-   Flet'te baglam menusu YOK; adim 4'te ayni sorun dugmelerle cozuldu
-   (alt siradaki dugmeler zaten ayni kopyalama secenekleri -- Qt surumu
-   de ikisini birden sunuyordu, yani menuyu dusurmek kayip degil).
-3. **Cift tiklama** satiri kopyaliyordu; Flet'te cift dokunma olayi yok.
-   Yine dugme (adim 4'te de boyle yapildi).
-4. **Panoya yazma** `_on_qt` ile Qt tarafinda -- kalip hazir.
-
-**Olcu:** Qt `resize(660, 460)`. Yukseklik oldugu gibi kopyalanmamali,
-bkz. **PENCERE OLCUSU kurali**.
-
-**On kosul BITTI:** `ask_qt` motora tasindi (`f56ff95`), yani monitor
-kalibi kopyalamayacak -- dogrudan `self._engine.ask_qt(...)` cagiracak.
-
-**Ikinci on kosul da bitti:** otomatik guncelleme kapatildi (bkz.
-**OTOMATIK GUNCELLEME KAPALI**). Monitor'un akan listesi log
-penceresiyle ayni tuzaga dusecekti; artik yalniz `_draw` ciziyor.
-Kaydirma konumu tutulacaksa `on_scroll` ARTIK BEDAVA.
+**Adim 5'in dersini unutma:** bir sonraki adimin tahmini, bir onceki
+adimin ogrettikleriyle yeniden bakilmadan uygulanmamali.
 
 ---
 
@@ -433,7 +482,8 @@ sayilmaz.
       silinmiyorlar (geri donus tek satir), ama import edilmedikleri icin
       sessizce curuyorlar -- taniyan yok, test eden yok:
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
-      `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`.
+      `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
+      `ui/monitor.py`.
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -510,8 +560,9 @@ sayilmaz.
       `fui/slot_edit.py` `old_value()` (maskeleme, bosluk ezme, kirpma),
       `fui/qr.py` `masked()` / `slot_rows()` / `window_height()`,
       `fui/log_view.py` `line_text()` / `source_chars()` /
-      `detail_height()`. Bunlar tam da elle dogrulanmasi en sikici olan
-      kurallar.
+      `detail_height()`, `fui/monitor.py` `row_text()` / `header_text()`
+      (sutun hizasi -- gozle dogrulanmasi en sikici olan sey). Bunlar tam
+      da elle dogrulanmasi en sikici olan kurallar.
 - [ ] **`slots_ctl._editing`** -- duzenlenen slotu tutan alan. Ayni anda
       tek kutu acik oldugu icin dogru; Flet coklu pencereye gecerse
       (yukaridaki `FletEngine` karari) bu varsayim duser.
@@ -557,6 +608,22 @@ sayilmaz.
       (bkz. **PENCERE OLCUSU kurali**); daha da daraltmak okunakliktan
       goturur. Tema/olcu isi adim 13'te (`settings_dialog.py`) topluca
       ele alinabilir.
+- [ ] **Olay izleyicide HUCRE kopyalama.** Qt'de sag tik menusunde
+      "Hucreyi kopyala" vardi; Flet'te baglam menusu yok. Menudeki oteki
+      iki secenek (satir, tumu) zaten dugme olarak duruyordu.
+
+- [ ] **Olay izleyicide cift tiklama.** Satiri panoya kopyaliyordu; ayni
+      is "Satiri kopyala" dugmesinde, once satira tiklanmasi gerekiyor.
+      Log penceresiyle ayni kayip, ayni sebep.
+
+- [ ] **Olay izleyicide satirlar 0.15 sn gecikmeyle giriyor** (`DRAW_MS`).
+      Qt her olayda tabloya yaziyordu. Gecikme goz icin farkedilmez ama
+      "tusa bastim, satir hemen ciksin" beklentisi varsa buradan.
+
+- [ ] **Olay izleyici Qt surumunden GENIS** (820x520, Qt 660x460). Alt
+      siradaki alti denetim Flet'in Material olculeriyle 660'a sigmiyor
+      (bkz. **PENCERE OLCUSU kurali**).
+
 - [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
       380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri
       artik kutuyu buyutmuyor, 160 karakterde zaten kirpiliyor.

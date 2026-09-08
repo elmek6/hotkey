@@ -44,6 +44,7 @@ from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
+from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
 from keypilot.incognito import Incognito
@@ -56,7 +57,6 @@ from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
-from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
@@ -188,7 +188,9 @@ class KeyPilot:
         # de yansir ama acilista bir kez dogru kurmak daha ucuz.
         theme.install()
         self.tip = Tip()
-        self.monitor = EventMonitor()
+        #: Olay izleyici -- FLET'te (fui/monitor.py). Arayuzu Qt
+        #: surumuyle ayni; tek fark `isVisible()` yerine `visible`.
+        self.monitor = MonitorPanel()
         #: Log penceresi -- hata rozeti ve birikmis kritik hata buraya aciyor.
         self.log_view = LogPanel()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
@@ -1521,15 +1523,16 @@ class KeyPilot:
 
     @command("app.monitor")
     def show_monitor(self, _argument: str = "") -> None:
-        """`´` menusu 4 + tepsi -- olay gecmisi penceresi (ui/monitor.py)."""
-        self.monitor.show()
-        self.monitor.raise_()
-        self.monitor.activateWindow()
+        """`´` menusu 4 + tepsi -- olay gecmisi penceresi (fui/monitor.py)."""
+        self.monitor.show_monitor()
 
     # ---- ana thread dongusu ----
 
     def _drain(self) -> None:
-        showing = self.monitor.isVisible()
+        # Flet penceresinin durumu Flet thread'inde; her olay icin oraya
+        # gidip donmemek icin panel gorunurlugunu ANA THREAD'de bir
+        # bayrakta tutuyor (fui/monitor.py). Qt'de `isVisible()` idi.
+        showing = self.monitor.visible
         for _ in range(200):
             try:
                 event, swallowed = self.seen.get_nowait()
@@ -1962,6 +1965,7 @@ class KeyPilot:
             self.slots.editor,
             self.log_view,
             self._qr_view,
+            self.monitor,
         ):
             if panel is not None:
                 panel.shutdown()

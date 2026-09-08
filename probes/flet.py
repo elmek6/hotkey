@@ -16,6 +16,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet slot      (yalniz slot duzenleme)
            uv run python -m probes.flet log       (yalniz log penceresi)
            uv run python -m probes.flet qr        (yalniz QR penceresi)
+           uv run python -m probes.flet monitor   (yalniz olay izleyici)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -37,12 +39,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from keypilot.core.mouse import MouseSeen
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
+from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.slot_edit import SlotEditPanel
 from keypilot.store import PASSWORD_SLOT, SlotStore
+from keypilot.win32.hook import KeyEvent
 
 #: Kisayol haritasi icin sahte satirlar: (sahip, tus, aciklama, eylem,
 #: catisiyor_mu). Ilk iki satir BILEREK ayni tusta -- catisma
@@ -65,6 +70,18 @@ LONG_CONTENT = (
     "ilk satir\n\n   ikinci satirda fazladan bosluklar   \n"
     + "uzun bir icerik, kirpilma sinirini gecsin diye tekrar ediyor. " * 4
 )
+
+
+#: Olay izleyicinin sahte akisi. Bu panelin tek yeni sorusu SUREKLI
+#: GUNCELLEME oldugu icin sondaj onu zorluyor: saniyede ~40 olay, yani
+#: hizli yazan birinin iki katindan fazlasi.
+FEED_MS = 50
+FEED_BURST = 2
+
+#: Akista donen tuslar. Biri en uzun ad (Media_Play_Pause -- sutun
+#: genisligi sinavi), biri bilinmeyen VK (VKxxSCxxx bicimi), sonuncusu
+#: fare olayina isaret: `sc` sutununda tarama kodu degil imlec konumu.
+FEED_KEYS = (0x5B, 0x70, 0x4D, 0xB3, 0x1B, 0xFE, 0xFF)
 
 
 #: "Durum" sekmesi icin sahte sayaclar -- app.py `_diagnostics` bicimi.
@@ -114,6 +131,12 @@ class Probe(QWidget):
         self.qr = QrPanel(SlotStore())
         self.qr.closed.connect(lambda: self._note("qr", "closed"))
 
+        # Tek CANLI panel: asagidaki zamanlayici sahte olay besliyor.
+        # Gercekte besleyen app.py `_drain`.
+        self.monitor = MonitorPanel()
+        self.monitor.closed.connect(lambda: self._note("monitor", "closed"))
+        self._feed = 0
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -143,6 +166,7 @@ class Probe(QWidget):
             ("Log penceresi (gercek log.txt)", self._show_log, "log"),
             # Uc giris: duz metin, link ve hazir bir wifi dizgisi --
             # ucu de baska bir sablon tahmin ettiriyor.
+            ("Olay izleyici (sahte akis)", self.monitor.show_monitor, "monitor"),
             ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
             ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
             (
@@ -170,7 +194,42 @@ class Probe(QWidget):
         timer.timeout.connect(self._tick)
         timer.start(1000)
 
+        feeder = QTimer(self)
+        feeder.timeout.connect(self._feed_monitor)
+        feeder.start(FEED_MS)
+
         self._note("sondaj", f"hazir -- {len(ROWS)} sahte kisayol satiri")
+
+    def _feed_monitor(self) -> None:
+        """Sahte olay akisi -- gercekte `app.py` `_drain` besliyor.
+
+        "Pencere acik mi" sorusu ANA THREAD'deki bir bayraga soruluyor
+        (`visible`), gercek programdaki gibi: kapaliyken hicbir sey
+        yapilmiyor.
+        """
+        if not self.monitor.visible:
+            return
+        for _ in range(FEED_BURST):
+            self._feed += 1
+            vk = FEED_KEYS[self._feed % len(FEED_KEYS)]
+            down = self._feed % 2 == 0
+            now = time.perf_counter()
+            event = (
+                MouseSeen(vk=0x05, down=down, t=now, x=1920, y=1080)
+                if vk == 0xFF
+                else KeyEvent(
+                    vk=vk,
+                    scan=0x1D,
+                    down=down,
+                    extended=False,
+                    injected=False,
+                    ours=False,
+                    time_ms=0,
+                    t=now,
+                )
+            )
+            # Her yedincisi YUTULDU: kirmizi satir da gorunsun.
+            self.monitor.add(event, swallowed=self._feed % 7 == 0)
 
     def _show_log(self) -> None:
         # app.py `show_errors` ile ayni sira: once sayaclar, sonra pencere.
@@ -198,6 +257,7 @@ class Probe(QWidget):
         self.slot.shutdown()
         self.log.shutdown()
         self.qr.shutdown()
+        self.monitor.shutdown()
         super().closeEvent(event)
 
 
