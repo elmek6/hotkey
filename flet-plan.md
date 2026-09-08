@@ -3,7 +3,7 @@
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
 > Branch `flet2`. Tasinan: **5 panel** + bir ortaklastirma
-> (`ask_qt`, `18f2ff6`) -- kisayol haritasi (`7cbca8c`),
+> (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`). Kalan 16 pencere hala
 > PySide6'da ve program iki motorla CALISIYOR.
@@ -128,7 +128,7 @@ thread'inde hemen doner, is ana thread'in sirasi gelince kosar.
 > Adim 4'te `fui/log_view.py` icinde `_on_qt` diye dogdu, adim 5'te
 > `fui/qr.py`ye birebir kopyalandi. Plandaki "ikinci panel de isterse
 > ortak yere tasinsin" kurali oradaydi; ucuncu kullanici (monitor)
-> gelmeden once tasindi -- kendi commit'inde, `18f2ff6`.
+> gelmeden once tasindi -- kendi commit'inde, `f56ff95`.
 
 Ayni adimda cikan cizim kurallari **Olculen degerler** bolumunde.
 
@@ -382,7 +382,7 @@ listeye bir demet eklemekten ibaret kalir. `fui/log_view.py`deki
 **Olcu:** Qt `resize(660, 460)`. Yukseklik oldugu gibi kopyalanmamali,
 bkz. **PENCERE OLCUSU kurali**.
 
-**On kosul BITTI:** `ask_qt` motora tasindi (`18f2ff6`), yani monitor
+**On kosul BITTI:** `ask_qt` motora tasindi (`f56ff95`), yani monitor
 kalibi kopyalamayacak -- dogrudan `self._engine.ask_qt(...)` cagiracak.
 
 ---
@@ -430,7 +430,7 @@ sayilmaz.
 - [ ] **`MASK_CHAR` iki yerde:** `ui/qr_view.py` ve `fui/qr.py`. Ayni
       karakter, ayni is; Qt dosyasi silinince tek kalir.
 - [x] ~~`_on_qt` sinyali `fui/engine.py`ye TASINMALI~~ -- **YAPILDI**
-      (`18f2ff6`). `FletEngine.ask_qt(job)`; iki panelden kalkti.
+      (`f56ff95`). `FletEngine.ask_qt(job)`; iki panelden kalkti.
       Motorun `QObject` olmasinin TEK sebebi bu sinyal, yani Qt gidince
       hem `ask_qt` hem miras birlikte silinecek.
 - [ ] **`fui/qr.py`deki `QFileDialog`** -- "Kaydet PNG" dosya kutusu hala
