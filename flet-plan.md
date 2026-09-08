@@ -1,5 +1,17 @@
 # PySide6 -> Flet gecis plani
 
+> **DURUM** (bu dosya her adimda guncelleniyor)
+>
+> Branch `flet2`. Tasinan: **2 panel** -- kisayol haritasi (`7cbca8c`),
+> duraklatma kutusu (`8775927`). Kalan 19 pencere hala PySide6'da ve
+> program iki motorla CALISIYOR.
+>
+> Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
+> ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
+> okunur) ve `keypilot/fui/pause.py` (dugmeli).
+>
+> Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
+
 **Yontem: panel panel, kolaydan zora. Program her adimdan sonra CALISIR
 durumda.** Qt motor olarak kaliyor; tasinan panel `keypilot/fui/` altina
 gidiyor, Qt karsiligi silinmiyor -- geri donmek `app.py`'de bir satir.
@@ -78,25 +90,94 @@ motorla calismaya devam eder. Bu sorun degil, ARA DURAK.
 
 ---
 
-## Tasinan panelleri DENEME
+## Nasil denenir
 
-Gercek programi calistirmadan:
+### 1) Deneme penceresi -- gercek programa dokunmadan
 
-    uv run python -m probes.flet            iki panel birden
-    uv run python -m probes.flet pause      yalniz duraklatma
-    uv run python -m probes.flet keymap     yalniz kisayol haritasi
+    uv run python -m probes.flet
 
-Sondaj yalnizca bir `QApplication` kuruyor: hook YOK, tepsi YOK, tuslara
-dokunulmuyor, calisan KeyPilot devralinmiyor. Pencerede iki sey izlenir:
+Bu kucuk bir DENEME PROGRAMI (projede `probes/` klasoru zaten bunun icin
+var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
+devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
+tasinan pencereleri sahte veriyle acar.
 
-* **Alt satirdaki sayac.** Durursa Qt ana dongusu Flet yuzunden
-  bloklanmis demektir -- gecisin en temel varsayimi cokmus olur.
-* **Dokumdeki "alici thread".** `MainThread` yazmali: panel sinyali kendi
-  thread'inden gonderiyor, Qt kuyruga alip ana thread'de teslim etmeli.
+Uc dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma + kritik
+hata metni. Pencerede bakilacak iki sey:
 
-Sondaj penceresi kapatilinca `shutdown()` cagriliyor -- gercek programda
-bunu `app.py` `on_exit` yapiyor. Yapilmazsa `flet.exe` gorev cubugunda
-sahipsiz kaliyor.
+* **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
+  Flet yuzunden takilmis demektir, yani mimari kirik.
+* **Ortadaki doküm** -- panellerden gelen her olay buraya yaziliyor.
+  Satirlarda `MainThread` yazmali.
+
+Deneme penceresini kapatinca Flet pencereleri de kapanir. Kapanmazsa
+gorev cubugunda `flet.exe` kalir (Gorev Yoneticisi'nden kapatilabilir).
+
+### 2) Gercek program
+
+`hotkey.vbs`e cift tikla -- normal calistirma yolu.
+
+**Kisayol haritasi:**
+
+1. `´` tusuna bas (Backspace'in solundaki tus). Bir menu acilir.
+2. Menude **k** harfine bas -- "Kisayol haritasi".
+3. Tablo acilmali (ilk acilista ~3-4 saniye bekleyebilir, sonrakiler
+   aninda).
+4. Pencereyi kapat (Esc ya da X).
+5. **EN ONEMLI ADIM:** simdi F13'e bas. Menu acilmali. Acilmiyorsa
+   pencere kapaninca kisayollar geri gelmemis demektir -- bu bir hata,
+   haber ver.
+
+**Duraklatma kutusu** (iki yoldan biri):
+
+* `´` tusu -> **p** harfi, ya da
+* **Pause** tusunu BASILI TUT, ya da
+* Tepsi simgesine sag tikla -> "Pause menu..."
+
+Dort dugmeyi de dene:
+
+* **Devam et** -- kutu kapanir, tuslar geri gelir.
+* **Yeniden baslat** -- program kendini yeniler.
+* **Kaydetmeden yeniden baslat** -- ayni, ama pano dosyasina yazmaz.
+* **Cikis** -- program kapanir. Kapandiktan sonra Gorev Yoneticisi'nde
+  `flet.exe` KALMAMALI.
+
+X ile ya da Esc ile kapatmak "Devam et" ile ayni sey demek.
+
+---
+
+## SIRADAKI ADIM (adim 3): slot duzenleme kutusu
+
+Dosya: `keypilot/ui/slot_edit.py` (92 satir) -> `keypilot/fui/slot_edit.py`
+
+**Neden bu:** ilk kez kullanicidan METIN alan panel. Onceki ikisinde
+bilgi disari gidiyordu; burada iceri geliyor ve DISKE yaziliyor.
+
+**Pencerede ne var:** uc satir -- `ad` (tek satirlik kutu), `eski`
+(degistirilemez, sadece hatirlatma) ve `yeni` (uc satirlik kutu). Altta
+Kaydet / Iptal.
+
+**Dikkat edilecekler:**
+
+1. **Sifre slotu.** `store.PASSWORD_SLOT` numarali slotta eski deger
+   MASKELI gosteriliyor (`store.MASK`) ve pano bossa kutu BOS aciliyor.
+   Bu kural `slots_ctl.py`de, panelde degil -- panele hazir gelen
+   `content`/`proposed` degerlerine dokunulmayacak.
+2. **KULLANIM SEKLI DEGISECEK.** Qt surumu her seferinde YENI pencere
+   kuruyor (`SlotEditDialog(index, name, content, proposed)`) ve
+   kapaninca yok ediyor. Flet'te bu her acilista 3.5 saniye demek.
+   Cozum: panel bir kez kurulup yasar, `show_slot(index, name, content,
+   proposed)` ile guncellenir. Yani `slots_ctl.py`de bir kac satir
+   degisecek -- onceki iki adimda `app.py`de tek satir degismisti,
+   burada biraz daha fazla.
+3. **Cikan yol.** Qt'de `accepted` sinyali + `values()` metodu vardi.
+   Flet surumu `saved = Signal(str, str)` (ad, icerik) versin; daha az
+   parca, ayni is. `slots_ctl.py` `_store_slot` bunu dogrudan alir.
+4. `slots_ctl.py` icindeki `WA_DeleteOnClose` / `destroyed` /
+   `self._editor` kablolamasi gereksizlesir (panel artik yasiyor).
+5. `on_exit` listesine `shutdown()` icin eklenecek -- `app.py` icindeki
+   `for panel in (...)` satiri.
+
+**Bittiginde:** Asama 1'de 3/6.
 
 ---
 
