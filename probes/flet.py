@@ -14,6 +14,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet pause     (yalniz duraklatma)
            uv run python -m probes.flet keymap    (yalniz kisayol haritasi)
            uv run python -m probes.flet slot      (yalniz slot duzenleme)
+           uv run python -m probes.flet log       (yalniz log penceresi)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from keypilot.fui.key_map import KeyMapPanel
+from keypilot.fui.log_view import LogPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.slot_edit import SlotEditPanel
 from keypilot.store import PASSWORD_SLOT
@@ -63,6 +65,18 @@ LONG_CONTENT = (
 )
 
 
+#: "Durum" sekmesi icin sahte sayaclar -- app.py `_diagnostics` bicimi.
+STATS = [
+    ("hook: en uzun callback", "12.480 ms (sinir 300)"),
+    ("hook: dusen olay", "0"),
+    ("hook: yeniden kurulum", "1 kez"),
+    ("hayalet tus", "3 dusuruldu"),
+    ("pano kaydi", "50"),
+    ("yutulan cift tik", "7 (arizali fare)"),
+    ("gelistirme modu", "kapali"),
+]
+
+
 class Probe(QWidget):
     """Panelleri acan dugmeler + gelen sinyallerin dokumu."""
 
@@ -87,6 +101,11 @@ class Probe(QWidget):
         self.slot.saved.connect(
             lambda name, content: self._note("slot_edit", f"saved ad={name!r} icerik={content!r}")
         )
+
+        # GERCEK log dosyasini okuyor (Files/log.txt) -- sahte veri yok.
+        # "Log temizle" gercekten siliyor, dikkat.
+        self.log = LogPanel()
+        self.log.closed.connect(lambda: self._note("log", "closed"))
 
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
@@ -114,6 +133,7 @@ class Probe(QWidget):
                 lambda: self.slot.show_slot(PASSWORD_SLOT, "parola", "hunter2", ""),
                 "slot",
             ),
+            ("Log penceresi (gercek log.txt)", self._show_log, "log"),
         ]
         for label, slot, group in buttons:
             if only and group != only:
@@ -136,6 +156,11 @@ class Probe(QWidget):
 
         self._note("sondaj", f"hazir -- {len(ROWS)} sahte kisayol satiri")
 
+    def _show_log(self) -> None:
+        # app.py `show_errors` ile ayni sira: once sayaclar, sonra pencere.
+        self.log.set_stats(STATS)
+        self.log.show_log()
+
     def _tick(self) -> None:
         self._ticks += 1
         # Bu sayac DURURSA Qt ana dongusu Flet yuzunden bloklanmis
@@ -155,6 +180,7 @@ class Probe(QWidget):
         self.key_map.shutdown()
         self.pause.shutdown()
         self.slot.shutdown()
+        self.log.shutdown()
         super().closeEvent(event)
 
 

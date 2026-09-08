@@ -2,14 +2,17 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **3 panel** -- kisayol haritasi (`7cbca8c`),
-> duraklatma kutusu (`8775927`), slot duzenleme (`609573b`). Kalan 18
-> pencere hala PySide6'da ve program iki motorla CALISIYOR.
+> Branch `flet2`. Tasinan: **4 panel** -- kisayol haritasi (`7cbca8c`),
+> duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
+> penceresi (`LOGHASH`). Kalan 17 pencere hala PySide6'da ve program iki
+> motorla CALISIYOR.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
-> okunur), `keypilot/fui/pause.py` (dugmeli) ve
-> `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel).
+> okunur), `keypilot/fui/pause.py` (dugmeli),
+> `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel) ve
+> `keypilot/fui/log_view.py` (en buyugu: iki sekme, zamanlayici, Qt'ye is
+> yaptirma, cizim sinirlama).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -42,9 +45,28 @@ pompasinin olmasi (`SetWindowsHookEx`, Qt dongusune bagli degil).
 kuruldugu olsun. Boylece geri donus de tek satir.
 
 **Olculen degerler:** ilk acilis 1.0-3.5 sn (`flet.exe` ayaga kalkiyor;
-sistem isindikca alt sinira yaklasiyor), sonraki acilislar 0.0 sn
+sistem isindikca alt sinira yaklasiyor), sonraki acilislar 0.0-0.1 sn
 (pencere kapanmiyor, gizleniyor). Panel acan cagri ana thread'i
-bloklamiyor (0.001 sn'de donuyor).
+bloklamiyor (0.001-0.01 sn'de donuyor).
+
+**Cizim maliyeti** (adim 4'te olculdu, log penceresi): `page.update()`
+suresi denetim sayisiyla dogru orantili ve cizim bitene kadar Flet
+dongusu BASKA HICBIR SEYE yanit vermiyor -- Esc de, dugme de, kaydirma
+da bekliyor.
+
+| Ne | Sure |
+|---|---|
+| 545 satir, satir basina 7 denetim | 1.04 sn |
+| ayni liste, satir basina 4 denetim | 0.40 sn |
+| 2000 satir, 4 denetim | 2.28 sn |
+| 2000 kayit, en yeni 500'u cizilerek | 0.42 sn |
+| `scroll_to` (istemciye gidip donen cagri) | 0.3-0.4 sn |
+
+Cikan uc kural: **satir basina denetim sayisini kis** (sabit genislikli
+yazi tipinde sutunlar dolguyla tek `Text`e sigar), **cizilen satiri
+sinirla**, ve **istemciye gidip donen cagrilardan kacin** (sona kaydirmak
+icin `scroll_to` yerine `auto_scroll` ozelligi -- ayni `update()` icinde
+gidiyor).
 
 **Bir panelin uc parcasi.** Ucunun de ayni oldugu kalip:
 
@@ -68,7 +90,7 @@ thread 3.5 saniye donar, tepsi ve tus kuyrugu takilirdi.
 | 2 | `pause.py` | 99 | **BITTI** | 4 dugme, 4 sinyal. `WindowStaysOnTopHint` -> `always_on_top`. |
 | 3 | `slot_edit.py` | 92 | **BITTI** | Form: ad + eski deger + yeni deger. Ilk kez ICERI veri alan ve DISKE yazan panel; ilk YASAYAN panel (bkz. asagidaki not). |
 | 4 | `qr_view.py` | 341 | sirada | Uretilen QR'i gosteriyor. Goruntu Flet'e `base64` ile verilebilir. |
-| 5 | `log_view.py` | 421 | bekliyor | Salt okunur liste + detay. Buyuk ama duz. |
+| 5 | `log_view.py` | 421 | **BITTI** | Salt okunur liste + detay. Iki sekme, yoklama zamanlayicisi, Qt'ye is yaptirma. #4'ten ONCE yapildi (bkz. adim 3 sonu). |
 | 6 | `monitor.py` | 183 | bekliyor | Canli akan olay listesi. IIk kez "surekli guncelleme" testi. |
 
 **YASAYAN PANEL kurali (adim 3'te ogrenildi).** Qt'de "her acilista yeni
@@ -86,6 +108,23 @@ tazelenir. Sonucu iki yerde gorunuyor:
 
 Bu, plandaki "app.py'de tek satir degissin" kuralinin ilk istisnasi:
 kurulum/yikim kaliba gomulu oldugu icin cagiran dosya da degisiyor.
+
+**QT'YE IS YAPTIRMA kurali (adim 4'te ogrenildi).** Panelin dugmesi bazen
+Flet'in yapamayacagi bir sey istiyor: panoya yazmak (`QApplication.clipboard`),
+dosya okumak, bir Qt kutusu acmak. Bunlar Flet dongusunde kosmamali --
+`FletEngine.call()`in TERS yonu gerekiyor. `fui/log_view.py` bunu tek bir
+ozel sinyalle cozuyor:
+
+    _on_qt = Signal(object)          # "su isi ana thread'de kostur"
+    self._on_qt.connect(lambda job: job())
+    ...
+    self._on_qt.emit(self._copy_selected)
+
+Alicisi ana thread'de kurulmus bir nesne oldugu icin Qt sinyali
+kendiliginden kuyruga aliyor. Simdilik TEK panelde; ikinci panel de
+isteyince `fui/engine.py`ye tasinmali (bkz. asagidaki liste).
+
+Ayni adimda cikan cizim kurallari **Olculen degerler** bolumunde.
 
 ## Asama 2 -- orta: durum yazan formlar
 
@@ -131,9 +170,10 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-Alti dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
-kritik hata metni, ve uc slot durumu (dolu slot, bos slot, sifre slotu).
-Pencerede bakilacak iki sey:
+Yedi dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu) ve
+log penceresi. Log penceresi GERCEK `Files/log.txt`i okuyor -- sahte veri
+yok, "Log temizle" gercekten siliyor. Pencerede bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
   Flet yuzunden takilmis demektir, yani mimari kirik.
@@ -195,9 +235,37 @@ X ile ya da Esc ile kapatmak "Devam et" ile ayni sey demek.
 6. **Sifre slotu (10).** Eski deger `••••••••` gorunmeli, acik metin
    ASLA yazmamali; pano bossa **yeni** kutusu BOS acilmali.
 
+**Log penceresi** (iki yoldan biri):
+
+* Tepsi simgesine sag tikla -> **log**, ya da
+* Hata rozeti gorunuyorsa ona tikla.
+
+Pencere 980x620 acilmali, liste EN ALTTA (en yeni kayit gorunur)
+baslamali. Bakilacaklar:
+
+1. **Sutunlar hizali mi?** `tarih | saat | sev | kaynak | mesaj`. Yazi
+   tipi sabit genislikte (Consolas); sutunlarin kaymamasi gerekiyor.
+2. **Renkler.** Hata/kritik satirlar KIRMIZI yazili; detayi olan satirlar
+   koyu sari zeminli ve mesajlarinin sonunda `▾` var.
+3. **Detay ac/kapa.** `▾` isaretli bir satira tikla -- traceback hemen
+   ALTINDA acilmali, ikinci tik kapatmali. Acip kapatinca listenin
+   bakilan yeri KACMAMALI.
+4. **Suzgec.** Kutuya bir sey yaz (ornek: `flet`), liste daralmali. Yazma
+   bitiminden ~0.15 sn sonra ciziliyor, yani her harfte beklemiyor.
+5. **Yalniz hata/uyari** kutusu: yalnizca kirmizi/sari kayitlar kalmali.
+6. **Alt satir.** `N / M kayit · K hata-uyari · <dosya yolu>`. Cok kayit
+   varsa basinda `son 500 gosteriliyor` yazar -- bu normal (bkz.
+   `RENDER_LIMIT`).
+7. **Dort dugme.** *Yenile* listeyi tazeler; *Satiri kopyala* SECILI
+   satiri panoya alir (once bir satira tikla); *Dosyayi ac* Notepad
+   acar; *Log temizle* ONAY sorar ve Evet dersen dosyayi bosaltir.
+8. **Durum sekmesi.** Ustteki "Durum" sekmesinde hook sayaclari olmali.
+9. **Esc / X** pencereyi kapatir. Kapattiktan sonra tekrar ac: aninda
+   acilmali.
+
 ---
 
-## SIRADAKI ADIM (adim 4): QR penceresi
+## SIRADAKI ADIM (adim 5): QR penceresi
 
 Dosya: `keypilot/ui/qr_view.py` (341 satir) -> `keypilot/fui/qr.py`
 
@@ -231,10 +299,9 @@ Ama pencerenin geri kalani adim 3'ten belirgin daha buyuk:
   Yani pencerenin OKUNAN kismi. Bittiginde program calisir durumda.
 * **4b:** PNG kaydetme (`FilePicker`) ve panoya kopyalama (Qt'ye sinyal).
 
-**Daha kucuk bir adim isteniyorsa** sira degistirilebilir:
-`log_view.py` (#5) 421 satirla daha buyuk ama DUZ -- salt okunur liste +
-detay; sablon yok, dosya secici yok, pano yok. Adim 1'in (kisayol
-haritasi) buyugu sayilir ve yeni bir engel getirmez.
+**Not:** adim 4'te sira degistirildi ve once `log_view.py` (#5) yapildi;
+oradan cikan iki kural (Qt'ye is yaptirma, cizim sinirlama) QR'a da
+gerekecek. Asama 1'de kalan tek panel `monitor.py` (#6).
 
 ---
 
@@ -254,7 +321,7 @@ sayilmaz.
       silinmiyorlar (geri donus tek satir), ama import edilmedikleri icin
       sessizce curuyorlar -- taniyan yok, test eden yok:
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
-      `ui/slot_edit.py`.
+      `ui/slot_edit.py`, `ui/log_view.py`.
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -277,6 +344,11 @@ sayilmaz.
       tarafina tasinacak:
       `fui/key_map.py` -> `ui/key_map_view.py` (`owner_label` +
       `OWNER_LABELS`), `fui/slot_edit.py` -> `ui/preview.py` (`shorten`).
+- [ ] **`_on_qt` sinyali** (`fui/log_view.py`). "Su isi Qt ana
+      thread'inde kostur" -- `FletEngine.call()`in ters yonu. Su an tek
+      panelde; IKINCI panel de isteyince `fui/engine.py`ye tasinmali,
+      uc panelde kopyalanmis halde durmasin. Tam geciste Qt gidince
+      tamamen silinir.
 - [ ] **`main.py`** `QApplication` kurulumu, `app.setQuitOnLastWindowClosed`,
       `logs.install_qt_handler()` -- hepsi `ft.run()` ile degisecek.
 - [ ] **Panel basina `shutdown()` cagrilari** (`app.py` `on_exit`). Su an
@@ -308,6 +380,11 @@ sayilmaz.
 - [ ] **`slots_ctl._editing`** -- duzenlenen slotu tutan alan. Ayni anda
       tek kutu acik oldugu icin dogru; Flet coklu pencereye gecerse
       (yukaridaki `FletEngine` karari) bu varsayim duser.
+- [ ] **`RENDER_LIMIT = 500`** (`fui/log_view.py`). Cizim maliyeti satir
+      sayisiyla dogru orantili oldugu icin kondu. Flet'in ileride
+      gercekten sanallastiran (yalniz gorunen satiri cizen) bir liste
+      denetimi gelirse sinir KALKMALI -- Qt surumunde boyle bir sinir
+      yoktu.
 
 ### Geri alinan / kaybedilen davranislar
 
@@ -322,6 +399,16 @@ sayilmaz.
       piksel cevrimi istiyor (bu makine %135 olcekli, iki monitor) --
       `win32/screen.py` `monitors()` hazir, `page.window.left/top` var.
       Cok monitorlu kullanimda rahatsiz ederse oncelige alinmali.
+- [ ] **Log penceresinde cift tiklama.** Qt'de satiri panoya
+      kopyaliyordu; Flet `Container`inda cift dokunma olayi yok. Ayni is
+      "Satiri kopyala" dugmesinde -- once satira tiklanip secilmesi
+      gerekiyor.
+- [ ] **Log penceresinde ayni anda en fazla 500 satir** (`RENDER_LIMIT`,
+      yukarida). Suzgec TUM 2000 kayitta ariyor, yalniz cizim sinirli.
+- [ ] **Log sutunlarinin genisligi icerige gore ayarlanmiyor.** Qt
+      `resizeColumnsToContents` kullaniyordu; burada `sev` disindaki
+      sutunlar tek bir sabit genislikli yaziya dolguyla diziliyor
+      (`line_text`), `kaynak` sutunu 12-26 karakter arasinda veriye gore.
 - [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
       380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri
       artik kutuyu buyutmuyor, 160 karakterde zaten kirpiliyor.

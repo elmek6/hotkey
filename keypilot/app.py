@@ -43,6 +43,7 @@ from keypilot.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
 from keypilot.fui.key_map import KeyMapPanel
+from keypilot.fui.log_view import LogPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
@@ -52,7 +53,6 @@ from keypilot.slots_ctl import SlotController
 from keypilot.store import SlotStore, slot_display
 from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.incognito_badge import IncognitoBadge
-from keypilot.ui.log_view import LogView
 from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.monitor import EventMonitor
@@ -190,7 +190,7 @@ class KeyPilot:
         self.tip = Tip()
         self.monitor = EventMonitor()
         #: Log penceresi -- hata rozeti ve birikmis kritik hata buraya aciyor.
-        self.log_view = LogView()
+        self.log_view = LogPanel()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
         self._settings_dialog: SettingsDialog | None = None
         #: FLET'e tasindi (fui/key_map.py). Arayuzu Qt surumuyle ayni:
@@ -1957,7 +1957,7 @@ class KeyPilot:
         # kapatilinca olmuyor, gizleniyor. Soylemezsek ardimizdan gorev
         # cubugunda sahipsiz kaliyor -- her oturum, her panel icin bir
         # tane. Panel tasindikca bu listeye eklenecek.
-        for panel in (self._key_map_view, self.pause_dialog, self.slots.editor):
+        for panel in (self._key_map_view, self.pause_dialog, self.slots.editor, self.log_view):
             if panel is not None:
                 panel.shutdown()
         saved = (

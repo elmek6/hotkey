@@ -27,5 +27,12 @@ BORDER = "#30363d"
 CONFLICT_BG = "#5a1e22"
 #: Tablo tek/cift satir ayrimi.
 ALT_BG = "#11161d"
+#: Secili satir. Qt'de paletin `highlight` rengiydi; Flet'te palet yok.
+SELECT_BG = "#1f3a5f"
+#: Hata/kritik kaydin YAZI rengi (ui/log_view.py ERROR_COLOR).
+ERROR_FG = "#e5534b"
+#: Acilabilir detayi olan satirin zemini (ui/log_view.py DETAIL_BG_DARK).
+#: Koyu tonu aliniyor: fui paleti sabit koyu.
+DETAIL_BG = "#3d3419"
 #: Kritik hata metni -- keypilot/theme.py DANGER ile ayni.
 DANGER = "#f85149"
