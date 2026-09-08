@@ -6,7 +6,7 @@
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
-> (ADIM6HASH). Kalan 15 pencere hala PySide6'da ve program iki motorla
+> (e4b4606). Kalan 15 pencere hala PySide6'da ve program iki motorla
 > CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Sirada Asama 2 -- durum yazan formlar.
