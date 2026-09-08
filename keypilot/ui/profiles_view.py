@@ -201,6 +201,24 @@ class ProfilesView(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def open_new(self, class_name: str = "") -> None:
+        """Bos profille acar; sinif alani doldurulur (F13: "Profil ekle").
+
+        `open()` her zaman bir profil seciyor -- "ekle" derken var olan bir
+        profilin uzerine yazma riski dogar. Burasi ayri bir giris: liste
+        secimi bosaltiliyor, alanlar temizleniyor.
+        """
+        self.store.load()
+        self._fill_profiles()
+        self.new_profile()
+        self.class_edit.setText(class_name)
+        self._update_rule()
+        self.name_edit.setFocus()
+        center_on_cursor_screen(self)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     # ---- profil listesi ----
 
     def _fill_profiles(self) -> None:

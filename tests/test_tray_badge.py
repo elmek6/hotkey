@@ -40,10 +40,10 @@ def test_set_error_count_uyariyi_kirmizi_saymaz(qapp):
     assert "1 error" in t.toolTip() and "2 warning" in t.toolTip()
 
 
-def test_ipucu_UC_SATIR_surum_profil_ve_tiklamalar(qapp):
+def test_ipucu_UC_SATIR_surum_bilgisayar_ve_tiklamalar(qapp):
     """Ilk satir kimlik, altinda tek/cift tiklamanin O ANDAKI karsiligi."""
     t = tray.Tray("1.2.0+0908_0907*", lambda: None, lambda: None, lambda: None,
-                  profile="work")
+                  computer="work")
     # tek tik varsayilanda "hicbir sey": ipucunda da yer kaplamiyor
     assert t.toolTip().splitlines() == ["KeyPilot 1.2.0 - work", "dbClick = Pause/Play"]
 
@@ -67,7 +67,7 @@ def test_ipucu_SINIRI_asmaz_once_durumu_dusurur(qapp):
     """Kabuk fazlasini sessizce kesiyor; kesilecek olan simgenin RENGIYLE
     zaten belli olan durum olsun, tiklamalar degil."""
     t = tray.Tray("1.2.0", lambda: None, lambda: None, lambda: None,
-                  profile="cok-uzun-bir-klasor-adi")
+                  computer="cok-uzun-bir-klasor-adi")
     t.set_dev(True)
     t.set_paused(True)
     t.set_error_count(9, severe=4)

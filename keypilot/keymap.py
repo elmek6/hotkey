@@ -130,17 +130,22 @@ VECTOR_STEP_PX = setting(
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
 
-# ---- makine profili -- AHK: LoadSettings() icindeki A_ComputerName testi ----
+# ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
 # simge durumunda baslatmayi aciyordu. Burada SIMDILIK yalnizca hangi
-# profille acildigini bildiriyoruz; profile bagli acilis eylemleri
+# bilgisayarda acildigini bildiriyoruz; buna bagli acilis eylemleri
 # eklenecekse yerleri START_ACTIONS'in yanidir.
+#
+# ADI NEDEN "PROFIL" DEGIL: proje "profil" kelimesini UYGULAMA profilleri
+# icin kullaniyor (Files/profiles.json -- pencereye bagli kisayol kumeleri).
+# Iki kavramin ortak hicbir yani yok; ayni kelime menude, log'da ve tepsi
+# ipucunda yan yana geldiginde "hangi profil" diye sormak gerekiyordu.
 WORK_COMPUTERS = ("LAPTOP-UTN6L5PA",)
-PROFILE_LABELS = {"work": "\U0001f3e2 Work", "home": "\U0001f3e0 Home"}
+COMPUTER_LABELS = {"work": "🏢 Work", "home": "🏠 Home"}
 
 
-def current_profile() -> str:
-    """Bu makinenin profili: `work` ya da `home` (AHK ile ayni olcut)."""
+def current_computer() -> str:
+    """Bu bilgisayar `work` mu `home` mu (AHK ile ayni olcut)."""
     name = platform.node().strip().upper()
     return "work" if name in {item.upper() for item in WORK_COMPUTERS} else "home"
 
@@ -389,7 +394,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .main_key(PressType.MEDIUM, "send_key:Backspace")
         .main_key(PressType.LONG, "send_key:Home")
         .combo("F17", "panic (buyutec %100 + kucult)", "magnifier.panic")
-        .combo("LButton", "VSCode: satiri sil", "send_key:^+k")
+        .combo("LButton", "VSCode/Cursor: satiri sil", "send_key:^+k")
         .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
         .show_menu(False)
         .named("F18")
@@ -604,12 +609,16 @@ def build_hotkeys() -> HotkeyTable:
             "pano gecmisi 1-9" if index == 1 else "",
         )
 
-    # --- Ctrl+< -> Ctrl+Shift+K (VSCode: satiri sil). `<` tusu duzene bagli
-    # (Turkce Q'da OEM_102), Caret gibi calisma aninda soruluyor. ---
+    # --- Ctrl+< -> Ctrl+Shift+K (satiri sil). `<` tusu duzene bagli
+    # (Turkce Q'da OEM_102), Caret gibi calisma aninda soruluyor.
+    # Cursor VSCode catallamasi: varsayilan tus haritasini oldugu gibi
+    # devraliyor, yani ayni `^+k` orada da satiri siler -- ayri bir tanim
+    # GEREKMIYOR. Etikette ikisi de yaziyor, yoksa "Cursor'de calisir mi"
+    # sorusunun cevabi denemekten geciyordu. ---
     less = send.vk_for_char("<")
     if less is not None:
         register_name(less, "Less")
-        table.add("^Less", "send_key:^+k", "satiri sil (VSCode)")
+        table.add("^Less", "send_key:^+k", "satiri sil (VSCode/Cursor)")
 
     # --- Hafiza slotlari penceresi acikken akilli yapistirma (AHK
     # memory_slots.ahk `smartPaste`). Ikisi de `~` ile: orta tus ve Insert

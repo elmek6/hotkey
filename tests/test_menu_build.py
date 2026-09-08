@@ -98,3 +98,31 @@ def test_tikli_ogeye_ikon_konmaz():
         assert not _item_info(handle, 0).hbmpItem
     finally:
         ctypes.windll.user32.DestroyMenu(wintypes.HMENU(handle))
+
+
+MIIM_STATE = 0x00000001
+MFS_GRAYED = 0x00000003  # MF_GRAYED | MF_DISABLED
+
+
+def _state(handle: int, position: int) -> int:
+    info = win32_menu.MENUITEMINFOW()
+    info.cbSize = ctypes.sizeof(win32_menu.MENUITEMINFOW)
+    info.fMask = MIIM_STATE
+    ok = ctypes.windll.user32.GetMenuItemInfoW(
+        wintypes.HMENU(handle), position, True, ctypes.byref(info)
+    )
+    assert ok
+    return info.fState
+
+
+def test_disabled_ogesi_soluk_kurulur():
+    """F13'teki "Profil ekle" hedefi yokken tiklanabilir kalmamali."""
+    actions: list[str] = []
+    handle = win32_menu._build(
+        (("Acik", "a"), ("Soluk", "", win32_menu.DISABLED)), actions
+    )
+    try:
+        assert not _state(handle, 0) & MFS_GRAYED
+        assert _state(handle, 1) & MFS_GRAYED == MFS_GRAYED
+    finally:
+        ctypes.windll.user32.DestroyMenu(wintypes.HMENU(handle))

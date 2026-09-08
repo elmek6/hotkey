@@ -44,6 +44,12 @@ DEFAULT = "<default>"
 #: Windows ikonu cizip tiki yutar.
 CHECKED = "<checked>"
 
+#: Ek alanlara konursa oge SOLUK ve TIKLANAMAZ olur (MF_GRAYED|MF_DISABLED).
+#: Ogeyi hic koymamaktan farki: yerin BOS OLMADIGINI gosteriyor. "Profil
+#: ekle" maddesi basliksiz pencerede tiklanabilir olsaydi hicbir sey
+#: yapmadan kapanirdi; hic olmasaydi menu her pencerede baska boyda olurdu.
+DISABLED = "<disabled>"
+
 MF_STRING = 0x0000
 MF_POPUP = 0x0010
 MF_SEPARATOR = 0x0800
@@ -298,14 +304,20 @@ def _build(spec, actions: list[str]) -> int:
             continue
         label, target, *rest = entry
         checked = MF_CHECKED if CHECKED in rest else 0
+        grayed = (MF_GRAYED | MF_DISABLED) if DISABLED in rest else 0
         icon = next(
-            (item for item in rest if item and item not in (DEFAULT, CHECKED)), ""
+            (
+                item
+                for item in rest
+                if item and item not in (DEFAULT, CHECKED, DISABLED)
+            ),
+            "",
         )
         if isinstance(target, tuple):
             sub = _build(target, actions)
             user32.AppendMenuW(
                 handle,
-                MF_STRING | MF_POPUP | column | checked,
+                MF_STRING | MF_POPUP | column | checked | grayed,
                 ctypes.c_void_p(sub),
                 label,
             )
@@ -315,7 +327,10 @@ def _build(spec, actions: list[str]) -> int:
             actions.append(target)
             command = len(actions)
             user32.AppendMenuW(
-                handle, MF_STRING | column | checked, ctypes.c_void_p(command), label
+                handle,
+                MF_STRING | column | checked | grayed,
+                ctypes.c_void_p(command),
+                label,
             )
             if DEFAULT in rest:
                 user32.SetMenuDefaultItem(handle, command, False)

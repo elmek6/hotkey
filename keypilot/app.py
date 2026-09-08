@@ -53,7 +53,7 @@ from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.key_map_view import KeyMapView
 from keypilot.ui.log_view import LogView
 from keypilot.ui.mem_slots import MemSlots
-from keypilot.ui.menu import CHECKED, DEFAULT, PopupMenu
+from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
 from keypilot.ui.pause import PauseDialog
@@ -457,11 +457,13 @@ class KeyPilot:
 
         self.tray = Tray(
             VERSION,
-            # Ipucundaki "profil" = MAKINE profili (work / home), AHK ile
-            # ayni olcut (keymap.current_profile). Kurulusta veriliyor:
+            # Ipucundaki "work"/"home" = hangi BILGISAYAR (keymap
+            # .current_computer). Eskiden buna da "profil" deniyordu ve
+            # uygulama profilleriyle (profiles.json) tek kelimeyi
+            # paylasiyordu -- ilgisiz iki kavram. Kurulusta veriliyor:
             # eskiden on_start ipucunu sonradan yaziyordu ve tepsinin
             # kendi metnini eziyordu.
-            profile=keymap.current_profile(),
+            computer=keymap.current_computer(),
             on_monitor=self.show_monitor,
             on_restart=self.restart,
             on_restart_dev_off=self.restart_dev_off,
@@ -905,25 +907,26 @@ class KeyPilot:
     # ---- uygulamaya ozel kisayollar (AHK: app_shorts.ahk) ----
 
     def _shortcut_menu_items(self) -> tuple:
-        """AHK `menuAppProfile`: on plandaki pencerenin profili + kisayollari.
+        """AHK `menuAppProfile`: on plandaki pencerenin kisayollari, DUZ.
 
-        Profil yoksa AHK bir "Ekle" maddesi koyuyordu; bizde duzenleme JSON
-        dosyasindan yapildigi icin madde "Profilleri duzenle" oluyor ve
-        yaninda pencerenin SINIF adi yaziyor -- dosyaya yazilacak deger o.
+        Burada yalnizca CALISTIRILACAK maddeler var. "Ekle" ve "duzenle"
+        ana menuden alinip `Profil (...)` alt menusune tasindi: ana menu
+        zaten uzun ve bakim maddeleri her acilista kullanilan maddelerin
+        arasinda duruyordu.
         """
         hwnd = foreground_window()
-        name = window_class(hwnd)
-        profile = self.shorts.find(name, window_title(hwnd))
+        profile = self.shorts.find(window_class(hwnd), window_title(hwnd))
         if profile is None:
-            return ((f"▸ Profil ekle ({shorten(name, 30)})", "shorts.manage"),)
-        items: list = []
-        for index, shortcut in enumerate(profile.shortcuts):
-            label = f"▸ {shortcut.name}"
-            if shortcut.description:
-                label += f" - {shortcut.description}"
-            items.append((label, f"shorts.play:{profile.name}/{index}"))
-        items.append(("Profili duzenle...", f"shorts.manage:{profile.name}"))
-        return tuple(items)
+            return ()
+        return tuple(
+            (self._shortcut_label(shortcut), f"shorts.play:{profile.name}/{index}")
+            for index, shortcut in enumerate(profile.shortcuts)
+        )
+
+    @staticmethod
+    def _shortcut_label(shortcut) -> str:
+        label = f"▸ {shortcut.name}"
+        return f"{label} - {shortcut.description}" if shortcut.description else label
 
     def _profile_label(self, profile) -> str:
         """"Profiller" alt menusundeki etiket."""
@@ -932,34 +935,63 @@ class KeyPilot:
         return f"{name} [{shorten(hint, 24)}]" if hint else name
 
     def _shortcut_manager_item(self) -> tuple:
-        """AHK `showManagerGui` karsiligi: TUM profiller F13 menusunde.
+        """TUM profiller + bakim maddeleri, tek alt menude.
 
-        AHK'de bu ayri bir pencereydi (profil listesi + kisayol listesi +
-        ekle/sil). Pencereyi port etmek yerine ayni bilgi menuye kondu: her
-        profil bir alt menu, altinda kisayollari -- ve tiklanabilir, yani
-        yonetici ayni zamanda calistirici. Ekleme/silme hala JSON
-        dosyasindan (son madde), cunku ayni dosyayi AHK tarafi da okuyor.
+        Alt menunun BASLIGI on plandaki pencereyi soyluyor: profil varsa
+        `Profil (VSCode)`, yoksa `Profil (ekle)`. Eskiden baslik sabit
+        "Profiller"di ve "bu pencerenin profili var mi" sorusunun cevabi
+        ancak menu acilinca goruluyordu.
+
+        Ekleme ve duzenleme ayracin ALTINDA, hep ayni yerde. Eskiden
+        "Profili duzenle" yalnizca eslesen bir pencere on plandayken
+        cikiyordu -- yani bir profili duzenlemek icin once o uygulamayi
+        bulup one getirmek gerekiyordu. Duzenle artik HER ZAMAN calisir
+        (hedefi yoksa genel yonetici penceresi acilir); soluk kalabilen
+        tek madde "Profil ekle", cunku yazacak bir sinif adi olmadan
+        yapacak isi yok. Ogeyi hic koymamak yerine soluk koymanin sebebi:
+        menu her pencerede AYNI boyda ve ayni sirada kalsin.
         """
         hwnd = foreground_window()
-        active = self.shorts.find(window_class(hwnd), window_title(hwnd))
-        profiles: list = []
+        class_name = window_class(hwnd)
+        active = self.shorts.find(class_name, window_title(hwnd))
+        rows: list = []
         for profile in self.shorts.profiles:
-            rows: list = []
-            for index, shortcut in enumerate(profile.shortcuts):
-                label = f"▸ {shortcut.name}"
-                if shortcut.description:
-                    label += f" - {shortcut.description}"
-                rows.append((label, f"shorts.play:{profile.name}/{index}"))
-            if not rows:
-                rows.append(("(kisayol yok)", f"shorts.manage:{profile.name}"))
+            actions: list = [
+                (self._shortcut_label(shortcut), f"shorts.play:{profile.name}/{index}")
+                for index, shortcut in enumerate(profile.shortcuts)
+            ]
+            if not actions:
+                actions.append(("(kisayol yok)", f"shorts.manage:{profile.name}"))
             # On plandaki pencerenin profili kalin.
             mark = (DEFAULT,) if profile is active else ()
-            profiles.append((self._profile_label(profile), tuple(rows), "", *mark))
-        if not profiles:
-            profiles.append(("(profil yok)", "shorts.manage"))
-        profiles.append(None)
-        profiles.append(("\U0001f4dd profiles.json duzenle", "shorts.edit"))
-        return ("Profiller", tuple(profiles))
+            rows.append((self._profile_label(profile), tuple(actions), "", *mark))
+        if rows:
+            rows.append(None)
+
+        # Ekle: hedef, dosyaya yazilacak SINIF adi. Sinifsiz pencerede
+        # (masaustu, bazi sistem pencereleri) yazilacak bir sey yok.
+        if class_name:
+            rows.append(
+                (
+                    f"Profil ekle ({shorten(class_name, 30)})",
+                    f"shorts.add:{class_name}",
+                )
+            )
+        else:
+            rows.append(("Profil ekle", "", DISABLED))
+        # Duzenle HER ZAMAN acik: argumansiz `shorts.manage` genel yonetici
+        # penceresini aciyor, yani hedefi olmadigi durum diye bir sey yok.
+        # Eslesen profil varsa yalnizca o secili aciliyor -- madde bunu
+        # etiketinde soyluyor.
+        if active is not None:
+            rows.append(
+                (f"Profil duzenle ({active.name})", f"shorts.manage:{active.name}")
+            )
+        else:
+            rows.append(("Profil duzenle", "shorts.manage"))
+
+        title = f"Profil ({active.name})" if active is not None else "Profil (ekle)"
+        return (title, tuple(rows))
 
     @command("shorts.manage")
     def open_profiles(self, argument: str = "") -> None:
@@ -969,6 +1001,18 @@ class KeyPilot:
         secili acar (AHK editProfileForActiveWindow ile ayni fikir).
         """
         self.profiles_view.open(argument.strip())
+
+    @command("shorts.add")
+    def add_profile(self, argument: str = "") -> None:
+        """`shorts.add:<sinif>` -- yonetici BOS profille, sinif dolu acilir.
+
+        Menudeki etiket ("Profil ekle (CabinetWClass)") o sinif adini vaat
+        ediyor; pencereyi bos acip sinifi kullaniciya yeniden yazdirmak
+        etiketin soyledigi isi yapmamak olurdu. Sinif adi menu KURULURKEN
+        okunuyor: eylem menu kapandiktan sonra calisiyor ve o an on plandaki
+        pencere artik baska olabilir.
+        """
+        self.profiles_view.open_new(argument.strip())
 
     def bind_profile_keys(self) -> None:
         """Profil aksiyonlarina atanmis tuslari kayit defterine tutturur.
@@ -1779,20 +1823,20 @@ class KeyPilot:
         self.clip.load()
         self.shorts.load()
         self.bind_profile_keys()
-        profile = keymap.current_profile()
-        label = keymap.PROFILE_LABELS.get(profile, profile)
-        log.info("makine profili: %s (%s)", profile, platform.node())
+        computer = keymap.current_computer()
+        label = keymap.COMPUTER_LABELS.get(computer, computer)
+        log.info("bilgisayar: %s (%s)", computer, platform.node())
         # IPUCU BURADAN YAZILMIYOR. Yaziyordu ve tepsinin kendi metnini
         # (surum + profil + tiklamalarin karsiligi) sessizce EZIYORDU:
         # ekranda hep bu eski satir kaliyor, tepsideki her guncelleme
         # gorunmez oluyordu. Ipucunun tek sahibi ui/tray.py.
         # AHK LoadSettings: is bilgisayarinda State.Idle.enable() -- ekran
         # koruyucu devreye girmesin diye 5 dakikada bir fareyi kimildatir.
-        if profile == "work":
+        if computer == "work":
             self._idle_count = IDLE_TICKS
             self.dispatcher.last_physical = time.perf_counter()
             self._idle_timer.start(IDLE_INTERVAL_MS)
-        # Acilis karti: profil, surum, yapim damgasi. Uc satir ve 4 saniye
+        # Acilis karti: bilgisayar, surum, yapim damgasi. Uc satir ve 4 saniye
         # -- hata bildiriminde istenen bilgi bu ucu ve acilista bir kez
         # bakip gorulebilsin diye okunacak kadar duruyor. Sayimlar (pano
         # kaydi, uygulama profili) burada yok, log'a zaten yaziliyorlar.

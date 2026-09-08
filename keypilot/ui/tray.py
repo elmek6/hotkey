@@ -217,16 +217,16 @@ class Tray(QSystemTrayIcon):
         on_copy_error: Callable[[], None] = lambda: None,
         on_show_log: Callable[[], None] = lambda: None,
         on_show_errors: Callable[[], None] = lambda: None,
-        profile: str = "",
+        computer: str = "",
         parent=None,
     ) -> None:
         super().__init__(make_icon(), parent)
         self.version = version
-        #: Makine profili (work / home) -- `keymap.current_profile`.
-        #: Ipucunun ILK yarisi bu ikili: hangi makinede oldugu, davranis
-        #: farklarini (is bilgisayarinda ekran koruyucu engelleyici gibi)
-        #: aciklayan bilgi.
-        self.profile = profile
+        #: Hangi bilgisayar: `work` / `home` -- `keymap.current_computer`.
+        #: Ipucunun ILK yarisi bu: davranis farklarini (is bilgisayarinda
+        #: ekran koruyucu engelleyici gibi) aciklayan bilgi. "Profil"
+        #: DEMIYORUZ; o kelime uygulama profillerinin (profiles.json).
+        self.computer = computer
         self.paused = False
         #: Gelistirme modu acik mi -- simgede mor halka, ipucunda etiket.
         #: Ayardan da gelebilir bayraktan da; tepsi ayrimi bilmiyor.
@@ -388,8 +388,8 @@ class Tray(QSystemTrayIcon):
         # Yapim damgasi (`+0908_0907*`) ipucuna GIRMIYOR: tek basina 16
         # karakter yiyor. Tam surum tepsi menusunun ilk maddesinde duruyor.
         head = f"KeyPilot {self.version.split('+', 1)[0]}"
-        if self.profile:
-            head += f" - {self.profile}"
+        if self.computer:
+            head += f" - {self.computer}"
         parts = [head]
 
         # Simge ISARETLIYKEN her iki tiklama da log penceresini aciyor
