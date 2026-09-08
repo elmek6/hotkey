@@ -4,7 +4,7 @@
 >
 > Branch `flet2`. Tasinan: **4 panel** -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
-> penceresi (`LOGHASH`). Kalan 17 pencere hala PySide6'da ve program iki
+> penceresi (`45f525e`). Kalan 17 pencere hala PySide6'da ve program iki
 > motorla CALISIYOR.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
