@@ -31,6 +31,14 @@ IKI YON, IKI KURAL:
                    sinyali bu yonu kullaniyor (bkz. fui/key_map.py);
                    "su isi orada kostur" diyen genel yol ise `ask_qt()`.
 
+OTOMATIK GUNCELLEME KAPALI. Flet 0.86 her olay isleyicisinden sonra
+kendiliginden bir guncelleme yapiyor (`session.after_event`) ve izole tek
+denetim `Page` oldugu icin bu HER SEFERINDE TUM SAYFA demek. Bu programda
+gereksiz -- her isleyici cizimini zaten kendi yapiyor -- ve pahali:
+kaydirma olayi saniyede onlarca kez geliyor, log listesinde bir tam cizim
+0.4-1.0 saniye tutuyor, dongu bir daha bosalmiyor ve pencere kapatma
+dugmesine bile yanit vermiyor. Bkz. `_disable_auto_update`.
+
 PENCERE KAPANMAZ, GIZLENIR. `ft.run()` pencere kapaninca doner ve thread
 oldur; bir daha acmak 3.5 saniyelik Flet basligini yeniden odetirdi.
 `prevent_close` ile kapatma yakalanip pencere gizleniyor: thread ayakta
@@ -87,6 +95,51 @@ def _install_signal_shim() -> None:
     _shim_installed = True
 
 
+_auto_update_disabled = False
+
+
+def _disable_auto_update() -> None:
+    """Flet'in "olaydan sonra kendiliginden guncelle" davranisini kapat.
+
+    NE OLUYORDU. `BaseControl._trigger_event` isleyiciyi cagirdiktan sonra
+    `session.after_event`i bekliyor; orada isleyici KENDI `update()`ini
+    cagirmadiysa "otomatik guncelleme" devreye giriyor ve en yakin IZOLE
+    ataya kadar yukari yuruyup onu guncelliyor. Flet'te izole isaretli tek
+    denetim `Page` (`@control("Page", isolated=True)`), yani bu her zaman
+    TUM SAYFANIN yeniden diff'lenmesi demek.
+
+    Log penceresinde bunun bedeli olculdu: liste `auto_scroll` ile
+    kaydiginda `on_scroll` saniyede onlarca kez geliyor, isleyicisi
+    yalnizca kaydirma konumunu not ediyor (`update()` cagirmiyor) ve her
+    biri 500 satirlik tam bir cizim baslatiyor -- tanesi 0.4-1.0 saniye.
+    Cizim surerken dongu BASKA HICBIR SEYE bakmadigi icin isler birikiyor
+    ve pencere kapanmaz oluyor. Bildirilen hata buydu.
+
+    KAPATMAK GUVENLI, cunku bu paketteki her isleyici cizimini zaten
+    acikca yapiyor: ya `page.update()` cagiriyor (`_hide_now`, `_refresh`,
+    `_apply_and_update`), ya isi `call()` ile kuyruga birakiyor (`_draw`),
+    ya da gorunen bir sey degistirmiyor (`_on_scroll`). Kutular da kendi
+    denetimlerini guncelliyor (`show_dialog` / `pop_dialog`).
+
+    NASIL. Flet bayragi bir `ContextVar`da tutuyor ve varsayilani MODUL
+    DUZEYINDE PAYLASILAN tek bir nesne. Degeri hic `set` edilmemis bir
+    baglamdan `get()` o paylasilan nesneyi veriyor; uzerinde kapatinca
+    varsayilana dusen butun baglamlar kapali goruyor. `reset_auto_update`
+    de bayragi ustten KOPYALADIGI icin oturum ve olay baglamlarina kapali
+    olarak geciyor. Yani buranin sarti tek: `ft.run()` BASLAMADAN once,
+    bayragi kimsenin ayarlamadigi bir thread'den cagrilmak. `start()`
+    bunu saglar (ana thread, thread baslatilmadan once).
+
+    Panel basina bir motor var ama ayar SUREC genelinde -- hepsi ayni
+    davranisi istiyor, o yuzden bir kez.
+    """
+    global _auto_update_disabled
+    if _auto_update_disabled:
+        return
+    ft.context.disable_auto_update()
+    _auto_update_disabled = True
+
+
 class FletEngine(QObject):
     """Bir Flet sayfasi ve onu tasiyan thread. Panel basina bir tane.
 
@@ -130,6 +183,7 @@ class FletEngine(QObject):
         if self.alive:
             return
         _install_signal_shim()
+        _disable_auto_update()
         self._thread = threading.Thread(target=self._run, name="keypilot-flet", daemon=True)
         self._thread.start()
 

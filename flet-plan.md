@@ -72,6 +72,31 @@ sinirla**, ve **istemciye gidip donen cagrilardan kacin** (sona kaydirmak
 icin `scroll_to` yerine `auto_scroll` ozelligi -- ayni `update()` icinde
 gidiyor).
 
+**OTOMATIK GUNCELLEME KAPALI (adim 5.5, bildirilen hatanin sebebi).**
+Flet 0.86 her olay isleyicisinden sonra `session.after_event` calistiriyor
+ve isleyici KENDI `update()`ini cagirmadiysa "otomatik guncelleme"
+yapiyor: en yakin IZOLE ataya kadar yukari yuruyup onu guncelliyor.
+Flet'te izole isaretli tek denetim `Page`, yani bu HER OLAYDAN SONRA TUM
+SAYFA demek.
+
+Yukaridaki cizim maliyetiyle birleşince sonuc su: log listesi
+`auto_scroll` ile kaydiginda `on_scroll` saniyede onlarca kez geliyor,
+isleyicisi yalnizca kaydirma konumunu not ediyor (`update()` cagirmiyor),
+ve her biri 500 satirlik TAM bir cizim baslatiyor. Cizim surerken dongu
+baska hicbir seye bakmadigi icin isler birikiyor ve **pencere kapatma
+dugmesine yanit vermiyor** -- bildirilen "Show log kapanmiyor" hatasi
+buydu. Ayni sessiz maliyet suzgecin `FILTER_MS` gecikmesini de bosa
+cikariyordu: her harfte zaten tam cizim oluyordu.
+
+`fui/engine.py` `_disable_auto_update()` bunu SUREC genelinde kapatiyor
+(`start()` icinde, bir kez). Kapatmak guvenli, cunku bu paketteki her
+isleyici cizimini acikca yapiyor: `page.update()` cagiriyor, isi `call()`
+ile kuyruga birakiyor, ya da gorunen bir sey degistirmiyor. Kutular
+(`show_dialog` / `pop_dialog`) kendi denetimlerini guncelliyor.
+
+**Yeni panel yazacak olana kural:** denetim degistirdiysen cizimi KENDIN
+iste. Flet artik arkandan toplamiyor.
+
 **Bir panelin uc parcasi.** Ucunun de ayni oldugu kalip:
 
 | Parca | Nerede koser | Ornek |
@@ -385,6 +410,11 @@ bkz. **PENCERE OLCUSU kurali**.
 **On kosul BITTI:** `ask_qt` motora tasindi (`f56ff95`), yani monitor
 kalibi kopyalamayacak -- dogrudan `self._engine.ask_qt(...)` cagiracak.
 
+**Ikinci on kosul da bitti:** otomatik guncelleme kapatildi (bkz.
+**OTOMATIK GUNCELLEME KAPALI**). Monitor'un akan listesi log
+penceresiyle ayni tuzaga dusecekti; artik yalniz `_draw` ciziyor.
+Kaydirma konumu tutulacaksa `on_scroll` ARTIK BEDAVA.
+
 ---
 
 ## Tam geciste SILINECEK / DUZELTILECEK
@@ -455,6 +485,16 @@ sayilmaz.
       13 surec demek. Tam geciste ya coklu pencere destegi kullanilir ya
       da onceki bransin "panel yigini" modeline donulur (o model es
       zamanli pencereyi kaybediyordu).
+- [ ] **Flet'in ic bayragina mudahale** (`fui/engine.py`
+      `_disable_auto_update`). `signal.signal` yamasi gibi SUREC genelinde
+      ve Flet'in ICINDEKI bir davranisa dayaniyor: bayrak modul duzeyinde
+      paylasilan bir `ContextVar` varsayilaninda tutuluyor ve
+      `reset_auto_update` onu ustten kopyaliyor. Flet surumu yukselince
+      SESSIZCE bozulabilir -- program calisir, yalnizca pencere yeniden
+      agirlasir. `tests/test_flet_engine.py` tam bu yuzden var; surum
+      yukseltmesinde ONCE o testlere bakilmali. Flet resmi bir
+      "auto-update kapali" ayari sunarsa oraya gecilmeli.
+
 - [ ] **`fui/theme.py` sabit koyu palet.** Qt surumu sistem temasini
       izliyordu (`theme.py`: Windows 10'da `AppsUseLightTheme`). Ayar
       ekrani tasinirken (Asama 2, #13) tema izleme geri gelmeli.
@@ -462,9 +502,11 @@ sayilmaz.
       sonra. `flet-desktop` ACIKCA eklendi cunku Flet onu ilk
       calistirmada kendi kendine pip'liyor; kilitli projede istenmez.
 - [ ] **Testler.** `tests/` icinde Qt pencerelerini kuran testler var;
-      panel tasindikca Flet karsiliklari yazilmali. Tasinan BES panelin
-      BIRIM TESTI YOK -- dogrulama elle yapildi. En kolay baslangic saf
-      fonksiyonlar (Flet gerekmiyor, ekran gerekmiyor):
+      panel tasindikca Flet karsiliklari yazilmali. Motorun iki global
+      ayari artik test ediliyor (`tests/test_flet_engine.py`: signal
+      yamasi, otomatik guncelleme, `ask_qt`); tasinan BES PANELIN kendi
+      birim testi hala YOK -- dogrulama elle yapildi. En kolay baslangic
+      saf fonksiyonlar (Flet gerekmiyor, ekran gerekmiyor):
       `fui/slot_edit.py` `old_value()` (maskeleme, bosluk ezme, kirpma),
       `fui/qr.py` `masked()` / `slot_rows()` / `window_height()`,
       `fui/log_view.py` `line_text()` / `source_chars()` /
