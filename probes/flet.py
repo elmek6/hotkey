@@ -15,6 +15,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet keymap    (yalniz kisayol haritasi)
            uv run python -m probes.flet slot      (yalniz slot duzenleme)
            uv run python -m probes.flet log       (yalniz log penceresi)
+           uv run python -m probes.flet qr        (yalniz QR penceresi)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -39,8 +40,9 @@ from PySide6.QtWidgets import (
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
 from keypilot.fui.pause import PausePanel
+from keypilot.fui.qr import QrPanel
 from keypilot.fui.slot_edit import SlotEditPanel
-from keypilot.store import PASSWORD_SLOT
+from keypilot.store import PASSWORD_SLOT, SlotStore
 
 #: Kisayol haritasi icin sahte satirlar: (sahip, tus, aciklama, eylem,
 #: catisiyor_mu). Ilk iki satir BILEREK ayni tusta -- catisma
@@ -107,6 +109,11 @@ class Probe(QWidget):
         self.log = LogPanel()
         self.log.closed.connect(lambda: self._note("log", "closed"))
 
+        # GERCEK slots.json'u okuyor: grup kutusu ve slot listesi dolu
+        # gelsin. Grup secimi ayara yaziliyor (gercekte de oyle).
+        self.qr = QrPanel(SlotStore())
+        self.qr.closed.connect(lambda: self._note("qr", "closed"))
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -134,6 +141,15 @@ class Probe(QWidget):
                 "slot",
             ),
             ("Log penceresi (gercek log.txt)", self._show_log, "log"),
+            # Uc giris: duz metin, link ve hazir bir wifi dizgisi --
+            # ucu de baska bir sablon tahmin ettiriyor.
+            ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
+            ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
+            (
+                "QR -- hazir wifi dizgisi",
+                lambda: self.qr.show_text("WIFI:T:WPA;S:Ev Agi;P:parola123;;"),
+                "qr",
+            ),
         ]
         for label, slot, group in buttons:
             if only and group != only:
@@ -181,6 +197,7 @@ class Probe(QWidget):
         self.pause.shutdown()
         self.slot.shutdown()
         self.log.shutdown()
+        self.qr.shutdown()
         super().closeEvent(event)
 
 

@@ -45,6 +45,7 @@ from keypilot.dispatch import Dispatcher
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
 from keypilot.fui.pause import PausePanel
+from keypilot.fui.qr import QrPanel
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
 from keypilot.repository import Repository
@@ -59,7 +60,6 @@ from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
-from keypilot.ui.qr_view import QrDialog
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
 from keypilot.ui.repository_view import RepositoryView
 from keypilot.ui.settings_dialog import SettingsDialog
@@ -439,9 +439,11 @@ class KeyPilot:
         self.runner.register("repository.open", lambda _: self.repository_view.open())
 
         # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
-        # Nesne her acilista yeniden kuruluyor -- durum tasimiyor ve
-        # panodaki metin her seferinde bastan okunmali.
-        self._qr_view: QrDialog | None = None
+        # ILK KULLANIMDA kuruluyor ve yasiyor: Flet istemcisi her
+        # acilista bastan ayaga kalksa saniyeler surerdi. Gelen metin
+        # `show_text` ile veriliyor, yani nesnenin durum tasimamasi
+        # kurali bozulmuyor.
+        self._qr_view: QrPanel | None = None
 
         # AHK menus.ahk `DialogPauseGui`: Pause tusu basili tutulunca acilir.
         self.pause_dialog = PausePanel()
@@ -1428,12 +1430,9 @@ class KeyPilot:
     def show_qr_text(self, text: str) -> None:
         """Verilen metinle QR penceresi. Hizli panelde Alt+q buraya gelir:
         orada QR'i gorulmek istenen sey PANODAKI degil SECILI ogedir."""
-        if self._qr_view is not None:
-            self._qr_view.close()
-        self._qr_view = QrDialog(text.strip(), self.slot_store)
-        self._qr_view.show()
-        self._qr_view.raise_()
-        self._qr_view.activateWindow()
+        if self._qr_view is None:
+            self._qr_view = QrPanel(self.slot_store)
+        self._qr_view.show_text(text.strip())
 
     @command("yok")
     def not_ported(self, module: str) -> None:
@@ -1957,7 +1956,13 @@ class KeyPilot:
         # kapatilinca olmuyor, gizleniyor. Soylemezsek ardimizdan gorev
         # cubugunda sahipsiz kaliyor -- her oturum, her panel icin bir
         # tane. Panel tasindikca bu listeye eklenecek.
-        for panel in (self._key_map_view, self.pause_dialog, self.slots.editor, self.log_view):
+        for panel in (
+            self._key_map_view,
+            self.pause_dialog,
+            self.slots.editor,
+            self.log_view,
+            self._qr_view,
+        ):
             if panel is not None:
                 panel.shutdown()
         saved = (

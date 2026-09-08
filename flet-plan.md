@@ -2,17 +2,20 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **4 panel** -- kisayol haritasi (`7cbca8c`),
+> Branch `flet2`. Tasinan: **5 panel** -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
-> penceresi (`45f525e`). Kalan 17 pencere hala PySide6'da ve program iki
-> motorla CALISIYOR.
+> penceresi (`45f525e`), QR penceresi (`QRHASH`). Kalan 16 pencere hala
+> PySide6'da ve program iki motorla CALISIYOR.
+>
+> **Asama 1'de geriye tek panel kaldi: `monitor.py`.**
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
 > okunur), `keypilot/fui/pause.py` (dugmeli),
 > `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel) ve
 > `keypilot/fui/log_view.py` (en buyugu: iki sekme, zamanlayici, Qt'ye is
-> yaptirma, cizim sinirlama).
+> yaptirma, cizim sinirlama) ve `keypilot/fui/qr.py` (calisma aninda
+> dogan/olen denetimler, resim).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -89,9 +92,9 @@ thread 3.5 saniye donar, tepsi ve tus kuyrugu takilirdi.
 | 1 | `key_map_view.py` | 176 | **BITTI** | Salt okunur tablo. Tek cikti: `closed`. |
 | 2 | `pause.py` | 99 | **BITTI** | 4 dugme, 4 sinyal. `WindowStaysOnTopHint` -> `always_on_top`. |
 | 3 | `slot_edit.py` | 92 | **BITTI** | Form: ad + eski deger + yeni deger. Ilk kez ICERI veri alan ve DISKE yazan panel; ilk YASAYAN panel (bkz. asagidaki not). |
-| 4 | `qr_view.py` | 341 | sirada | Uretilen QR'i gosteriyor. Goruntu Flet'e `base64` ile verilebilir. |
+| 4 | `qr_view.py` | 341 | **BITTI** | Canli QR + sablona gore degisen alanlar. Planda 4a/4b diye bolunmustu, TEK adimda bitti (bkz. asagidaki not). |
 | 5 | `log_view.py` | 421 | **BITTI** | Salt okunur liste + detay. Iki sekme, yoklama zamanlayicisi, Qt'ye is yaptirma. #4'ten ONCE yapildi (bkz. adim 3 sonu). |
-| 6 | `monitor.py` | 183 | bekliyor | Canli akan olay listesi. IIk kez "surekli guncelleme" testi. |
+| 6 | `monitor.py` | 183 | sirada | Canli akan olay listesi. IIk kez "surekli guncelleme" testi. Asama 1'in SON paneli. |
 
 **YASAYAN PANEL kurali (adim 3'te ogrenildi).** Qt'de "her acilista yeni
 pencere kur, kapaninca yok et" ucuzdu (`WA_DeleteOnClose`). Flet'te ayni
@@ -121,10 +124,43 @@ ozel sinyalle cozuyor:
     self._on_qt.emit(self._copy_selected)
 
 Alicisi ana thread'de kurulmus bir nesne oldugu icin Qt sinyali
-kendiliginden kuyruga aliyor. Simdilik TEK panelde; ikinci panel de
-isteyince `fui/engine.py`ye tasinmali (bkz. asagidaki liste).
+kendiliginden kuyruga aliyor.
+
+> **KOSUL OLUSTU (adim 5).** Bu kalip artik IKI panelde ayni ayni
+> duruyor: `fui/log_view.py` ve `fui/qr.py`. Plandaki kural "ikinci
+> panel de isteyince `fui/engine.py`ye tasinmali" diyordu. Tasima
+> YAPILMADI -- QR adiminin icine karistirilmasin diye; kendi kucuk
+> commit'i olmali. Asagidaki listede duruyor.
 
 Ayni adimda cikan cizim kurallari **Olculen degerler** bolumunde.
+
+**PENCERE OLCUSU kurali (adim 5'te ogrenildi).** Flet'in Material
+denetimleri Qt'nin widget'larindan KALIN: bir giris kutusu en dar haliyle
+~36 piksel, Qt'de ~24. Pencere olcusu Qt'ninkinden kopyalanirsa icerik
+sigmiyor, "yeterince buyuk" bir sayi verilirse altta bos serit kaliyor.
+Uc pratik kural:
+
+* **Genislik Qt'den kopyalanabilir**, yukseklik KOPYALANAMAZ. QR
+  penceresi: genislik 640 (Qt ile birebir), yukseklik Qt'nin 605'i yerine
+  729 (Wifi sablonu).
+* **Tek satirlik kutulara `height` VER.** Verilmezse Material varsayilani
+  ~48 piksel ve pencere gozle gorulur uzuyor.
+* **Cok satirli `TextField`e `height` VERME.** Kutu yerini ayirtiyor ama
+  TEK SATIR cizip altini bos birakiyor; yukseklik `min_lines`/`max_lines`
+  ile verilmeli (olculdu, `fui/qr.py` `RAW_LINES`).
+
+Olcmenin yolu: Qt surumunu acip `widget.size()` yazdirmak (istemci alani
+-- Flet'in `window.height`i baslik cubugunu DA sayiyor, ~31 piksel fark),
+sonra Flet penceresini acip ekran goruntusu almak. `probes/flet.py` ile
+ikisi de programa dokunmadan acilabiliyor.
+
+**PLANIN BOLMESI DAGILABILIR (adim 5).** Bu adim planda 4a/4b diye ikiye
+bolunmustu; gerekcesi "PNG kaydetme `ft.FilePicker` ister, o da servis
+olarak kurulmali" idi. Adim 4'un `_on_qt` kalibi o gerekceyi cop etti:
+dosya kutusu da pano da ZATEN Qt tarafinda kosmali, yani ikisi de birer
+satir oldu ve pencere tek adimda bitti. **Ders:** bir sonraki adimin
+tahmini, bir onceki adimin ogrettikleriyle yeniden bakilmadan
+uygulanmamali.
 
 ## Asama 2 -- orta: durum yazan formlar
 
@@ -170,10 +206,12 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-Yedi dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
-kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu) ve
-log penceresi. Log penceresi GERCEK `Files/log.txt`i okuyor -- sahte veri
-yok, "Log temizle" gercekten siliyor. Pencerede bakilacak iki sey:
+On dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
+penceresi ve uc QR girisi (duz metin, link, hazir wifi dizgisi). Log ve
+QR pencereleri GERCEK dosyalari okuyor (`Files/log.txt`, `slots.json`) --
+sahte veri yok; "Log temizle" gercekten siliyor, QR'in grup secimi
+gercekten ayara yaziliyor. Pencerede bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
   Flet yuzunden takilmis demektir, yani mimari kirik.
@@ -263,45 +301,93 @@ baslamali. Bakilacaklar:
 9. **Esc / X** pencereyi kapatir. Kapattiktan sonra tekrar ac: aninda
    acilmali.
 
+**QR penceresi** (iki yoldan biri):
+
+* **F14** tusuna KISA bas -> menude **QR kod**, ya da
+* CapsLock'u basili tut (hizli panel) -> bir oge sec -> **Alt+q**.
+
+Pencere PANODAKIYLE aciliyor, yani once bir sey kopyalamak isi kolaylastirir.
+Bakilacaklar:
+
+1. **Sablon tahmini.** `https://` ile baslayan bir metin kopyalayip ac:
+   ustteki **Link** dugmesi secili gelmeli. Duz metinde **Metin**,
+   `WIFI:...` ile baslayan bir dizgide **Wifi**.
+2. **Canli kare.** Alandaki metni degistir -- kare HER TUSTA yenilenmeli,
+   beklemesiz. Sag altta `ver3 · 41 bayt` gibi bir sayac var; icerik
+   buyudukce surum artar, 20'yi gecince `⚠ cok yogun` yazar.
+3. **Kare okunuyor mu?** Telefonun kamerasini tut. Okumazsa **ham icerik**
+   kutusuna bak: hata bicimde mi veride mi orada gorunur.
+4. **Wifi sablonu.** **Wifi**'ye gec: SSID, Parola, Guvenlik ve "gizli ag"
+   alanlari gelmeli. Parola NOKTALARLA basliyor; kutunun sagindaki GOZ
+   simgesine basinca gorunur olmali. Ham icerik kutusunda parola yine
+   `••••` -- acik yazmamali.
+5. **Sablon degistirince alanlar sifirlanir**, bu bilerek boyle: eski
+   sablonun metnini yeni alanlara tasimak yaniltici olurdu.
+6. **Slot listesi.** Ust kutudan grup sec, altta o grubun DOLU slotlari
+   listelenir (sifre slotu YOK). Bir satira tikla -- icerigi alanlara
+   dolmali ve sablon yeniden tahmin edilmeli. Grup secimi ayara yaziliyor:
+   pencereyi kapatip acinca ayni grup secili gelmeli.
+7. **Panoya kopyala.** Bir yere yapistir (ornek: Paint) -- kare
+   gelmeli.
+8. **Kaydet PNG.** Dosya kutusu acilir. **DIKKAT:** bu kutu hala Qt'nin
+   (`QFileDialog`), yani Flet penceresinden farkli gorunuyor -- gecis
+   suresince normal, bkz. asagidaki temizlik listesi.
+9. **Pencere boyu.** Metin/Link sablonunda kisa, Wifi'de daha uzun bir
+   pencere acilmali (alan sayisina gore). Altta bos serit KALMAMALI.
+10. **Esc / X** kapatir; tekrar acinca aninda gelmeli ve icerik YENI
+    panodakine gore kurulmali.
+
 ---
 
-## SIRADAKI ADIM (adim 5): QR penceresi
+## SIRADAKI ADIM (adim 6): olay izleyici -- ASAMA 1'IN SONU
 
-Dosya: `keypilot/ui/qr_view.py` (341 satir) -> `keypilot/fui/qr.py`
+Dosya: `keypilot/ui/monitor.py` (183 satir) -> `keypilot/fui/monitor.py`
 
-**Neden bu:** ilk kez pencerede RESIM var. Onceki uc panel yalniz metin
-ve dugmeydi; burada her tus vurusunda yeniden uretilen bir kare
-ciziliyor.
+**Neden bu:** Asama 1'de kalan tek panel. Satir sayisi kucuk ama
+**gecisin en riskli panellerinden biri** -- simdiye kadarki hicbir panel
+SANIYEDE ONLARCA KEZ guncellenmiyordu.
 
-**ONCE OKU -- tablodaki o satir fazla iyimserdi.** "Goruntu Flet'e
-base64 ile verilebilir" dogru ve o kisim gercekten kolay
-(`ft.Image(src_base64=...)`, segno kareyi 1 ms'nin altinda uretiyor).
-Ama pencerenin geri kalani adim 3'ten belirgin daha buyuk:
+**ASIL ENGEL: her olayda cizim YAPILAMAZ.** Qt surumunde `add()` her
+klavye/fare olayinda cagriliyor ve tabloya bir satir ekliyor
+(`app.py` `_drain`, satir ~1540). `QTableWidget` bunu tek satir ekleyerek
+hallediyordu. Flet'te ayni sey `page.update()` demek ve adim 4'te olculdu:
+guncelleme suresi denetim sayisiyla dogru orantili, ustelik cizim bitene
+kadar dongu BASKA HICBIR SEYE yanit vermiyor. Hizli yazan birinde bu
+saniyede 20+ tam cizim eder -- pencere kilitlenir.
 
-1. **Alanlar SABIT DEGIL.** Sablon secilince form yeniden kuruluyor
-   (`_build_fields`): wifi'nin alanlari baska, vcard'in baska. Bu,
-   "denetimleri `_build` icinde bir kez kur ve sakla" kalibini BOZUYOR --
-   denetimler calisma aninda dogup olecek.
-2. **Dosya kaydetme.** `_save_png` bir `QFileDialog` aciyor. Flet
-   karsiligi `ft.FilePicker` ve o bir SERVIS: sayfaya eklenmesi ve
-   sonucun geri cagriyla alinmasi gerekiyor (onceki `flet` bransinda
-   `cascade/fui/shell.py` bunu yapmisti, ornek olarak bakilabilir).
-3. **Panoya RESIM koymak.** `_copy_image` bir `QPixmap`i panoya yaziyor.
-   Bunun Flet karsiligi YOK. Is Qt tarafinda kalmali: panel disari
-   "su PNG'yi panoya koy" diye bir sinyal atar.
-4. **Parola alani gizli basliyor** ve maskeleme ham icerik kutusuna da
-   yansiyor (`MASK_CHAR`). Bu kural panelin kendisinde; tasinirken
-   korunmali.
+**Cozum yonu (yazacak olana):** olaylari Qt tarafinda BIRIKTIR, ciziMI
+zamanlayiciya bagla.
 
-**Onerilen bolme -- tek adimda hepsi degil:**
+    add(event, swallowed)   ->  listeye ekle, CIZME (ana thread)
+    QTimer ~100 ms          ->  degistiyse tek `_draw` (Flet thread)
 
-* **4a:** sablon secimi + alanlar + canli kare + slot listesi + Esc.
-  Yani pencerenin OKUNAN kismi. Bittiginde program calisir durumda.
-* **4b:** PNG kaydetme (`FilePicker`) ve panoya kopyalama (Qt'ye sinyal).
+Boylece cizim sayisi saniyede en fazla 10'a iner ve `_drain`in isi
+listeye bir demet eklemekten ibaret kalir. `fui/log_view.py`deki
+`POLL_MS` zamanlayicisi ayni kalibin ornegi.
 
-**Not:** adim 4'te sira degistirildi ve once `log_view.py` (#5) yapildi;
-oradan cikan iki kural (Qt'ye is yaptirma, cizim sinirlama) QR'a da
-gerekecek. Asama 1'de kalan tek panel `monitor.py` (#6).
+**Oteki dort mesele:**
+
+1. **`isVisible()` karsiligi.** `app.py` `_drain` her turda
+   `self.monitor.isVisible()` diye soruyor ve pencere kapaliyken hic
+   beslemiyor (maliyet sifir). Flet panelinde bu soru FLET thread'ine
+   sorulamaz -- her tus icin thread'ler arasi gidip donmek olur. Panel
+   gorunurlugunu Qt tarafinda bir bayrakta tutmali (`_hide`/`_show_now`
+   ikisini de guncelleyecek).
+2. **Sag tik menusu.** Qt'de `QMenu` ile hucre/satir/tumu kopyalama var.
+   Flet'te baglam menusu YOK; adim 4'te ayni sorun dugmelerle cozuldu
+   (alt siradaki dugmeler zaten ayni kopyalama secenekleri -- Qt surumu
+   de ikisini birden sunuyordu, yani menuyu dusurmek kayip degil).
+3. **Cift tiklama** satiri kopyaliyordu; Flet'te cift dokunma olayi yok.
+   Yine dugme (adim 4'te de boyle yapildi).
+4. **Panoya yazma** `_on_qt` ile Qt tarafinda -- kalip hazir.
+
+**Olcu:** Qt `resize(660, 460)`. Yukseklik oldugu gibi kopyalanmamali,
+bkz. **PENCERE OLCUSU kurali**.
+
+**Bu adimdan ONCE yapilmasi iyi olur:** `_on_qt` sinyalinin
+`fui/engine.py`ye tasinmasi (asagidaki listede). Monitor ucuncu kullanici
+olacak; kalibi ucuncu kez kopyalamak yerine ortak yere almanin tam
+zamani. Kendi kucuk commit'i olmali.
 
 ---
 
@@ -321,7 +407,7 @@ sayilmaz.
       silinmiyorlar (geri donus tek satir), ama import edilmedikleri icin
       sessizce curuyorlar -- taniyan yok, test eden yok:
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
-      `ui/slot_edit.py`, `ui/log_view.py`.
+      `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`.
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -343,12 +429,23 @@ sayilmaz.
       saf metin yardimcisi aliyor. Qt dosyasi silinirken yardimci Flet
       tarafina tasinacak:
       `fui/key_map.py` -> `ui/key_map_view.py` (`owner_label` +
-      `OWNER_LABELS`), `fui/slot_edit.py` -> `ui/preview.py` (`shorten`).
-- [ ] **`_on_qt` sinyali** (`fui/log_view.py`). "Su isi Qt ana
-      thread'inde kostur" -- `FletEngine.call()`in ters yonu. Su an tek
-      panelde; IKINCI panel de isteyince `fui/engine.py`ye tasinmali,
-      uc panelde kopyalanmis halde durmasin. Tam geciste Qt gidince
-      tamamen silinir.
+      `OWNER_LABELS`), `fui/slot_edit.py` ve `fui/qr.py` -> `ui/preview.py`
+      (`shorten`).
+- [ ] **`MASK_CHAR` iki yerde:** `ui/qr_view.py` ve `fui/qr.py`. Ayni
+      karakter, ayni is; Qt dosyasi silinince tek kalir.
+- [ ] **`_on_qt` sinyali `fui/engine.py`ye TASINMALI -- kosul olustu.**
+      "Su isi Qt ana thread'inde kostur", `FletEngine.call()`in ters
+      yonu. Adim 4'te tek paneldeydi ve "ikinci panel de isterse
+      tasinsin" diye yazilmisti; adim 5'te `fui/qr.py` ikincisi oldu ve
+      kalip AYNI AYNI kopyalandi. Monitor (adim 6) ucuncusu olacak --
+      ondan once `FletEngine`e `ask_qt(job)` eklenip iki panelden
+      kaldirilmali. Kucuk ve kendi basina bir commit. Tam geciste Qt
+      gidince zaten tamamen silinir.
+- [ ] **`fui/qr.py`deki `QFileDialog`** -- "Kaydet PNG" dosya kutusu hala
+      Qt'nin. Gecis suresince BILEREK boyle (`_on_qt` ile bir satir);
+      Qt gidince yerine `ft.FilePicker` yazilmali ve o bir SERVIS:
+      sayfaya eklenip sonucu geri cagriyla alinmali. Onceki `flet`
+      bransinda `cascade/fui/shell.py` ornegi var.
 - [ ] **`main.py`** `QApplication` kurulumu, `app.setQuitOnLastWindowClosed`,
       `logs.install_qt_handler()` -- hepsi `ft.run()` ile degisecek.
 - [ ] **Panel basina `shutdown()` cagrilari** (`app.py` `on_exit`). Su an
@@ -373,13 +470,22 @@ sayilmaz.
       sonra. `flet-desktop` ACIKCA eklendi cunku Flet onu ilk
       calistirmada kendi kendine pip'liyor; kilitli projede istenmez.
 - [ ] **Testler.** `tests/` icinde Qt pencerelerini kuran testler var;
-      panel tasindikca Flet karsiliklari yazilmali. Tasinan uc panelin
-      BIRIM TESTI YOK -- dogrulama elle yapildi. En kolay baslangic
-      `fui/slot_edit.py` `old_value()`: saf fonksiyon, Flet gerekmiyor
-      (maskeleme, bosluk ezme, kirpma).
+      panel tasindikca Flet karsiliklari yazilmali. Tasinan BES panelin
+      BIRIM TESTI YOK -- dogrulama elle yapildi. En kolay baslangic saf
+      fonksiyonlar (Flet gerekmiyor, ekran gerekmiyor):
+      `fui/slot_edit.py` `old_value()` (maskeleme, bosluk ezme, kirpma),
+      `fui/qr.py` `masked()` / `slot_rows()` / `window_height()`,
+      `fui/log_view.py` `line_text()` / `source_chars()` /
+      `detail_height()`. Bunlar tam da elle dogrulanmasi en sikici olan
+      kurallar.
 - [ ] **`slots_ctl._editing`** -- duzenlenen slotu tutan alan. Ayni anda
       tek kutu acik oldugu icin dogru; Flet coklu pencereye gecerse
       (yukaridaki `FletEngine` karari) bu varsayim duser.
+- [ ] **QR'da her tus vurusunda tam cizim.** `_refresh` alan degisiminde
+      kareyi yeniden uretip `page.update()` cagiriyor. Su an sorun DEGIL
+      (pencerede az denetim var, segno 1 ms altinda, PNG birkac kilobayt)
+      ama log penceresindeki gecikmeli cizim kalibi (`FILTER_MS`) burada
+      YOK. Alanlar cogalirsa ilk bakilacak yer.
 - [ ] **`RENDER_LIMIT = 500`** (`fui/log_view.py`). Cizim maliyeti satir
       sayisiyla dogru orantili oldugu icin kondu. Flet'in ileride
       gercekten sanallastiran (yalniz gorunen satiri cizen) bir liste
@@ -409,6 +515,14 @@ sayilmaz.
       `resizeColumnsToContents` kullaniyordu; burada `sev` disindaki
       sutunlar tek bir sabit genislikli yaziya dolguyla diziliyor
       (`line_text`), `kaynak` sutunu 12-26 karakter arasinda veriye gore.
+- [ ] **QR penceresi imlecin ekraninda acilmiyor** -- slot kutusuyla ayni
+      sebep (`ui/place.py` karsiligi yok). Tek duzeltme ikisini birden
+      cozer.
+- [ ] **QR penceresi Qt surumunden UZUN.** Genislik birebir (640), boy
+      Wifi sablonunda 605 yerine 729. Sebep Flet'in Material denetimleri
+      (bkz. **PENCERE OLCUSU kurali**); daha da daraltmak okunakliktan
+      goturur. Tema/olcu isi adim 13'te (`settings_dialog.py`) topluca
+      ele alinabilir.
 - [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
       380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri
       artik kutuyu buyutmuyor, 160 karakterde zaten kirpiliyor.
