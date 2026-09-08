@@ -72,7 +72,7 @@ sinirla**, ve **istemciye gidip donen cagrilardan kacin** (sona kaydirmak
 icin `scroll_to` yerine `auto_scroll` ozelligi -- ayni `update()` icinde
 gidiyor).
 
-**OTOMATIK GUNCELLEME KAPALI (adim 5.5, bildirilen hatanin sebebi).**
+**OTOMATIK GUNCELLEME KAPALI (adim 5.5, bildirilen hatanin sebebi; `8e8f4ea`).**
 Flet 0.86 her olay isleyicisinden sonra `session.after_event` calistiriyor
 ve isleyici KENDI `update()`ini cagirmadiysa "otomatik guncelleme"
 yapiyor: en yakin IZOLE ataya kadar yukari yuruyup onu guncelliyor.
