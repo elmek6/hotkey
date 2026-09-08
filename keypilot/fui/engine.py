@@ -23,11 +23,13 @@ IKI YON, IKI KURAL:
                    `Event` set ediyor, ikisi de thread guvenli DEGIL --
                    is kuyruga girer, dongu UYANMAZ, ekranda hicbir sey
                    olmaz ve log'a tek satir dusmez.
-    Flet -> Qt     QObject sinyali (bkz. fui/key_map.py). Dispatcher'in
-                   durum makineleri kilitsiz yazildi; `ui_open` yazmak
-                   `reset()` cagirip onlara dokunuyor, yani Qt'nin ana
-                   thread'inde kosmali. Alicisi ana thread'de olan bir
-                   sinyal Qt tarafindan kendiliginden kuyruga alinir.
+    Flet -> Qt     QObject sinyali. Dispatcher'in durum makineleri
+                   kilitsiz yazildi; `ui_open` yazmak `reset()` cagirip
+                   onlara dokunuyor, yani Qt'nin ana thread'inde kosmali.
+                   Alicisi ana thread'de olan bir sinyal Qt tarafindan
+                   kendiliginden kuyruga alinir. Panelin KENDI `closed`
+                   sinyali bu yonu kullaniyor (bkz. fui/key_map.py);
+                   "su isi orada kostur" diyen genel yol ise `ask_qt()`.
 
 PENCERE KAPANMAZ, GIZLENIR. `ft.run()` pencere kapaninca doner ve thread
 oldur; bir daha acmak 3.5 saniyelik Flet basligini yeniden odetirdi.
@@ -46,6 +48,7 @@ from collections.abc import Callable
 from typing import Any
 
 import flet as ft
+from PySide6.QtCore import QObject, Signal
 
 log = logging.getLogger("keypilot.fui.engine")
 
@@ -84,17 +87,29 @@ def _install_signal_shim() -> None:
     _shim_installed = True
 
 
-class FletEngine:
+class FletEngine(QObject):
     """Bir Flet sayfasi ve onu tasiyan thread. Panel basina bir tane.
 
     `build` sayfa hazir olunca FLET thread'inde cagrilir; denetimleri
     orada kurmak gerekiyor.
+
+    `QObject` mirasi `ask_qt()` icin: sinyal tasiyabilmesi gerekiyor.
+    ANA THREAD'DE KURULMALI -- nesnenin thread'i sinyalin nerede
+    kosacagini belirliyor ve `ask_qt`in butun anlami "Qt'nin ana
+    thread'i". Paneller zaten `app.py`de kuruluyor, yani kendiliginden
+    saglaniyor.
     """
 
+    #: "Su isi Qt'nin ana thread'inde kostur" -- `call()`in TERS yonu.
+    #: Disaridan `ask_qt()` ile kullanilir.
+    _to_qt = Signal(object)
+
     def __init__(self, build: Callable[[ft.Page], None]) -> None:
+        super().__init__()
         self._build = build
         self._page: ft.Page | None = None
         self._thread: threading.Thread | None = None
+        self._to_qt.connect(self._run_job)
 
     @property
     def page(self) -> ft.Page | None:
@@ -177,6 +192,30 @@ class FletEngine:
             # Kapanis sirasinda oturum gitmis olabilir. Sessiz dusmek
             # yerine iz birakiyoruz: "panel acilmadi" vakasinda tek kanit.
             log.exception("Flet dongusune is verilemedi")
+
+    def ask_qt(self, job: Callable[[], None]) -> None:
+        """Isi QT'NIN ANA THREAD'INDE calistir. `call()`in ters yonu.
+
+        Panelin dugmesi bazen Flet'in yapamayacagi bir sey istiyor: panoya
+        yazmak (`QApplication.clipboard`), `QFileDialog` acmak, diskten
+        okumak. Bunlar Flet dongusunde kosmamali -- hem Qt nesneleri ana
+        thread'e ait, hem de uzun suren is cizimi bekletiyor (dongu
+        mesguken pencere Esc'e bile yanit vermiyor).
+
+        Sinyalin alicisi bu nesne ve nesne ana thread'de kuruldu, yani Qt
+        baglantiyi kendiliginden KUYRUGA aliyor: `emit` Flet thread'inde
+        hemen doner, `job` ana thread'in sirasi gelince kosar.
+
+        Adim 4'te `fui/log_view.py` icinde dogdu, adim 5'te `fui/qr.py`ye
+        birebir kopyalandi; ucuncu kullanici (`fui/monitor.py`) gelmeden
+        once ortak yere alindi.
+        """
+        self._to_qt.emit(job)
+
+    @staticmethod
+    def _run_job(job: Callable[[], None]) -> None:
+        """`_to_qt`nin alicisi -- ana thread'de kosar."""
+        job()
 
     def _run(self) -> None:
         """Flet thread'inin govdesi. `ft.run` pencere olene kadar donmez."""

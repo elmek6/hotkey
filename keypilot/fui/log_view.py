@@ -7,7 +7,7 @@ haritasi) buyugu.
 UC YENI SEY VAR:
 
     Qt'ye is yaptirma    Panoya yazma ve log temizleme QT tarafinda
-                         kosmali (`_on_qt`, asagida). Onceki panellerde
+                         kosmali (`FletEngine.ask_qt`). Onceki panellerde
                          disari yalnizca "sunu yap" haberi gidiyordu;
                          burada panel isin SONUCUNU da bekliyor
                          (temizlenen dosya yeniden okunuyor).
@@ -145,16 +145,6 @@ class LogPanel(QObject):
     #: susturmuyor); zamanlayiciyi durdurmak icin ICERIDE kullaniliyor.
     closed = Signal()
 
-    #: "Su isi Qt'nin ana thread'inde kostur." `FletEngine.call()`in ters
-    #: yonu: pano, `QMessageBox` ve dosya okuma Flet dongusunde
-    #: kosmamali. Alicisi bu nesne (ana thread'de kuruldu), yani Qt
-    #: sinyali kendiliginden kuyruga aliyor.
-    #:
-    #: Adlandirilmis dort ayri sinyal yerine tek genel sinyal: dordu de
-    #: ayni seyi soruyor. Baska paneller de isterse `fui/engine.py`ye
-    #: tasinabilir (bkz. flet-plan.md).
-    _on_qt = Signal(object)
-
     def __init__(self) -> None:
         super().__init__()
         self._rows: tuple[logs.LogLine, ...] = ()
@@ -183,8 +173,6 @@ class LogPanel(QObject):
         self._status: ft.Text | None = None
         self._stats_list: ft.ListView | None = None
         self._confirm: ft.AlertDialog | None = None
-
-        self._on_qt.connect(self._run_on_qt)
 
         # Pencere KAPALIYKEN maliyet sifir olmali: zamanlayici yalniz
         # gorunurken calisiyor (Qt'de showEvent / hideEvent idi).
@@ -236,12 +224,7 @@ class LogPanel(QObject):
         self._source_w = source_chars(self._rows)
         self._engine.call(self._draw)
 
-    # -- Flet -> Qt ---------------------------------------------------------
-
-    @staticmethod
-    def _run_on_qt(job: Callable[[], None]) -> None:
-        """`_on_qt` sinyalinin alicisi -- ana thread'de kosar."""
-        job()
+    # -- Flet -> Qt (hepsi `FletEngine.ask_qt` ile ana thread'e duser) -------
 
     def _copy_selected(self) -> None:
         """"Satiri kopyala". Pano QT nesnesi: ana thread'de yazilmali."""
@@ -324,6 +307,7 @@ class LogPanel(QObject):
         self._status = ft.Text("", color=theme.MUTED, size=TEXT_SIZE, font_family=MONO)
         self._stats_list = ft.ListView(controls=[], spacing=2, expand=True)
 
+        ask = self._engine.ask_qt
         log_tab = ft.Column(
             controls=[
                 ft.Row(controls=[self._filter, self._only_errors]),
@@ -333,9 +317,9 @@ class LogPanel(QObject):
                     controls=[
                         self._status,
                         ft.Container(expand=True),
-                        self._button("Yenile", lambda: self._ask_qt(self._force_reload)),
-                        self._button("Satiri kopyala", lambda: self._ask_qt(self._copy_selected)),
-                        self._button("Dosyayi ac", lambda: self._ask_qt(self._open_file)),
+                        self._button("Yenile", lambda: ask(self._force_reload)),
+                        self._button("Satiri kopyala", lambda: ask(self._copy_selected)),
+                        self._button("Dosyayi ac", lambda: ask(self._open_file)),
                         self._button("Log temizle", self._ask_clear),
                     ],
                     spacing=6,
@@ -594,10 +578,6 @@ class LogPanel(QObject):
         offset = self._offset
         self._engine.call(lambda: self._draw(offset))
 
-    def _ask_qt(self, job: Callable[[], None]) -> None:
-        """Isi Qt'nin ana thread'ine yolla (bkz. `_on_qt`)."""
-        self._on_qt.emit(job)
-
     def _force_reload(self) -> None:
         self.reload(force=True)
 
@@ -624,7 +604,7 @@ class LogPanel(QObject):
 
     def _confirm_clear(self) -> None:
         self._close_confirm()
-        self._ask_qt(self._clear_log)
+        self._engine.ask_qt(self._clear_log)
 
     def _close_confirm(self) -> None:
         page = self._page

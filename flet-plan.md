@@ -2,7 +2,8 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **5 panel** -- kisayol haritasi (`7cbca8c`),
+> Branch `flet2`. Tasinan: **5 panel** + bir ortaklastirma
+> (`ask_qt`, `18f2ff6`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`). Kalan 16 pencere hala
 > PySide6'da ve program iki motorla CALISIYOR.
@@ -112,25 +113,22 @@ tazelenir. Sonucu iki yerde gorunuyor:
 Bu, plandaki "app.py'de tek satir degissin" kuralinin ilk istisnasi:
 kurulum/yikim kaliba gomulu oldugu icin cagiran dosya da degisiyor.
 
-**QT'YE IS YAPTIRMA kurali (adim 4'te ogrenildi).** Panelin dugmesi bazen
-Flet'in yapamayacagi bir sey istiyor: panoya yazmak (`QApplication.clipboard`),
-dosya okumak, bir Qt kutusu acmak. Bunlar Flet dongusunde kosmamali --
-`FletEngine.call()`in TERS yonu gerekiyor. `fui/log_view.py` bunu tek bir
-ozel sinyalle cozuyor:
+**QT'YE IS YAPTIRMA kurali (adim 4'te ogrenildi, adim 5.5'te ortaklandi).**
+Panelin dugmesi bazen Flet'in yapamayacagi bir sey istiyor: panoya yazmak
+(`QApplication.clipboard`), dosya okumak, bir Qt kutusu acmak. Bunlar Flet
+dongusunde kosmamali -- `FletEngine.call()`in TERS yonu gerekiyor. Yol
+motorda:
 
-    _on_qt = Signal(object)          # "su isi ana thread'de kostur"
-    self._on_qt.connect(lambda job: job())
-    ...
-    self._on_qt.emit(self._copy_selected)
+    self._engine.ask_qt(self._copy_selected)
 
-Alicisi ana thread'de kurulmus bir nesne oldugu icin Qt sinyali
-kendiliginden kuyruga aliyor.
+Alicisi ana thread'de kurulmus bir nesne (`FletEngine` artik `QObject`)
+oldugu icin Qt sinyali kendiliginden kuyruga aliyor: `emit` Flet
+thread'inde hemen doner, is ana thread'in sirasi gelince kosar.
 
-> **KOSUL OLUSTU (adim 5).** Bu kalip artik IKI panelde ayni ayni
-> duruyor: `fui/log_view.py` ve `fui/qr.py`. Plandaki kural "ikinci
-> panel de isteyince `fui/engine.py`ye tasinmali" diyordu. Tasima
-> YAPILMADI -- QR adiminin icine karistirilmasin diye; kendi kucuk
-> commit'i olmali. Asagidaki listede duruyor.
+> Adim 4'te `fui/log_view.py` icinde `_on_qt` diye dogdu, adim 5'te
+> `fui/qr.py`ye birebir kopyalandi. Plandaki "ikinci panel de isterse
+> ortak yere tasinsin" kurali oradaydi; ucuncu kullanici (monitor)
+> gelmeden once tasindi -- kendi commit'inde, `18f2ff6`.
 
 Ayni adimda cikan cizim kurallari **Olculen degerler** bolumunde.
 
@@ -384,10 +382,8 @@ listeye bir demet eklemekten ibaret kalir. `fui/log_view.py`deki
 **Olcu:** Qt `resize(660, 460)`. Yukseklik oldugu gibi kopyalanmamali,
 bkz. **PENCERE OLCUSU kurali**.
 
-**Bu adimdan ONCE yapilmasi iyi olur:** `_on_qt` sinyalinin
-`fui/engine.py`ye tasinmasi (asagidaki listede). Monitor ucuncu kullanici
-olacak; kalibi ucuncu kez kopyalamak yerine ortak yere almanin tam
-zamani. Kendi kucuk commit'i olmali.
+**On kosul BITTI:** `ask_qt` motora tasindi (`18f2ff6`), yani monitor
+kalibi kopyalamayacak -- dogrudan `self._engine.ask_qt(...)` cagiracak.
 
 ---
 
@@ -433,14 +429,10 @@ sayilmaz.
       (`shorten`).
 - [ ] **`MASK_CHAR` iki yerde:** `ui/qr_view.py` ve `fui/qr.py`. Ayni
       karakter, ayni is; Qt dosyasi silinince tek kalir.
-- [ ] **`_on_qt` sinyali `fui/engine.py`ye TASINMALI -- kosul olustu.**
-      "Su isi Qt ana thread'inde kostur", `FletEngine.call()`in ters
-      yonu. Adim 4'te tek paneldeydi ve "ikinci panel de isterse
-      tasinsin" diye yazilmisti; adim 5'te `fui/qr.py` ikincisi oldu ve
-      kalip AYNI AYNI kopyalandi. Monitor (adim 6) ucuncusu olacak --
-      ondan once `FletEngine`e `ask_qt(job)` eklenip iki panelden
-      kaldirilmali. Kucuk ve kendi basina bir commit. Tam geciste Qt
-      gidince zaten tamamen silinir.
+- [x] ~~`_on_qt` sinyali `fui/engine.py`ye TASINMALI~~ -- **YAPILDI**
+      (`18f2ff6`). `FletEngine.ask_qt(job)`; iki panelden kalkti.
+      Motorun `QObject` olmasinin TEK sebebi bu sinyal, yani Qt gidince
+      hem `ask_qt` hem miras birlikte silinecek.
 - [ ] **`fui/qr.py`deki `QFileDialog`** -- "Kaydet PNG" dosya kutusu hala
       Qt'nin. Gecis suresince BILEREK boyle (`_on_qt` ile bir satir);
       Qt gidince yerine `ft.FilePicker` yazilmali ve o bir SERVIS:

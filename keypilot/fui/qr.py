@@ -20,7 +20,7 @@ IKI YENI SEY VAR:
 
 PLANDAKI 4a/4b BOLMESI KALKTI. Plan "PNG kaydetme ve panoya kopyalama
 ayri bir adim olsun" diyordu, gerekcesi `ft.FilePicker`in servis olarak
-kurulmasiydi. Adim 4'te (`fui/log_view.py`) gelen `_on_qt` kalibi bunu
+kurulmasiydi. Adim 4'te (`fui/log_view.py`) dogan `ask_qt` kalibi bunu
 gereksiz birakti: dosya kutusu da pano da ZATEN Qt tarafinda kosmali,
 yani ikisi de birer satir. Pencere tek adimda tamamlandi.
 
@@ -156,11 +156,6 @@ class QrPanel(QObject):
     #: var ve bir gun `ui_open` gerekirse baglanacak yer burasi.
     closed = Signal()
 
-    #: "Su isi Qt'nin ana thread'inde kostur" -- fui/log_view.py'deki
-    #: kalibin ayni. Pano, dosya kutusu ve slot dosyasini okuma Flet
-    #: dongusunde kosmamali.
-    _on_qt = Signal(object)
-
     def __init__(self, store: SlotStore | None = None) -> None:
         super().__init__()
         self._store = store
@@ -188,8 +183,6 @@ class QrPanel(QObject):
         self._image: ft.Image | None = None
         self._status: ft.Text | None = None
 
-        self._on_qt.connect(self._run_on_qt)
-
     # -- Qt tarafinin gordugu yuz -------------------------------------------
 
     def show_text(self, text: str) -> None:
@@ -212,15 +205,7 @@ class QrPanel(QObject):
         """Program kapaniyor: Flet istemcisini (`flet.exe`) gercekten kapat."""
         self._engine.stop()
 
-    # -- Qt thread'i: disk ve pano ------------------------------------------
-
-    @staticmethod
-    def _run_on_qt(job: Callable[[], None]) -> None:
-        """`_on_qt` sinyalinin alicisi -- ana thread'de kosar."""
-        job()
-
-    def _ask_qt(self, job: Callable[[], None]) -> None:
-        self._on_qt.emit(job)
+    # -- Qt thread'i: disk ve pano (`FletEngine.ask_qt` ile) -----------------
 
     def _read_groups(self) -> None:
         """Gruplari DISKTEN tazeler: dosyayi aradan baskasi degistirmis
@@ -622,7 +607,7 @@ class QrPanel(QObject):
         if groups is None:
             return
         key = groups.value or ""
-        self._ask_qt(lambda: self._apply_group(key))
+        self._engine.ask_qt(lambda: self._apply_group(key))
 
     def _use_slot(self, content: str) -> None:
         """Tiklanan slotun icerigi: sablon yeniden tahmin edilip alanlara
@@ -637,12 +622,12 @@ class QrPanel(QObject):
     def _save_png(self) -> None:
         content = self._content
         if content:
-            self._ask_qt(lambda: self._save_now(content))
+            self._engine.ask_qt(lambda: self._save_now(content))
 
     def _copy_image(self) -> None:
         content = self._content
         if content:
-            self._ask_qt(lambda: self._copy_now(content))
+            self._engine.ask_qt(lambda: self._copy_now(content))
 
     def _on_key(self, event: ft.KeyboardEvent) -> None:
         if event.key == "Escape":
