@@ -237,8 +237,8 @@ X ile ya da Esc ile kapatmak "Devam et" ile ayni sey demek.
 
 **Log penceresi** (iki yoldan biri):
 
-* Tepsi simgesine sag tikla -> **log**, ya da
-* Hata rozeti gorunuyorsa ona tikla.
+* `´` tusu -> menude **2** ("Show stats"), ya da
+* Tepsi simgesine sag tikla -> **Show log...**
 
 Pencere 980x620 acilmali, liste EN ALTTA (en yeni kayit gorunur)
 baslamali. Bakilacaklar:
