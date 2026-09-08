@@ -2,7 +2,8 @@
 
 Eskiden hatalar `QMessageBox` icinde 15 tam traceback olarak gosteriliyordu:
 kutu icerige gore buyuyup ekrani asiyor, kapatma dugmesi disarida
-kaliyordu. Yerine kronolojik liste + detay paneli geldi.
+kaliyordu. Yerine kronolojik liste geldi; traceback ait oldugu satirin
+ALTINDA acilip kapaniyor (sabit alt panel degil).
 
 DOSYA BICIMI (kullanicinin karari):
 
@@ -227,30 +228,85 @@ def test_seviye_sutununda_dosyadaki_simge_var(qapp, tmp_path, monkeypatch):
         view.close()
 
 
-def test_pencere_detayi_ALT_PANELDE_gosterir(qapp, tmp_path, monkeypatch):
-    """Traceback listede degil panelde: pencerenin buyumesinin sebebi buydu."""
+def test_detay_SATIRIN_ALTINDA_acilir(qapp, tmp_path, monkeypatch):
+    """Traceback listenin icinde degil, ait oldugu satirin altinda."""
     view = _pencere(tmp_path, monkeypatch)
     try:
-        view.table.selectRow(2)
-        assert "ValueError: ornek" in view.detail.toPlainText()
         # listedeki hucre tek satir kaliyor
-        assert "\n" not in view.table.item(2, 5).text()
+        assert "\n" not in view.table.item(2, view.MESSAGE_COLUMN).text()
+        assert view.table.rowCount() == 3  # kapaliyken ek satir yok
+
+        view._on_cell_clicked(2, view.MESSAGE_COLUMN)
+        assert view.table.rowCount() == 4  # kayit + acilan kutu
+        box = view.table.cellWidget(3, 0)
+        assert "ValueError: ornek" in box.toPlainText()
+        # basligi/mesaji TEKRAR ETMIYOR: ustunde zaten duruyor
+        assert "cift tiklama yutuldu" not in box.toPlainText()
+
+        view._on_cell_clicked(2, view.MESSAGE_COLUMN)  # ikinci tik kapatir
+        assert view.table.rowCount() == 3
+        assert view.table.cellWidget(3, 0) is None
     finally:
         view.close()
 
 
-def test_detayli_satir_ok_simgesi_ve_ayri_zemin_alir(qapp, tmp_path, monkeypatch):
-    """"Asagida bakilacak bir sey var mi" listeye bakinca anlasilmali."""
+def test_DETAYSIZ_satir_tiklaninca_ACILMAZ(qapp, tmp_path, monkeypatch):
+    """Detay yoksa acilacak bir sey de yok: satir yerinde kalir."""
+    view = _pencere(tmp_path, monkeypatch)
+    try:
+        view._on_cell_clicked(0, view.MESSAGE_COLUMN)
+        assert view.table.rowCount() == 3
+    finally:
+        view.close()
+
+
+def test_SATIRIN_HER_YERI_acar(qapp, tmp_path, monkeypatch):
+    """Ayri bir ok sutunu YOK; tiklama icin isabet sarti da olmamali."""
+    view = _pencere(tmp_path, monkeypatch)
+    try:
+        view._on_cell_clicked(2, 0)  # tarih sutunu
+        assert view.table.rowCount() == 4
+    finally:
+        view.close()
+
+
+def test_acik_detay_YENIDEN_OKUYUNCA_acik_kalir(qapp, tmp_path, monkeypatch):
+    """Dosya 1.5 sn'de bir tazeleniyor; acilan kutu her seferinde kapanmamali."""
+    view = _pencere(tmp_path, monkeypatch)
+    try:
+        view._on_cell_clicked(2, view.MESSAGE_COLUMN)
+        view.reload(force=True)  # kayitlar YENI nesneler olarak geliyor
+        assert view.table.rowCount() == 4
+        assert view.table.cellWidget(3, 0) is not None
+    finally:
+        view.close()
+
+
+def test_satir_kopyalama_acik_kutuya_kaymaz(qapp, tmp_path, monkeypatch):
+    """Araya giren detay satiri liste ile kayit eslesmesini bozmamali."""
+    view = _pencere(tmp_path, monkeypatch)
+    try:
+        view._on_cell_clicked(2, view.MESSAGE_COLUMN)
+        view.table.selectRow(3)  # acilan kutunun satiri: kayit degil
+        assert view._selected() is None
+        view.table.selectRow(2)
+        assert view._selected().message == "cift tiklama yutuldu"
+    finally:
+        view.close()
+
+
+def test_detayli_satir_MESAJIN_SONUNDA_isaret_ve_ayri_zemin_alir(qapp, tmp_path, monkeypatch):
+    """"Devami var mi" listeye bakinca anlasilmali -- ayri sutun olmadan."""
     from keypilot.ui import log_view as module
 
     view = _pencere(tmp_path, monkeypatch)
     try:
-        detayli = view.table.item(2, 3)
-        assert detayli.text() == module.DETAIL_ICON
+        detayli = view.table.item(2, view.MESSAGE_COLUMN)
+        assert detayli.text().endswith(module.DETAIL_MARK)
         assert detayli.background().color() == view.detail_bg()
-        # detaysiz satirda ne ok ne ayri zemin var
-        duz = view.table.item(0, 3)
-        assert duz.text() == ""
+        # detaysiz satirda ne isaret ne ayri zemin var
+        duz = view.table.item(0, view.MESSAGE_COLUMN)
+        assert not duz.text().endswith(module.DETAIL_MARK)
         assert duz.background().color() != view.detail_bg()
     finally:
         view.close()
@@ -279,20 +335,6 @@ def test_ESKI_bitis_isaretli_bicim_de_okunur():
     assert len(rows) == 2  # yalniz duran `!` kayit acmiyor
     assert rows[0].detail.strip() == "ValueError: ornek"
     assert rows[1].message == "devam"
-
-
-def test_DETAYSIZ_satirda_alt_panel_BOS_kalir(qapp, tmp_path, monkeypatch):
-    """Panel ustteki satirin aynisini tekrar etmemeli: detay yoksa bos."""
-    view = _pencere(tmp_path, monkeypatch)
-    try:
-        view.table.selectRow(0)  # detaysiz kayit
-        assert view.detail.toPlainText() == ""
-        view.table.selectRow(2)  # detayli kayit
-        assert view.detail.toPlainText().startswith("Traceback")
-        # basligi/mesaji tekrar ETMIYOR
-        assert "cift tiklama yutuldu" not in view.detail.toPlainText()
-    finally:
-        view.close()
 
 
 def test_istatistikler_AYRI_SEKMEDE_liste_olarak(qapp, tmp_path, monkeypatch):

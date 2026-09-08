@@ -9,6 +9,18 @@ hicbir tus yutulmaz, hicbir eylem calismaz. Hook'u sokup takmak yerine
 bayrak kullanmanin sebebi, yeniden kurulan hook'un zincirin sonuna
 dusmesi ve sira garantisinin kaybolmasi.
 
+Arac ipucu (fare tepside beklerken): surum + calisan kopya, sonra tek/cift
+tiklamanin O ANDAKI karsiligi. Ayardan okunuyor ve TEK PARCADA (`_tooltip`)
+uretiliyor -- parca parca guncellenen bir metinde durumun bir yarisi eski
+kaliyordu.
+
+IPUCU TEK SATIR OLMAK ZORUNDA. Ilk deneme uc satirdi ve tepside yalnizca
+ilki gorunuyordu: Windows 11'in tepsi ipucu (XAML) `szTip` icindeki satir
+sonlarini gostermiyor. Uzunluk da bedava degil -- kabuk bu alani eski
+surumlerde 64 karakterde kesiyor ve fazlasi sessizce dusuyor; bu yuzden
+parcalar ONEM SIRASINA gore ekleniyor (bkz. `_fit`) ve surumun yapim
+damgasi ipucuna girmiyor (tam surum tepsi menusunun ilk maddesinde).
+
 Simge dosyadan degil, cizilerek uretiliyor -- ne .ico dosyasi tasimak
 gerekiyor ne de paketlemede kaynak gomme derdi var. Dort durumu var: calisiyor
 (mavi), duraklatildi (gri), uyari var (sari), gercek hata var (kirmizi).
@@ -101,6 +113,30 @@ SINGLE_CLICK = setting(
 )
 
 
+#: Ipucunun uzunluk siniri: `szTip` alaninin gercek kapasitesi (128
+#: karakterlik alan, sonda bos sonlandirici). Once 63'e cekilmisti (cok
+#: eski kabuklarin siniri) ve tek tik + cift tik BIRLIKTE ayarliyken
+#: ikincisi sessizce dusuyordu -- ipucunun tasimasi gereken asil bilgi.
+#: Sira yine onemli (bkz. `_tooltip`): kesilecek olan metnin SONU olur.
+TOOLTIP_LIMIT = 127
+
+#: Parca ayraci: HER PARCA KENDI SATIRINDA. Tek satira sikistirilmisti,
+#: cunku uc satir denemesinde tepside yalnizca ilki goruluyordu -- sucu
+#: Windows'un degil, ipucunu ezen `app.on_start` satirininmis.
+TOOLTIP_SEP = "\n"
+
+
+def _fit(parts: list[str]) -> str:
+    """Parcalari sinira kadar birlestirir; sigmayan SONDAN dusuyor."""
+    tip = parts[0]
+    for part in parts[1:]:
+        candidate = f"{tip}{TOOLTIP_SEP}{part}"
+        if len(candidate) > TOOLTIP_LIMIT:
+            break
+        tip = candidate
+    return tip
+
+
 def make_icon(
     size: int = 64,
     paused: bool = False,
@@ -181,10 +217,16 @@ class Tray(QSystemTrayIcon):
         on_copy_error: Callable[[], None] = lambda: None,
         on_show_log: Callable[[], None] = lambda: None,
         on_show_errors: Callable[[], None] = lambda: None,
+        profile: str = "",
         parent=None,
     ) -> None:
         super().__init__(make_icon(), parent)
         self.version = version
+        #: Makine profili (work / home) -- `keymap.current_profile`.
+        #: Ipucunun ILK yarisi bu ikili: hangi makinede oldugu, davranis
+        #: farklarini (is bilgisayarinda ekran koruyucu engelleyici gibi)
+        #: aciklayan bilgi.
+        self.profile = profile
         self.paused = False
         #: Gelistirme modu acik mi -- simgede mor halka, ipucunda etiket.
         #: Ayardan da gelebilir bayraktan da; tepsi ayrimi bilmiyor.
@@ -192,7 +234,6 @@ class Tray(QSystemTrayIcon):
         self.error_count = 0
         #: Bunlarin kaci ERROR+ -- simgeyi KIRMIZI yapan sayi budur.
         self.severe_count = 0
-        self.setToolTip(f"KeyPilot {version}")
 
         self._handlers = {
             "pause": on_toggle_pause,
@@ -239,8 +280,17 @@ class Tray(QSystemTrayIcon):
         self._menu = menu  # GC'ye yem olmasin
         self.setContextMenu(menu)
         self.activated.connect(self._on_activated)
+        # Ipucu tek yerde (`_tooltip`) ve TEK SEFERDE kuruluyor: parca parca
+        # eklenen bir metin, durumun bir parcasi degisince yarisi eski
+        # kaliyordu. Bu iki cagri durumu tamamliyor, ipucu ondan sonra
+        # yaziliyor.
         self.set_paused(False)
         self.set_error_count(0)
+        # Tiklama satirlari AYARDAN okunuyor; ayar degisince ipucu da
+        # tazelensin -- "dbClick = Pause" yazarken baska is yapmasin.
+        self._click_sub = lambda _value, _old: self._refresh()
+        SINGLE_CLICK.subscribe(self._click_sub)
+        DOUBLE_CLICK.subscribe(self._click_sub)
 
     @staticmethod
     def _add(menu: QMenu, text: str, slot: Callable[[], None]) -> QAction:
@@ -321,17 +371,48 @@ class Tray(QSystemTrayIcon):
                 dev=self.dev,
             )
         )
-        tip = f"KeyPilot {self.version}"
+        self.setToolTip(self._tooltip())
+
+    def _tooltip(self) -> str:
+        """Fare tepside beklerken cikan metin -- SATIR SATIR, TEK PARCADA.
+
+        Sira ONEM sirasi (bkz. `_fit`): kimlik (surum + calisan kopya),
+        sonra tiklamalar, en sonda durum. Durum en sonda cunku onu simgenin
+        RENGI zaten soyluyor (gri = duraklatildi, kirmizi = hata, sari =
+        uyari, mor halka = gelistirme); sinira takilip dusecek olan, iki
+        yerde birden duran bilgi olsun.
+
+        Tiklamalar ayardan okunuyor: sabit yazilmis olsaydi ayari degistiren
+        kullanicida yanlis bilgi olarak asili kalirdi.
+        """
+        # Yapim damgasi (`+0908_0907*`) ipucuna GIRMIYOR: tek basina 16
+        # karakter yiyor. Tam surum tepsi menusunun ilk maddesinde duruyor.
+        head = f"KeyPilot {self.version.split('+', 1)[0]}"
+        if self.profile:
+            head += f" - {self.profile}"
+        parts = [head]
+
+        # Simge ISARETLIYKEN her iki tiklama da log penceresini aciyor
+        # (bkz. `_on_activated`); ipucu o an ayardaki eylemi yazsaydi
+        # tikladiginda baska sey olurdu.
+        marked = bool(self.error_count)
+        log_label = DOUBLE_CLICK_LABELS["show_log"]
+        single = str(SINGLE_CLICK.get())
+        if single != "none":
+            parts.append(f"click = {log_label if marked else SINGLE_CLICK.label_for(single)}")
+        double = str(DOUBLE_CLICK.get())
+        parts.append(f"dbClick = {log_label if marked else DOUBLE_CLICK.label_for(double)}")
+
         if self.dev:
-            tip += " - GELISTIRME"
+            parts.append("GELISTIRME")
         if self.paused:
-            tip += " - paused"
-        # Arac ipucu de ayirir: "1 error" ile "1 warning" cok farkli iki haber.
+            parts.append("paused")
+        # "1 error" ile "1 warning" cok farkli iki haber; ayri duruyorlar.
         if self.severe_count:
-            tip += f" - {self.severe_count} error"
+            parts.append(f"{self.severe_count} error")
         if self.error_count - self.severe_count:
-            tip += f" - {self.error_count - self.severe_count} warning"
-        self.setToolTip(tip)
+            parts.append(f"{self.error_count - self.severe_count} warning")
+        return _fit(parts)
 
     def notify(self, title: str, message: str, ms: int = 2500) -> None:
         """AHK: TrayTip"""

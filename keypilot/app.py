@@ -445,7 +445,11 @@ class KeyPilot:
         self.pause_dialog.resume.connect(lambda: self.set_paused(False))
         self.pause_dialog.restart.connect(self.restart)
         self.pause_dialog.restart_nosave.connect(self._restart_without_saving)
-        self.pause_dialog.exit_app.connect(self.quit)
+        # Cikis sebebi KAPIYI da soylesin: log'da "kullanici: cikis" tek bir
+        # metinken "ben cikis demedim ki" sorusunun cevabi yoktu -- uc ayri
+        # yerden (tepsi menusu, bu pencere, `´`/F14 menusundeki "0: Exit")
+        # ayni satir yaziliyordu.
+        self.pause_dialog.exit_app.connect(lambda: self.quit(source="Pause menusu"))
 
         # AHK turkish_layout_addon.ahk -- ScrollLock. Hangi VK hangi harf,
         # duzene sorularak bulunuyor; kararlari dispatch veriyor.
@@ -453,10 +457,15 @@ class KeyPilot:
 
         self.tray = Tray(
             VERSION,
+            # Ipucundaki "profil" = MAKINE profili (work / home), AHK ile
+            # ayni olcut (keymap.current_profile). Kurulusta veriliyor:
+            # eskiden on_start ipucunu sonradan yaziyordu ve tepsinin
+            # kendi metnini eziyordu.
+            profile=keymap.current_profile(),
             on_monitor=self.show_monitor,
             on_restart=self.restart,
             on_restart_dev_off=self.restart_dev_off,
-            on_exit=self.quit,
+            on_exit=lambda: self.quit(source="tepsi menusu"),
             on_pause_dialog=self.show_pause_dialog,
             on_toggle_pause=self.toggle_pause,
             on_settings=self.show_settings,
@@ -1773,7 +1782,10 @@ class KeyPilot:
         profile = keymap.current_profile()
         label = keymap.PROFILE_LABELS.get(profile, profile)
         log.info("makine profili: %s (%s)", profile, platform.node())
-        self.tray.setToolTip(f"KeyPilot {full_version()} - {profile}")
+        # IPUCU BURADAN YAZILMIYOR. Yaziyordu ve tepsinin kendi metnini
+        # (surum + profil + tiklamalarin karsiligi) sessizce EZIYORDU:
+        # ekranda hep bu eski satir kaliyor, tepsideki her guncelleme
+        # gorunmez oluyordu. Ipucunun tek sahibi ui/tray.py.
         # AHK LoadSettings: is bilgisayarinda State.Idle.enable() -- ekran
         # koruyucu devreye girmesin diye 5 dakikada bir fareyi kimildatir.
         if profile == "work":
@@ -2059,9 +2071,15 @@ class KeyPilot:
         self._quit_requested = True
 
     @command("app.exit")
-    def quit(self, _argument: str = "") -> None:
-        """AHK: Pause & End -> ExitApp()"""
-        self.on_exit("kullanici: cikis (tepsi menusu / Pause+End)")
+    def quit(self, _argument: str = "", source: str = "") -> None:
+        """AHK: Pause & End -> ExitApp()
+
+        `source` HANGI KAPI: tepsi menusu, Pause menusu ya da eylem olarak
+        cagrilmasi (`´` / F14 menusundeki "0: Exit script", bir kisayol).
+        Verilmezse eylem yoludur -- log'da "cikis dedim mi ben" sorusunun
+        cevabi tek satirda dursun.
+        """
+        self.on_exit(f"kullanici: cikis ({source or 'app.exit eylemi (´/F14 menusu)'})")
         self.app.quit()
 
     def _shutdown(self) -> None:

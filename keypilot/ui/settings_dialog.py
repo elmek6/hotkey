@@ -57,7 +57,7 @@ from __future__ import annotations
 import subprocess
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -106,14 +106,18 @@ QFrame#card {
 /* Kategori basligi kart DEGIL: cercevesiz, aralikli ve kucuk harfli --
    kartlarla ayni cinsten okunmamali. */
 QLabel#group {
-    color: palette(dark);
+    color: %(muted)s;
     font-weight: bold;
     padding: 8px 2px 0px 2px;
 }
-QFrame#card QLabel#desc { color: palette(dark); }
-QFrame#card QLabel#info { color: palette(dark); }
+/* SOLUK ama OKUNUR. Once `palette(dark)` idi: acik temada gri, koyu
+   temada gercekten KOYU -- yani koyu kartin uzerinde kaybolan bir yazi.
+   Renk artik calisma aninda metin ile zemin karistirilarak uretiliyor
+   (bkz. `_muted`), iki temada da ayni okunurlukta. */
+QFrame#card QLabel#desc { color: %(muted)s; }
+QFrame#card QLabel#info { color: %(muted)s; }
 /* Silik varsayilan: okunur ama degerin onune gecmez. */
-QFrame#card QLabel#default { color: palette(mid); }
+QFrame#card QLabel#default { color: %(faint)s; }
 QFrame#card QToolButton#reset { border: none; background: transparent; }
 QFrame#card QToolButton#reset:hover { background: palette(midlight); border-radius: 3px; }
 /* Sayi kutusu bir KUTU gibi gorunmeli: cercevesiz haliyle karttaki duz
@@ -359,6 +363,31 @@ class SettingCard(QFrame):
             self.value.setText(self._label(self.item.get()))
 
 
+def _mix(front: QColor, back: QColor, percent: int) -> str:
+    """`front` renginin `percent` kadarini `back` ile karistirir (#rrggbb)."""
+    other = 100 - percent
+    return QColor(
+        (front.red() * percent + back.red() * other) // 100,
+        (front.green() * percent + back.green() * other) // 100,
+        (front.blue() * percent + back.blue() * other) // 100,
+    ).name()
+
+
+def card_style(palette) -> str:
+    """Kart stilini YURURLUKTEKI paletle uretir.
+
+    Soluk metinler sabit bir palet rolune baglanamiyor: `palette(dark)`
+    koyu temada koyu zeminin uzerinde okunmuyordu. Metin rengi zemine
+    dogru karistiriliyor -- iki temada da ayni okunurluk.
+    """
+    text = palette.text().color()
+    base = palette.base().color()
+    return CARD_STYLE % {
+        "muted": _mix(text, base, 72),
+        "faint": _mix(text, base, 50),
+    }
+
+
 class SettingsDialog(QWidget):
     """Ayar penceresi. Tek ornek: app.py bunu saklayip yeniden gosteriyor."""
 
@@ -366,7 +395,7 @@ class SettingsDialog(QWidget):
         super().__init__()
         self.setWindowTitle("⚙️ Ayarlar")
         self.resize(860, 560)
-        self.setStyleSheet(CARD_STYLE)
+        self.setStyleSheet(card_style(self.palette()))
         self._rows: list[Setting] = []
         self.cards: list[SettingCard] = []
         #: Kaba KONULAN her sey -- kartlar ve kategori basliklari. Temizlik
@@ -425,19 +454,34 @@ class SettingsDialog(QWidget):
     # ---- kategori ----
 
     def _fill_categories(self) -> None:
-        """Kategoriler, EN SONDA "Tümü". Ilk sirada dururken listeye her
-        acilista onunla baslaniyordu; asil is belli bir kategoride ve
-        "hepsi" bir geri cekilme secenegi -- yeri sonu."""
+        """Kategoriler, ayracin ALTINDA GELISTIRME ve "Tümü".
+
+        "Tümü" bir kategori degil, suzgeci kaldirmak; GELISTIRME de gunluk
+        ayar degil (hepsi varsayilan kapali, ana salteri var). Ikisi de
+        listenin ustunde, gunluk kategorilerin arasinda duruyordu --
+        GELISTIRME kayit sirasi yuzunden EN BASTAYDI, yani ilk goze carpan
+        sey gunlukte kullanilmayacak olandi.
+        """
         self.categories.blockSignals(True)
         self.categories.clear()
-        for name in SETTINGS.categories:
-            self.categories.addItem(
-                f"{Category.label(name)} ({len(SETTINGS.visible_in(name))})"
-            )
+        #: Satir -> kategori kimligi. Ayrac ve "Tümü" icin bos dizge; sira
+        #: artik `SETTINGS.categories` ile birebir DEGIL.
+        self._category_rows: list[str] = []
+        gunluk = [name for name in SETTINGS.categories if name != Category.DEVELOPMENT]
+        for name in gunluk:
+            self._add_category(name)
         self._add_separator()
+        self._category_rows.append("")
+        if Category.DEVELOPMENT in SETTINGS.categories:
+            self._add_category(Category.DEVELOPMENT)
         self.categories.addItem(f"{ALL_LABEL} ({len(SETTINGS.visible)})")
+        self._category_rows.append("")
         self.categories.setCurrentRow(self._all_row)
         self.categories.blockSignals(False)
+
+    def _add_category(self, name: str) -> None:
+        self.categories.addItem(f"{Category.label(name)} ({len(SETTINGS.visible_in(name))})")
+        self._category_rows.append(name)
 
     def _add_separator(self) -> None:
         """Kategorilerle "Tümü" arasina cizgi: "Tümü" bir kategori DEGIL,
@@ -458,8 +502,8 @@ class SettingsDialog(QWidget):
         return self.categories.count() - 1
 
     def _on_category(self, row: int) -> None:
-        names = SETTINGS.categories
-        self._category = names[row] if 0 <= row < len(names) else ""
+        rows = self._category_rows
+        self._category = rows[row] if 0 <= row < len(rows) else ""
         self._refresh()
 
     # ---- liste ----
