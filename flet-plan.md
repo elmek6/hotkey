@@ -4,7 +4,7 @@
 >
 > Branch `flet2`. Tasinan: **5 panel** -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
-> penceresi (`45f525e`), QR penceresi (`QRHASH`). Kalan 16 pencere hala
+> penceresi (`45f525e`), QR penceresi (`eff1be8`). Kalan 16 pencere hala
 > PySide6'da ve program iki motorla CALISIYOR.
 >
 > **Asama 1'de geriye tek panel kaldi: `monitor.py`.**
