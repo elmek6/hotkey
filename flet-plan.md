@@ -9,7 +9,9 @@
 > (e4b4606). Kalan 15 pencere hala PySide6'da ve program iki motorla
 > CALISIYOR.
 >
-> **ASAMA 1 BITTI.** Sirada Asama 2 -- durum yazan formlar.
+> **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
+> kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
+> olay izleyici dahil). Sirada Asama 2 -- durum yazan formlar.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
@@ -106,22 +108,38 @@ nesneleri uretiliyor. Denetim nesneleri YASATILIRSA maliyet coguyor.
 
 | Ne | Sure |
 |---|---|
-| listeyi bastan kur | 145-162 ms |
+| BOS listeye 400 satir koy (ilk dolum) | 118 ms |
+| listeyi bastan kur (400 satir zaten varken) | 145-162 ms |
 | yalnizca 2 yeni satir ekle | 26-31 ms |
 | 20 yeni satir ekle | 31 ms |
 | hicbir sey degistirmeden `update()` | 25-30 ms |
 | tek satirin zemin rengi | 25 ms |
 
-Iki ders. Birincisi **bastan kurmak bes kat pahali** -- akan bir listede
+Uc ders. Birincisi **bastan kurmak bes kat pahali** -- akan bir listede
 `listing.controls.append(...)` kullanilmali, `listing.controls = [...]`
-degil. Ikincisi **bir `page.update()`in tabani ~25 ms**: Flet agaci
+degil. Ikincisi **bir `page.update()`in bir TABANI var**: Flet agaci
 degisiklik olmasa bile bastan yuruyor, yani CIZIM SAYISI da kisilmali.
 `fui/monitor.py` ikisini de yapiyor (bkz. `DRAW_MS`).
 
-Gercek yuk altinda olculdu (`probes/flet.py` ile ayni akis, saniyede 240
-olay -- hizli yazan birinin ~12 kati): cizim ortalamasi **41 ms**, 150
-ms'lik pencerenin dortte biri. Insan hizinda (~20 olay/sn) taban degere,
+Ucuncusu: **o taban SABIT DEGIL, agac boyutuyla orantili.** Ayni panelde
+olculdu -- 400 satirda 25-30 ms, ~200 satirda 13 ms. Yani listenin tavani
+(`MAX_ROWS`) yalnizca bellek degil CIZIM HIZI ayaridir; bir panel agir
+geliyorsa ilk bakilacak kol bu.
+
+Gercek yuk altinda olculdu (`probes/flet.py`deki akisin ayni, saniyede
+240 olay -- hizli yazan birinin ~12 kati): cizim ortalamasi **41 ms**,
+150 ms'lik pencerenin dortte biri; en uzun tek cizim 198 ms ve o, akis
+surerken yapilan BASTAN KURMA. Insan hizinda (~20 olay/sn) taban degere,
 25-30 ms'ye iniyor.
+
+> **OLCUM NASIL YAPILDI.** Tek kullanimlik bir betik: Flet penceresi
+> acar, `page.update()` cagrilarini `perf_counter` ile sarar, sayilari
+> yazip kapanir. Projede TUTULMADI (`probes/` altina girmedi) -- burada
+> duran sayilar sonucu. Bir sonraki agir panelde (ornegin
+> `settings_dialog.py`) yeniden gerekirse ayni kalip: bos bir sayfa, bir
+> `ListView`, ayni islemin uc-bes turu ve turlar arasinda
+> `await asyncio.sleep(0.15)` (dongunun mesajlari bosaltmasi icin --
+> bunsuz olcum takiliyor).
 
 > **BILINEN SINIR:** `_flush` her turda kosulsuz cizim istiyor. Bir cizim
 > `DRAW_MS`i SUREKLI asarsa istekler birikir. Olculen degerlerde bu
