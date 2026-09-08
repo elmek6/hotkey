@@ -6,7 +6,8 @@ Duzen AHK ile AYNI, dort sutun:
     Kategoriler | Sonuclar | Detaylar
     Tagler      |          |
 
-AHK'DEN AYRILAN UC YER, hepsi ayni sebepten (dosya artik elle okunabilir):
+AHK'DEN AYRILAN DORT YER. Ilk ucu ayni sebepten (dosya artik elle
+okunabilir), dorduncusu suzgec mantiginin kendisi:
 
   * Kaydetme ANINDA diske yaziyor. AHK'de de oyleydi ama orada JSON tek
     parca yazildigi icin risk buyuktu; simdi metin bicimi ve `save()`
@@ -17,6 +18,18 @@ AHK'DEN AYRILAN UC YER, hepsi ayni sebepten (dosya artik elle okunabilir):
   * Etiketler tek satirda virgullu. AHK her satira bir tag koyuyordu; dosya
     bicimi `tags: a, b` oldugu icin ekranda da oyle duruyor -- ekranda
     gordugun ile dosyada yazan ayni olsun.
+  * `(tumu)` SATIRI ETIKETLERDE, KATEGORILERDE DEGIL. AHK'de tersiydi ve
+    ters olan da oydu: kategori TEK secim, "hicbiri" hali zaten bos secimle
+    anlatilabiliyor (bkz. `ToggleList`); etiket ise COKLU secim ve Qt coklu
+    listede secimi bosaltmak icin Ctrl+tik istiyor -- ogrenilmesi gereken,
+    ekranda gorunmeyen bir hareket. Suzgeci kaldirmak icin tiklanacak bir
+    satir ASIL orada lazimdi.
+  * ETIKET LISTESI BAGLAMLA DARALIYOR. AHK tum depodaki etiketleri hep
+    gosteriyordu: `git` kategorisini secince bile `zebra`, `ocr`, `tuya`
+    listede duruyor ve tiklayinca sonuc BOSALIYORDU -- yani listenin yarisi
+    calismayan secenekti. Simdi etiketler arama + kategori suzgecinden GECEN
+    kayitlardan toplaniyor; listede ne varsa sonucu daraltir, hicbiri sifira
+    dusurmez. Bkz. `_sync_tags`.
 
 Secim UUID ile korunuyor, satir numarasiyla degil: suzgec degisince liste
 bastan kuruluyor ve satir numarasi baska kayda kayar.
@@ -24,7 +37,7 @@ bastan kuruluyor ve satir numarasi baska kayda kayar.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QGridLayout,
@@ -48,6 +61,24 @@ from keypilot.ui.place import center_on_cursor_screen
 TUMU = "(tumu)"
 
 
+class ToggleList(QListWidget):
+    """Secili satira tekrar tiklayinca secimi KALDIRAN tek-secim listesi.
+
+    Kategori suzgecinde `(tumu)` satiri yok; "hicbiri" hali bos secim
+    demek. Qt'nin tek-secim listesinde bos secime donmenin baska yolu yok --
+    tiklamak hep secer, bir kez sectikten sonra kullanici tum kategorilere
+    geri donemezdi.
+    """
+
+    def mousePressEvent(self, event) -> None:
+        index = self.indexAt(event.position().toPoint())
+        if index.isValid() and self.selectionModel().isSelected(index):
+            self.clearSelection()
+            self.setCurrentIndex(QModelIndex())
+            return
+        super().mousePressEvent(event)
+
+
 class RepositoryView(QWidget):
     """Tek ornek: app.py saklayip yeniden gosteriyor (ClipImages gibi)."""
 
@@ -67,19 +98,21 @@ class RepositoryView(QWidget):
         self.search.textChanged.connect(self._apply_filters)
 
         # ---- sol: kategori + etiket ----
-        self.categories = QListWidget()
-        self.categories.currentItemChanged.connect(lambda *_: self._apply_filters())
+        self.categories = ToggleList()
+        # `currentItemChanged` DEGIL: secim kalkarken (bkz. `ToggleList`)
+        # gecerli satir yerinde kaliyor ve o sinyal hic gelmiyordu.
+        self.categories.itemSelectionChanged.connect(self._apply_filters)
         self.tags = QListWidget()
         # AHK'de `Multi`: secili etiketlerin HEPSINI tasiyanlar geliyor.
         self.tags.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.tags.itemSelectionChanged.connect(self._apply_filters)
+        self.tags.itemSelectionChanged.connect(self._on_tags_changed)
 
         left = QWidget()
         left_box = QVBoxLayout(left)
         left_box.setContentsMargins(0, 0, 0, 0)
-        left_box.addWidget(QLabel("Kategoriler"))
+        left_box.addWidget(QLabel("Kategoriler (tekrar tiklayinca kalkar)"))
         left_box.addWidget(self.categories, 1)
-        left_box.addWidget(QLabel("Etiketler (coklu secim)"))
+        left_box.addWidget(QLabel("Etiketler (secili kategoriden, coklu secim)"))
         left_box.addWidget(self.tags, 1)
 
         # ---- orta: sonuclar ----
@@ -170,38 +203,100 @@ class RepositoryView(QWidget):
     # ---- suzgecler ----
 
     def _refresh_filters(self) -> None:
-        """Kategori ve etiket listelerini depodan tazeler.
+        """Kategori listesini depodan tazeler.
+
+        Etiketler burada DEGIL, `_apply_filters` icinde kuruluyor: onlar
+        depodan degil, o anki suzgecten gecen kayitlardan geliyor.
 
         SECIM KORUNUYOR: tazeleme sirasinda sinyaller kapali, yoksa her
         `clear()` bir suzme turu tetikler ve secim ucar.
         """
-        for widget, values in (
-            (self.categories, [TUMU, *self.repo.categories]),
-            (self.tags, self.repo.tags),
-        ):
-            selected = {item.text() for item in widget.selectedItems()}
-            widget.blockSignals(True)
-            widget.clear()
-            widget.addItems(values)
-            for index in range(widget.count()):
-                if widget.item(index).text() in selected:
-                    widget.item(index).setSelected(True)
-            if widget is self.categories and not selected:
-                widget.setCurrentRow(0)  # (tumu)
-            widget.blockSignals(False)
+        widget = self.categories
+        selected = {item.text() for item in widget.selectedItems()}
+        widget.blockSignals(True)
+        widget.clear()
+        widget.addItems(self.repo.categories)
+        for index in range(widget.count()):
+            if widget.item(index).text() in selected:
+                widget.item(index).setSelected(True)
+        widget.blockSignals(False)
 
     def _apply_filters(self) -> None:
         """AHK `_applyFilters`: once arama, sonra kategori, sonra etiketler."""
         items = self.repo.search(self.search.text())
-        current = self.categories.currentItem()
-        category = current.text() if current else TUMU
-        if category and category != TUMU:
-            items = self.repo.filter_category(category, items)
-        tags = [item.text() for item in self.tags.selectedItems()]
+        # Bos secim = kategori suzgeci yok. `currentItem` degil `selectedItems`:
+        # `ToggleList` secimi kaldirdiginda "gecerli" satir bir sure daha
+        # duruyor ve suzgec kalkmis gorunmuyordu.
+        chosen = self.categories.selectedItems()
+        if chosen:
+            items = self.repo.filter_category(chosen[0].text(), items)
+        # Etiket listesi TAM BURADAN besleniyor: arama + kategori sonucundan.
+        # Etiketin kendi suzgeci daha uygulanmadi, yoksa bir etiket secince
+        # liste onunla birlikte gorunenlere inip secimi geri almak
+        # imkansizlasirdi.
+        tags = self._sync_tags(items)
         if tags:
             items = self.repo.filter_tags(tags, items)
         self._shown = items
         self._fill_results()
+
+    def _sync_tags(self, items: list[Item]) -> list[str]:
+        """Etiket listesini baglama gore kurar, AYAKTA KALAN secimleri dondurur.
+
+        Baglam degisince (kategori/arama) bir etiket listeden dusebilir --
+        o zaman secimi de dusuyor. Alternatifi, gorunmeyen bir etiketin
+        sonucu sessizce sifirda tutmasiydi: kullanici ekranda suzgeci
+        goremedigi icin depoyu bos sanardi.
+
+        Liste ayni kaldiginda widget'a DOKUNULMUYOR; her tus vurusunda
+        `clear()` + `addItems()` kaydirma cubugunu basa atardi.
+        """
+        available = [TUMU, *sorted({tag for item in items for tag in item.tags})]
+        selected = {row.text() for row in self.tags.selectedItems()}
+        if available != [
+            self.tags.item(index).text() for index in range(self.tags.count())
+        ]:
+            self.tags.blockSignals(True)
+            self.tags.clear()
+            self.tags.addItems(available)
+            for index in range(self.tags.count()):
+                if self.tags.item(index).text() in selected:
+                    self.tags.item(index).setSelected(True)
+            self.tags.blockSignals(False)
+            selected &= set(available)
+        if not selected:
+            self._select_all_tags()
+        return [tag for tag in available if tag in selected and tag != TUMU]
+
+    def _select_all_tags(self) -> None:
+        """`(tumu)` satirini isaretler -- suzgecsiz hal de GORUNSUN.
+
+        Hicbir satir secili degilken de suzgec yok, ama ekranda bunu soyleyen
+        bir sey olmuyor; liste bos secimle "bir sey mi unuttum" dedirtiyordu.
+        """
+        self.tags.blockSignals(True)
+        self.tags.clearSelection()
+        if self.tags.count():
+            self.tags.item(0).setSelected(True)
+        self.tags.blockSignals(False)
+
+    def _on_tags_changed(self) -> None:
+        """`(tumu)` ile tek tek etiketler BIRLIKTE secili kalamaz.
+
+        Hangisinin az once tiklandigini `currentItem` soyluyor: `(tumu)`
+        tiklandiysa digerleri kalkiyor, bir etiket tiklandiysa `(tumu)`.
+        """
+        selected = [row.text() for row in self.tags.selectedItems()]
+        if TUMU in selected and len(selected) > 1:
+            current = self.tags.currentItem()
+            self.tags.blockSignals(True)
+            if current is not None and current.text() == TUMU:
+                for index in range(1, self.tags.count()):
+                    self.tags.item(index).setSelected(False)
+            else:
+                self.tags.item(0).setSelected(False)
+            self.tags.blockSignals(False)
+        self._apply_filters()
 
     def _fill_results(self) -> None:
         keep = self._current_uuid

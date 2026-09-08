@@ -58,12 +58,15 @@ def test_acilista_hepsi_listelenir(view):
     assert view.status.text() == "3 / 3 kayit"
 
 
-def test_kategori_listesinde_tumu_secenegi_var(view):
-    assert _liste(view.categories) == [TUMU, "iot"]
+def test_kategori_listesinde_TUMU_YOK(view):
+    """`(tumu)` etiketlere tasindi; kategoride bos secim ayni ise yariyor."""
+    assert _liste(view.categories) == ["iot"]
+    assert view.categories.selectedItems() == []
 
 
-def test_etiketler_tekil_ve_sirali(view):
-    assert _liste(view.tags) == ["tuya", "zigbee"]
+def test_etiketler_tekil_sirali_ve_TUMU_ustte(view):
+    assert _liste(view.tags) == [TUMU, "tuya", "zigbee"]
+    assert view.tags.item(0).isSelected()
 
 
 def test_kategorisiz_kayit_parantezsiz_yazilir(view):
@@ -80,29 +83,52 @@ def test_arama_govdede_de_suzer(view):
 
 
 def test_kategori_suzgeci(view):
-    view.categories.setCurrentRow(1)  # iot
+    view.categories.setCurrentRow(0)  # iot
     assert len(_basliklar(view)) == 2
 
 
-def test_tumu_secilince_suzgec_kalkar(view):
-    view.categories.setCurrentRow(1)
+def test_kategori_secimi_kalkinca_suzgec_kalkar(view):
     view.categories.setCurrentRow(0)
+    view.categories.clearSelection()
+    assert len(_basliklar(view)) == 3
+
+
+def test_secili_kategoriye_tekrar_tiklamak_secimi_kaldirir(view):
+    """`ToggleList`: fare ile suzgeci kaldirmanin tek yolu bu."""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    view.categories.setCurrentRow(0)  # iot
+    assert len(_basliklar(view)) == 2
+
+    nokta = view.categories.visualItemRect(view.categories.item(0)).center()
+    view.categories.mousePressEvent(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(nokta),
+            QPointF(view.categories.mapToGlobal(QPoint(nokta.x(), nokta.y()))),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert view.categories.selectedItems() == []
     assert len(_basliklar(view)) == 3
 
 
 def test_coklu_etiket_HEPSINI_ister(view):
     """AHK `FilterByTags` matchAll: iki etiket secilince ikisini de
     tasiyan kalir -- 'tuya' iki kayitta, 'zigbee' yalniz birinde."""
-    view.tags.item(0).setSelected(True)  # tuya
+    view.tags.item(1).setSelected(True)  # tuya
     assert len(_basliklar(view)) == 2
-    view.tags.item(1).setSelected(True)  # + zigbee
+    view.tags.item(2).setSelected(True)  # + zigbee
     assert _basliklar(view) == ["doorbell (iot)"]
 
 
 def test_suzgecler_birlikte_calisir(view):
     view.search.setText("tuya")
-    view.categories.setCurrentRow(1)
-    view.tags.item(1).setSelected(True)  # zigbee
+    view.categories.setCurrentRow(0)  # iot
+    view.tags.item(2).setSelected(True)  # zigbee
     assert _basliklar(view) == ["doorbell (iot)"]
 
 
@@ -234,7 +260,8 @@ def test_bos_depo_pencereyi_bozmaz(qapp, tmp_path):
     pencere = RepositoryView(Repository(tmp_path / "yok.md"))
     pencere.reload_from_disk()
     assert _basliklar(pencere) == []
-    assert _liste(pencere.categories) == [TUMU]
+    assert _liste(pencere.categories) == []
+    assert _liste(pencere.tags) == [TUMU]
 
 
 def test_bos_depoya_ilk_kayit_eklenir(qapp, tmp_path):
@@ -258,3 +285,66 @@ def test_repo_nesnesi_pencere_ile_paylasilir(view):
 
 def test_item_uuid_kendiliginden_uretilir():
     assert Item(title="x").uuid
+
+
+# ---- etiketler baglamla daralir ----
+
+
+def test_kategori_secince_etiketler_o_kategoriden_gelir(view):
+    """`not` kaydi kategorisiz ve etiketsiz; `iot` secilince liste ayni
+    kalir. Asil sinav: baska kategori secilince iot etiketleri DUSMELI."""
+    view.new_item()
+    view.title_edit.setText("push")
+    view.category_edit.setText("git")
+    view.tags_edit.setText("branch")
+    view.save_current()
+
+    view.categories.setCurrentRow(_liste(view.categories).index("git"))
+    assert _liste(view.tags) == [TUMU, "branch"]
+
+    view.categories.setCurrentRow(_liste(view.categories).index("iot"))
+    assert _liste(view.tags) == [TUMU, "tuya", "zigbee"]
+
+
+def test_arama_da_etiket_listesini_daraltir(view):
+    view.search.setText("rtsp")  # yalniz `kamera`, etiketi `tuya`
+    assert _liste(view.tags) == [TUMU, "tuya"]
+
+
+def test_baglamdan_dusen_etiketin_secimi_de_duser(view):
+    """Gorunmeyen bir etiket sonucu sessizce sifirda tutmamali."""
+    view.tags.item(2).setSelected(True)  # zigbee
+    assert _basliklar(view) == ["doorbell (iot)"]
+
+    view.search.setText("rtsp")  # zigbee artik baglamda yok
+    assert _liste(view.tags) == [TUMU, "tuya"]
+    assert _basliklar(view) == ["kamera (iot)"]
+
+
+def test_etiket_secimi_listeyi_daraltmaz(view):
+    """Bir etiket secmek digerlerini listeden silmemeli -- yoksa secimi
+    geri almak icin tiklanacak satir kalmazdi."""
+    view.tags.item(1).setSelected(True)  # tuya
+    assert _liste(view.tags) == [TUMU, "tuya", "zigbee"]
+    view.tags.item(1).setSelected(False)
+    assert len(_basliklar(view)) == 3
+
+
+def test_etiket_secilince_TUMU_kalkar(view):
+    view.tags.item(1).setSelected(True)  # tuya
+    assert not view.tags.item(0).isSelected()
+
+
+def test_TUMU_secilince_etiket_secimleri_kalkar(view):
+    view.tags.item(1).setSelected(True)  # tuya
+    view.tags.setCurrentRow(0)
+    view.tags.item(0).setSelected(True)  # (tumu)
+    assert not view.tags.item(1).isSelected()
+    assert len(_basliklar(view)) == 3
+
+
+def test_son_etiket_birakilinca_TUMU_geri_gelir(view):
+    """Bos secim de suzgecsiz demek ama ekranda bunu soyleyen bir sey yok."""
+    view.tags.item(1).setSelected(True)
+    view.tags.item(1).setSelected(False)
+    assert view.tags.item(0).isSelected()
