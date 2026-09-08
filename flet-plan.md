@@ -3,7 +3,7 @@
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
 > Branch `flet2`. Tasinan: **3 panel** -- kisayol haritasi (`7cbca8c`),
-> duraklatma kutusu (`8775927`), slot duzenleme (`9a1d2b9`). Kalan 18
+> duraklatma kutusu (`8775927`), slot duzenleme (`609573b`). Kalan 18
 > pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
