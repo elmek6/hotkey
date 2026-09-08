@@ -13,6 +13,7 @@ yaziliyor (`MainThread` olmali -- bkz. flet-plan.md).
 Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet pause     (yalniz duraklatma)
            uv run python -m probes.flet keymap    (yalniz kisayol haritasi)
+           uv run python -m probes.flet slot      (yalniz slot duzenleme)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -36,6 +37,8 @@ from PySide6.QtWidgets import (
 
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.pause import PausePanel
+from keypilot.fui.slot_edit import SlotEditPanel
+from keypilot.store import PASSWORD_SLOT
 
 #: Kisayol haritasi icin sahte satirlar: (sahip, tus, aciklama, eylem,
 #: catisiyor_mu). Ilk iki satir BILEREK ayni tusta -- catisma
@@ -51,6 +54,13 @@ ROWS = (
     ("area:test#1", "Ctrl+Alt+T", "test alani", "area.run:test#1", False),
     ("macro:rapor", "Ctrl+Alt+R", "haftalik rapor", "macro.run:rapor", False),
 ) * 6
+
+#: Slot kutusundaki "eski" satiri icin: satir sonlari ve fazla bosluk
+#: TEK bosluga eziliyor, 160 karakterden sonrasi kirpiliyor mu?
+LONG_CONTENT = (
+    "ilk satir\n\n   ikinci satirda fazladan bosluklar   \n"
+    + "uzun bir icerik, kirpilma sinirini gecsin diye tekrar ediyor. " * 4
+)
 
 
 class Probe(QWidget):
@@ -71,6 +81,13 @@ class Probe(QWidget):
         self.pause.restart_nosave.connect(lambda: self._note("pause", "restart_nosave"))
         self.pause.exit_app.connect(lambda: self._note("pause", "exit_app"))
 
+        # Gercekte diske yaziyor (`slots_ctl._store_slot`); sondajda
+        # yalnizca ne geldigi yaziliyor.
+        self.slot = SlotEditPanel()
+        self.slot.saved.connect(
+            lambda name, content: self._note("slot_edit", f"saved ad={name!r} icerik={content!r}")
+        )
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -80,6 +97,22 @@ class Probe(QWidget):
                     "Pano dosyasi okunamadi: clip.json bozuk gorunuyor."
                 ),
                 "pause",
+            ),
+            # Uc slot durumu: dolu, bos ve sifre slotu (eski deger maskeli).
+            (
+                "Slot duzenle -- dolu slot (3)",
+                lambda: self.slot.show_slot(3, "imza", LONG_CONTENT, "panodan gelen metin"),
+                "slot",
+            ),
+            (
+                "Slot duzenle -- bos slot (5)",
+                lambda: self.slot.show_slot(5, "", "", ""),
+                "slot",
+            ),
+            (
+                f"Slot duzenle -- SIFRE slotu ({PASSWORD_SLOT})",
+                lambda: self.slot.show_slot(PASSWORD_SLOT, "parola", "hunter2", ""),
+                "slot",
             ),
         ]
         for label, slot, group in buttons:
@@ -121,6 +154,7 @@ class Probe(QWidget):
         # `flet.exe` gorev cubugunda sahipsiz kaliyor.
         self.key_map.shutdown()
         self.pause.shutdown()
+        self.slot.shutdown()
         super().closeEvent(event)
 
 

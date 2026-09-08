@@ -16,15 +16,15 @@ import html
 import subprocess
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from keypilot import keymap
 from keypilot.core.filter import FilterItem
+from keypilot.fui.slot_edit import SlotEditPanel
 from keypilot.store import PASSWORD_SLOT, Slot, SlotStore, slot_display
 from keypilot.ui.preview import preview_html, shorten
-from keypilot.ui.slot_edit import SlotEditDialog
 
 
 class SlotController:
@@ -46,8 +46,14 @@ class SlotController:
         self._clipboard = set_clipboard
         self._filter = show_filter
         self._send_key = send_key
-        #: Acik duzenleme kutusu -- referansi tutulmazsa kapaniyor.
-        self._editor = None
+        #: Duzenleme paneli. ILK KULLANIMDA kuruluyor ve bir daha
+        #: yikilmiyor: Flet istemcisi (`flet.exe`) her acilista bastan
+        #: ayaga kalksa 3.5 saniye surerdi. Kurulmus olmasi pencerenin
+        #: acik oldugu anlamina GELMEZ -- kapanan pencere gizleniyor.
+        self._editor: SlotEditPanel | None = None
+        #: `saved` yalnizca (ad, icerik) tasiyor; hangi slota yazilacagi
+        #: burada. Ayni anda tek kutu acik oldugu icin tek deger yeter.
+        self._editing: tuple[str, int] = ("", 0)
 
     def register(self, runner) -> None:
         """Eylem kimlikleri -- AHK'de bunlar dogrudan fonksiyon referansiydi."""
@@ -163,16 +169,24 @@ class SlotController:
         # icerik ekranda gorunmez.
         proposed = clipboard or ("" if index == PASSWORD_SLOT else slot.content)
 
-        # Modalsiz (bkz. ui/slot_edit.py); referans tutulmazsa pencere
-        # cop toplayiciya gider.
-        dialog = SlotEditDialog(index, slot.name, slot.content, proposed)
-        dialog.accepted.connect(lambda: self._store_slot(group, index, dialog.values()))
-        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        dialog.destroyed.connect(lambda: setattr(self, "_editor", None))
-        self._editor = dialog
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        # Panel yasiyor (bkz. fui/slot_edit.py): kurulmadiysa kuruluyor,
+        # kuruluysa sadece yeni slotla tazeleniyor.
+        if self._editor is None:
+            self._editor = SlotEditPanel()
+            self._editor.saved.connect(self._save_edited)
+        self._editing = (group, index)
+        self._editor.show_slot(index, slot.name, slot.content, proposed)
+
+    def _save_edited(self, name: str, content: str) -> None:
+        """Panelin Kaydet'i. Hedef slot `edit_slot`ta not edilmisti."""
+        group, index = self._editing
+        self._store_slot(group, index, (name, content))
+
+    @property
+    def editor(self) -> SlotEditPanel | None:
+        """Duzenleme paneli, kurulduysa. `app.py` cikista Flet
+        istemcisini kapatmak icin soruyor (`on_exit`)."""
+        return self._editor
 
     def _store_slot(self, group: str, index: int, values: tuple[str, str]) -> None:
         """Duzenleme kutusunun Save'i. Ad ve icerik BIRLIKTE yaziliyor."""

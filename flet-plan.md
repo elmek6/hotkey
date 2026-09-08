@@ -2,13 +2,14 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **2 panel** -- kisayol haritasi (`7cbca8c`),
-> duraklatma kutusu (`8775927`). Kalan 19 pencere hala PySide6'da ve
-> program iki motorla CALISIYOR.
+> Branch `flet2`. Tasinan: **3 panel** -- kisayol haritasi (`7cbca8c`),
+> duraklatma kutusu (`8775927`), slot duzenleme (`9a1d2b9`). Kalan 18
+> pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
-> okunur) ve `keypilot/fui/pause.py` (dugmeli).
+> okunur), `keypilot/fui/pause.py` (dugmeli) ve
+> `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -40,9 +41,22 @@ pompasinin olmasi (`SetWindowsHookEx`, Qt dongusune bagli degil).
 (`show_rows` + `closed` gibi). `app.py`'de degisen tek sey hangi sinifin
 kuruldugu olsun. Boylece geri donus de tek satir.
 
-**Olculen degerler:** ilk acilis ~3.5 sn (`flet.exe` ayaga kalkiyor),
-sonraki acilislar 0.0 sn (pencere kapanmiyor, gizleniyor). Panel acan
-cagri ana thread'i bloklamiyor (0.001 sn'de donuyor).
+**Olculen degerler:** ilk acilis 1.0-3.5 sn (`flet.exe` ayaga kalkiyor;
+sistem isindikca alt sinira yaklasiyor), sonraki acilislar 0.0 sn
+(pencere kapanmiyor, gizleniyor). Panel acan cagri ana thread'i
+bloklamiyor (0.001 sn'de donuyor).
+
+**Bir panelin uc parcasi.** Ucunun de ayni oldugu kalip:
+
+| Parca | Nerede koser | Ornek |
+|---|---|---|
+| Qt'nin gordugu yuz | ana thread | `show_rows`, `show_paused`, `show_slot`, `shutdown` |
+| Cizim ve olaylar | flet thread | `_build`, `_show_now`, `_hide_now`, `_on_key` |
+| Cikan yol | sinyal, ana thread'e duser | `closed`, `resume`, `saved` |
+
+Ilk cagri sayfayi bulamazsa (`engine.page is None`) thread baslatilir ve
+BEKLENMEZ; `_build` bekleyen veriyle kendini cizer. Bekleseydi ana
+thread 3.5 saniye donar, tepsi ve tus kuyrugu takilirdi.
 
 ---
 
@@ -52,10 +66,26 @@ cagri ana thread'i bloklamiyor (0.001 sn'de donuyor).
 |---|---|---|---|---|
 | 1 | `key_map_view.py` | 176 | **BITTI** | Salt okunur tablo. Tek cikti: `closed`. |
 | 2 | `pause.py` | 99 | **BITTI** | 4 dugme, 4 sinyal. `WindowStaysOnTopHint` -> `always_on_top`. |
-| 3 | `slot_edit.py` | 92 | sirada | Form: ad + eski deger + yeni deger. Sifre slotunda maskeleme. |
-| 4 | `qr_view.py` | 341 | bekliyor | Uretilen QR'i gosteriyor. Goruntu Flet'e `base64` ile verilebilir. |
+| 3 | `slot_edit.py` | 92 | **BITTI** | Form: ad + eski deger + yeni deger. Ilk kez ICERI veri alan ve DISKE yazan panel; ilk YASAYAN panel (bkz. asagidaki not). |
+| 4 | `qr_view.py` | 341 | sirada | Uretilen QR'i gosteriyor. Goruntu Flet'e `base64` ile verilebilir. |
 | 5 | `log_view.py` | 421 | bekliyor | Salt okunur liste + detay. Buyuk ama duz. |
 | 6 | `monitor.py` | 183 | bekliyor | Canli akan olay listesi. IIk kez "surekli guncelleme" testi. |
+
+**YASAYAN PANEL kurali (adim 3'te ogrenildi).** Qt'de "her acilista yeni
+pencere kur, kapaninca yok et" ucuzdu (`WA_DeleteOnClose`). Flet'te ayni
+kalip her acilisa `flet.exe`nin yeniden ayaga kalkmasini, yani saniyeleri
+ekliyor. Bu yuzden Flet paneli BIR KEZ kurulur, yasar ve veriyle
+tazelenir. Sonucu iki yerde gorunuyor:
+
+* **Panelin arayuzu degisir.** Kurucuya verilen veri bir `show_*`
+  metoduna tasinir: `SlotEditDialog(index, ...)` -> `show_slot(index, ...)`.
+* **Cagiran taraf hedefi kendi tutar.** Sinyal artik "hangi nesne
+  kapandi" demiyor; `slots_ctl.py` duzenlenen slotu `_editing` icinde
+  not ediyor ve `saved(ad, icerik)` gelince oraya yaziyor. Ayni anda tek
+  kutu acik oldugu icin tek deger yetiyor.
+
+Bu, plandaki "app.py'de tek satir degissin" kuralinin ilk istisnasi:
+kurulum/yikim kaliba gomulu oldugu icin cagiran dosya da degisiyor.
 
 ## Asama 2 -- orta: durum yazan formlar
 
@@ -101,8 +131,9 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-Uc dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma + kritik
-hata metni. Pencerede bakilacak iki sey:
+Alti dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+kritik hata metni, ve uc slot durumu (dolu slot, bos slot, sifre slotu).
+Pencerede bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
   Flet yuzunden takilmis demektir, yani mimari kirik.
@@ -143,41 +174,67 @@ Dort dugmeyi de dene:
 
 X ile ya da Esc ile kapatmak "Devam et" ile ayni sey demek.
 
+**Slot duzenleme kutusu:**
+
+1. **F14** tusuna KISA bas (basili tutma -- o secim araci). Menu acilir.
+2. Menude **Edit ^** alt menusune gir, bir slot numarasi sec.
+3. Kutu acilmali: uc satir (ad / eski / yeni) ve altta Kaydet + Iptal.
+   Imlec **ad** kutusunda olmali.
+4. Bakilacaklar:
+   * **eski** satiri slotun SIMDIKI icerigini gosteriyor mu? Slot bossa
+     `(bos)` yazmali.
+   * **yeni** kutusu PANODAKIYLE mi acildi? (Once bir seyler kopyala,
+     sonra menuyu ac.) Pano bossa slotun kendi icerigi gelir.
+   * Bir seyler yaz, **Kaydet**. Sag altta "💾 ad" ipucu cikmali ve
+     degisiklik slotta durmali (ayni menuden tekrar acip bak).
+   * **Iptal**, **Esc** ve **X** hicbir sey kaydetmemeli.
+   * **ad** kutusundayken **Enter** Kaydet demek.
+5. Kutuyu kapat, sonra **BASKA bir slot** ac. Bu sefer aninda acilmali
+   (pencere yasiyor) ve icindekiler YENI slota ait olmali -- eski slotun
+   metni kalirsa bu bir hata, haber ver.
+6. **Sifre slotu (10).** Eski deger `••••••••` gorunmeli, acik metin
+   ASLA yazmamali; pano bossa **yeni** kutusu BOS acilmali.
+
 ---
 
-## SIRADAKI ADIM (adim 3): slot duzenleme kutusu
+## SIRADAKI ADIM (adim 4): QR penceresi
 
-Dosya: `keypilot/ui/slot_edit.py` (92 satir) -> `keypilot/fui/slot_edit.py`
+Dosya: `keypilot/ui/qr_view.py` (341 satir) -> `keypilot/fui/qr.py`
 
-**Neden bu:** ilk kez kullanicidan METIN alan panel. Onceki ikisinde
-bilgi disari gidiyordu; burada iceri geliyor ve DISKE yaziliyor.
+**Neden bu:** ilk kez pencerede RESIM var. Onceki uc panel yalniz metin
+ve dugmeydi; burada her tus vurusunda yeniden uretilen bir kare
+ciziliyor.
 
-**Pencerede ne var:** uc satir -- `ad` (tek satirlik kutu), `eski`
-(degistirilemez, sadece hatirlatma) ve `yeni` (uc satirlik kutu). Altta
-Kaydet / Iptal.
+**ONCE OKU -- tablodaki o satir fazla iyimserdi.** "Goruntu Flet'e
+base64 ile verilebilir" dogru ve o kisim gercekten kolay
+(`ft.Image(src_base64=...)`, segno kareyi 1 ms'nin altinda uretiyor).
+Ama pencerenin geri kalani adim 3'ten belirgin daha buyuk:
 
-**Dikkat edilecekler:**
+1. **Alanlar SABIT DEGIL.** Sablon secilince form yeniden kuruluyor
+   (`_build_fields`): wifi'nin alanlari baska, vcard'in baska. Bu,
+   "denetimleri `_build` icinde bir kez kur ve sakla" kalibini BOZUYOR --
+   denetimler calisma aninda dogup olecek.
+2. **Dosya kaydetme.** `_save_png` bir `QFileDialog` aciyor. Flet
+   karsiligi `ft.FilePicker` ve o bir SERVIS: sayfaya eklenmesi ve
+   sonucun geri cagriyla alinmasi gerekiyor (onceki `flet` bransinda
+   `cascade/fui/shell.py` bunu yapmisti, ornek olarak bakilabilir).
+3. **Panoya RESIM koymak.** `_copy_image` bir `QPixmap`i panoya yaziyor.
+   Bunun Flet karsiligi YOK. Is Qt tarafinda kalmali: panel disari
+   "su PNG'yi panoya koy" diye bir sinyal atar.
+4. **Parola alani gizli basliyor** ve maskeleme ham icerik kutusuna da
+   yansiyor (`MASK_CHAR`). Bu kural panelin kendisinde; tasinirken
+   korunmali.
 
-1. **Sifre slotu.** `store.PASSWORD_SLOT` numarali slotta eski deger
-   MASKELI gosteriliyor (`store.MASK`) ve pano bossa kutu BOS aciliyor.
-   Bu kural `slots_ctl.py`de, panelde degil -- panele hazir gelen
-   `content`/`proposed` degerlerine dokunulmayacak.
-2. **KULLANIM SEKLI DEGISECEK.** Qt surumu her seferinde YENI pencere
-   kuruyor (`SlotEditDialog(index, name, content, proposed)`) ve
-   kapaninca yok ediyor. Flet'te bu her acilista 3.5 saniye demek.
-   Cozum: panel bir kez kurulup yasar, `show_slot(index, name, content,
-   proposed)` ile guncellenir. Yani `slots_ctl.py`de bir kac satir
-   degisecek -- onceki iki adimda `app.py`de tek satir degismisti,
-   burada biraz daha fazla.
-3. **Cikan yol.** Qt'de `accepted` sinyali + `values()` metodu vardi.
-   Flet surumu `saved = Signal(str, str)` (ad, icerik) versin; daha az
-   parca, ayni is. `slots_ctl.py` `_store_slot` bunu dogrudan alir.
-4. `slots_ctl.py` icindeki `WA_DeleteOnClose` / `destroyed` /
-   `self._editor` kablolamasi gereksizlesir (panel artik yasiyor).
-5. `on_exit` listesine `shutdown()` icin eklenecek -- `app.py` icindeki
-   `for panel in (...)` satiri.
+**Onerilen bolme -- tek adimda hepsi degil:**
 
-**Bittiginde:** Asama 1'de 3/6.
+* **4a:** sablon secimi + alanlar + canli kare + slot listesi + Esc.
+  Yani pencerenin OKUNAN kismi. Bittiginde program calisir durumda.
+* **4b:** PNG kaydetme (`FilePicker`) ve panoya kopyalama (Qt'ye sinyal).
+
+**Daha kucuk bir adim isteniyorsa** sira degistirilebilir:
+`log_view.py` (#5) 421 satirla daha buyuk ama DUZ -- salt okunur liste +
+detay; sablon yok, dosya secici yok, pano yok. Adim 1'in (kisayol
+haritasi) buyugu sayilir ve yeni bir engel getirmez.
 
 ---
 
@@ -191,7 +248,13 @@ sayilmaz.
 
 - [ ] `keypilot/ui/` paketinin tamami -- her panel tasindikca ilgili dosya.
       Son iki yardimci (`place.py` pencere ortalama, `preview.py` metin
-      kisaltma) Flet'te karsiliklari yazilinca gidecek.
+      kisaltma) Flet'te karsiliklari yazilinca gidecek. `place.py` uzun
+      sure kalacak: 8 Qt penceresi daha kullaniyor.
+- [ ] **Artik kimsenin kullanmadigi Qt panelleri.** Yontem geregi
+      silinmiyorlar (geri donus tek satir), ama import edilmedikleri icin
+      sessizce curuyorlar -- taniyan yok, test eden yok:
+      `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
+      `ui/slot_edit.py`.
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -209,9 +272,11 @@ sayilmaz.
 - [ ] **`QObject` / `Signal` mirasi** her `fui/*.py` panelinde. Yalnizca
       Flet->Qt gecisi icin var. Qt gidince duz geri cagriya (callback)
       donusecek.
-- [ ] **Ters bagimlilik:** `fui/key_map.py` -> `ui/key_map_view.py`
-      (`owner_label`). Qt dosyasi silinirken `owner_label` + `OWNER_LABELS`
-      `fui/key_map.py`ye tasinacak.
+- [ ] **Ters bagimliliklar** -- Flet paneli hala bir `ui/` dosyasindan
+      saf metin yardimcisi aliyor. Qt dosyasi silinirken yardimci Flet
+      tarafina tasinacak:
+      `fui/key_map.py` -> `ui/key_map_view.py` (`owner_label` +
+      `OWNER_LABELS`), `fui/slot_edit.py` -> `ui/preview.py` (`shorten`).
 - [ ] **`main.py`** `QApplication` kurulumu, `app.setQuitOnLastWindowClosed`,
       `logs.install_qt_handler()` -- hepsi `ft.run()` ile degisecek.
 - [ ] **Panel basina `shutdown()` cagrilari** (`app.py` `on_exit`). Su an
@@ -236,13 +301,27 @@ sayilmaz.
       sonra. `flet-desktop` ACIKCA eklendi cunku Flet onu ilk
       calistirmada kendi kendine pip'liyor; kilitli projede istenmez.
 - [ ] **Testler.** `tests/` icinde Qt pencerelerini kuran testler var;
-      panel tasindikca Flet karsiliklari yazilmali. Su an tasinan iki
-      panelin BIRIM TESTI YOK -- dogrulama elle yapildi.
+      panel tasindikca Flet karsiliklari yazilmali. Tasinan uc panelin
+      BIRIM TESTI YOK -- dogrulama elle yapildi. En kolay baslangic
+      `fui/slot_edit.py` `old_value()`: saf fonksiyon, Flet gerekmiyor
+      (maskeleme, bosluk ezme, kirpma).
+- [ ] **`slots_ctl._editing`** -- duzenlenen slotu tutan alan. Ayni anda
+      tek kutu acik oldugu icin dogru; Flet coklu pencereye gecerse
+      (yukaridaki `FletEngine` karari) bu varsayim duser.
 
 ### Geri alinan / kaybedilen davranislar
 
 - [ ] **Kisayol haritasinda sutun basligi tiklamasi** (Qt:
       `setSortingEnabled`). Flet surumunde siralama sabit: catisanlar
       ustte. Istenirse `DataColumn.on_sort` ile geri gelir.
-- [ ] **Ilk acilis ~3.5 sn.** Her panelin kendi `flet.exe`si var, yani bu
-      bedel PANEL BASINA bir kez odeniyor. Tek kabuga gecilirse bir kez.
+- [ ] **Ilk acilis 1-3.5 sn.** Her panelin kendi `flet.exe`si var, yani
+      bu bedel PANEL BASINA bir kez odeniyor. Tek kabuga gecilirse bir kez.
+- [ ] **Slot kutusu imlecin ekraninda acilmiyor.** Qt surumu
+      `ui/place.py` ile calisilan monitorun ortasina aciyordu; Flet
+      penceresi kendi varsayilan yerine geliyor. Cozum fiziksel/mantiksal
+      piksel cevrimi istiyor (bu makine %135 olcekli, iki monitor) --
+      `win32/screen.py` `monitors()` hazir, `page.window.left/top` var.
+      Cok monitorlu kullanimda rahatsiz ederse oncelige alinmali.
+- [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
+      380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri
+      artik kutuyu buyutmuyor, 160 karakterde zaten kirpiliyor.

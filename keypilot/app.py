@@ -1957,7 +1957,7 @@ class KeyPilot:
         # kapatilinca olmuyor, gizleniyor. Soylemezsek ardimizdan gorev
         # cubugunda sahipsiz kaliyor -- her oturum, her panel icin bir
         # tane. Panel tasindikca bu listeye eklenecek.
-        for panel in (self._key_map_view, self.pause_dialog):
+        for panel in (self._key_map_view, self.pause_dialog, self.slots.editor):
             if panel is not None:
                 panel.shutdown()
         saved = (
