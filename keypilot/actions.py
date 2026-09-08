@@ -14,13 +14,26 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
+import time
 import winsound
 from collections.abc import Callable
 
 from keypilot.core.hotkey import parse_hotkey
+from keypilot.settings import Category, between, setting
 from keypilot.win32 import send
 
 log = logging.getLogger("keypilot.actions")
+
+KEY_DELAY = setting(
+    "send.keyDelay",
+    "Gonderilen tuslar arasi bekleme",
+    default=10,
+    category=Category.GENERAL,
+    tags="gonder tus gecikme kopyala yapistir ctrl vysor emulator flutter",
+    desc="Kisayol gonderirken olaylar arasina konan ara (ms). 0 = hepsi tek yiginda",
+    info="0=yok 0-200ms",
+    validate=between(0, 200, "ms"),
+)
 
 
 def command(*names: str):
@@ -112,18 +125,31 @@ class ActionRunner:
         Burada tek tus gonderen yol zaten var; dizi onu tekrarlamak. Ayrac
         bosluk: `^a^c` yazimi ayristirilamaz, `^` hem modifier hem de
         Turkce klavyede bir tus.
+
+        Kullanicinin basili tuttugu modifier'lar dizinin BASINDA bir kez
+        okunuyor ve butun tuslara ayni goruntu uygulaniyor: her tusta
+        yeniden sorulursa kendi enjeksiyonumuz okunuyor (bkz.
+        `send.held_modifiers`) ve dizinin ikinci tusu modifier'sini
+        kaybediyordu.
         """
-        for part in argument.split():
-            self._send_key(part)
+        held = send.held_modifiers()
+        delay = int(KEY_DELAY.get())
+        for index, part in enumerate(argument.split()):
+            if index and delay:
+                time.sleep(delay / 1000.0)
+            self._send_key(part, held)
 
     @staticmethod
-    def _send_key(argument: str) -> None:
+    def _send_key(argument: str, held: frozenset[int] | None = None) -> None:
         """send_key:^z  /  send_key:Ctrl+C  /  send_key:Tab
 
         AHK caret sozdizimi (bkz. core/hotkey.py). Kullanicinin o an zaten
         basili tuttugu modifier tekrar gonderilmez -- fare kisayolu
         `^XButton1` gibi bir tanimda Ctrl elde tutuluyorken bizim ayrica
         Ctrl basip birakmamiz onun basimini bozardi.
+
+        `held` verilmisse basili modifier'lar icin O kullanilir; dizi
+        gonderirken tek anlik goruntuyle calisilmasi icin.
         """
         try:
             hotkey = parse_hotkey(argument)
@@ -135,7 +161,7 @@ class ActionRunner:
             # Scancode yolu fare dugmesi uretmez.
             send.tap_vk(hotkey.vk)
             return
-        modifiers = [
-            group[0] for group in hotkey.mods if not any(send.is_down(vk) for vk in group)
-        ]
-        send.tap(hotkey.vk, *modifiers)
+        if held is None:
+            held = send.held_modifiers()
+        modifiers = [group[0] for group in hotkey.mods if not held.intersection(group)]
+        send.tap(hotkey.vk, *modifiers, delay_ms=int(KEY_DELAY.get()))

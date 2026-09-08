@@ -28,6 +28,7 @@ import os
 import sys
 from dataclasses import dataclass
 
+from keypilot import paths
 from keypilot.settings import Category, setting
 
 #: Komut satiri bayraklari ve ortam degiskeni -- TEK CALISMA icin zorlama.
@@ -158,8 +159,45 @@ def _from_env() -> Override | None:
     return _options(raw.split(), ENV_VAR)
 
 
+#: TEK SEFERLIK KAPATMA isareti. Varsa: bu calisma gelistirme modu KAPALI
+#: baslar ve dosya hemen silinir.
+#:
+#: Neden dosya: "Reload (dev off)" gozetmen altinda cocuk sureci BIZ
+#: baslatmiyoruz -- cikis kodu veriyoruz, bekci programi kendi komut
+#: satiriyla (icinde `--dev` ile) yeniden calistiriyor. Yani ne argv'ye ne
+#: ortama dokunabiliyoruz; sonraki calismaya not birakmanin tek yolu disk.
+OFF_ONCE_FILE = paths.FILES / ".dev-off"
+
+
+def request_off_once() -> None:
+    """Bir SONRAKI calismada gelistirme modunu kapali baslat.
+
+    Yeniden baslatmadan hemen once cagriliyor (app.restart_dev_off).
+    Kullanicinin `settings.json`'daki ayarina DOKUNMUYOR: bayrakla ayni
+    mantik, yalniz ters yonde -- tek calismayi baglar.
+    """
+    try:
+        paths.ensure_files_dir()
+        OFF_ONCE_FILE.write_text("", encoding="utf-8")
+    except OSError:
+        pass  # yazamadiysak mod acik kalir; sessizce basarisiz olmak yeterli
+
+
+def _consume_off_once() -> bool:
+    """Isaret var mi? Varsa TUKETIR (siler) ve True doner."""
+    try:
+        if not OFF_ONCE_FILE.exists():
+            return False
+        OFF_ONCE_FILE.unlink()
+    except OSError:
+        return False
+    return True
+
+
 def _override() -> Override:
-    """Komut satiri ortam degiskenini yener."""
+    """Tek seferlik kapatma > komut satiri > ortam degiskeni."""
+    if _consume_off_once():
+        return Override(mode=False, source="Reload (dev off)")
     return _from_argv() or _from_env() or Override()
 
 
@@ -206,7 +244,7 @@ def override_note() -> str:
     """
     if OVERRIDE.mode is None:
         return ""
-    parts = [f"{OVERRIDE.source} -> acik"]
+    parts = [f"{OVERRIDE.source} -> {'acik' if OVERRIDE.mode else 'kapali'}"]
     if OVERRIDE.hook_ms is not None:
         parts.append(f"nobetci {OVERRIDE.hook_ms} ms")
     # Anlasilmayan parcalar BURADA DEGIL: onlar `problems()` uzerinden ayri

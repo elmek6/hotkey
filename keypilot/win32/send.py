@@ -11,8 +11,10 @@ kuyruga yazar; gonderim tuketici thread'de yapilir.
 from __future__ import annotations
 
 import ctypes
+import time
 from ctypes import wintypes
 
+from keypilot.core.keynames import MODIFIER_VKS
 from keypilot.win32 import consts as C
 from keypilot.win32.structs import INPUT, KEYBDINPUT, MOUSEINPUT, user32
 
@@ -101,8 +103,51 @@ def key_up(vk: int) -> None:
     _send([_key_input(scan, ext, up=True)])
 
 
-def tap(vk: int, *modifiers: int) -> None:
-    """Modifier'lari basili tutarak tek tus. tap(0x43, 0xA2) -> Ctrl+C."""
+#: Kendi enjekte ettigimiz modifier'in BIRAKILDIGI an (perf_counter).
+_injected_release: dict[int, float] = {}
+
+#: Enjeksiyondan sonra GetAsyncKeyState'in oturmasi icin taninan sure (ms).
+#: Bu pencerede "Ctrl basili" cevabi bize KENDI olayimizi geri okutuyor
+#: olabilir, kullaniciyi degil.
+STALE_MS = 60.0
+
+
+def held_modifiers() -> frozenset[int]:
+    """KULLANICININ basili tuttugu modifier VK'lari -- tek anlik goruntu.
+
+    Neden ciplak `is_down` yetmiyor: SendInput dondugunde olaylari ham
+    girdi thread'i henuz islememis olabiliyor, GetAsyncKeyState o ana
+    kadar guncellenmiyor. Yani kendi gonderdigimiz Ctrl'yi "kullanici
+    tutuyor" diye okuyoruz ve bir sonraki tusa Ctrl EKLEMIYORUZ:
+    uygulamaya duz `c` gidiyor. Word'de art arda kopyalarken secili
+    metnin yerine "c" yazilmasinin sebebi buydu -- ikinci basimin Ctrl'si,
+    birinci basimin daha islenmemis Ctrl'si yuzunden dusuyordu.
+
+    Bu yuzden son `STALE_MS` icinde BIZIM biraktigimiz modifier basili
+    sayilmaz. Kullanicinin gercekten tuttugu Ctrl ise (fare kisayolu
+    `^XButton1` gibi) hala goruluyor ve tekrar gonderilmiyor.
+
+    Bir dizi gonderilirken bu bir KEZ alinip butun tuslara uygulanmali.
+    """
+    now = time.perf_counter()
+    return frozenset(
+        vk
+        for vk in MODIFIER_VKS
+        if is_down(vk) and (now - _injected_release.get(vk, 0.0)) * 1000.0 > STALE_MS
+    )
+
+
+def tap(vk: int, *modifiers: int, delay_ms: int = 0) -> None:
+    """Modifier'lari basili tutarak tek tus. tap(0x43, 0xA2) -> Ctrl+C.
+
+    `delay_ms` > 0 ise her olay AYRI SendInput cagrisiyla, aralarinda
+    beklemeyle gonderilir. Tek yiginda giden olaylarin hepsi ayni
+    milisaniye damgasini tasiyor; klavye durumunu mesaj kuyrugunun
+    esitlenmis durumundan degil kendi anlik okumasindan alan istemciler
+    (Vysor, Android emulatoru, uzak masaustu, kimi Flutter/Chromium
+    pencereleri) Ctrl'yi coktan birakilmis gorup tusu ciplak gonderiyor.
+    Arayi acmak bunu duzeltiyor -- AHK'nin SetKeyDelay'i ile ayni fikir.
+    """
     seq: list[INPUT] = []
     for mod in modifiers:
         scan, ext = scancode_for(mod)
@@ -113,7 +158,19 @@ def tap(vk: int, *modifiers: int) -> None:
     for mod in reversed(modifiers):
         scan, ext = scancode_for(mod)
         seq.append(_key_input(scan, ext, up=True))
-    _send(seq)
+    if delay_ms <= 0:
+        _send(seq)
+    else:
+        gap = delay_ms / 1000.0
+        for index, item in enumerate(seq):
+            if index:
+                time.sleep(gap)
+            _send([item])
+    # Birakma ani, bir SONRAKI cagrinin bayat "basili" okumasini elemesi
+    # icin isaretlenir (bkz. held_modifiers).
+    released = time.perf_counter()
+    for mod in modifiers:
+        _injected_release[mod] = released
 
 
 def type_text(text: str) -> None:

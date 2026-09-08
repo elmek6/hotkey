@@ -30,12 +30,13 @@ from __future__ import annotations
 import contextlib
 import logging
 import logging.handlers
+import re
 import sys
 import threading
 import traceback
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from keypilot import paths
@@ -79,6 +80,102 @@ FILE_INFO = setting(
 #: `lifecycle()` kayitlarina konan bayrak -- dosya handler'inin suzgeci
 #: bunu gorunce seviyeye bakmadan geciriyor.
 ALWAYS = "keypilot_always"
+
+# ---- dosya bicimi ----
+#
+# HER KAYIT `@` ile baslar; detay blogunun ILK satiri `!` ile:
+#
+#     @2026-09-07 17:04:17 🔵 MainThread   keypilot: gelistirme modu zorlandi
+#     @2026-09-07 17:04:18 🔴 keypilot-mag keypilot.magnifier: buyutec baslatilamadi
+#     !Traceback (most recent call last):
+#       File "...\magnifier.py", line 213, in _ensure_running
+#         subprocess.Popen(
+#     @2026-09-07 17:04:20 🔵 MainThread   keypilot: KeyPilot basladi
+#
+#     @ kayit basi        ! detay blogu basi        digerleri: detayin devami
+#
+# Iki isaret de SATIR BASINDA ve ikisi de bir seyin BASLADIGINI soyluyor.
+# Traceback'in kendi girintisine DOKUNULMUYOR: girinti Python'un ciktisinda
+# anlam tasiyor (hangi cerceve nerede), bizim ekledigimiz bir bosluk onu
+# kaydirir ve kopyalayip yapistirinca fark edilir.
+MARK_RECORD = "@"  # kaydin ilk satiri
+MARK_DETAIL = "!"  # detay blogunun ilk satiri
+
+#: Seviye adi yerine dosyaya yazilan renkli simge. Kelime yerine simge:
+#: "WARNING"/"INFO" sutunu her satirda ayni genislikte gri metin, goz
+#: onlarin arasindan hatayi seciyor. Renk bunu bakisla yapiyor.
+LEVEL_ICONS = {
+    "DEBUG": "⚪",
+    "INFO": "🔵",
+    "WARNING": "🟡",
+    "ERROR": "🔴",
+    "CRITICAL": "💥",
+}
+#: Simge -> seviye adi. Dosyadan okurken ad geri kazaniliyor: filtre ve
+#: karsilastirmalar ADLA calisiyor, simge yalniz gorunum.
+ICON_LEVELS = {icon: name for name, icon in LEVEL_ICONS.items()}
+
+#: Uyari ve ustu -- "yalniz hatalar" suzgeci ve sayaclar buna bakiyor.
+PROBLEM_LEVELS = frozenset({"WARNING", "ERROR", "CRITICAL"})
+
+#: Bir log satirini kayda ayirir. `@` ve simge ISTEGE BAGLI: bu bicimden
+#: once yazilmis dosyalar (duz `INFO`, isaretsiz satir basi) da okunuyor.
+_LINE_RE = re.compile(
+    r"^@?"
+    r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) "
+    # Zaman damgasi ile seviye ARASINDA tek karakterlik bir isaret duran
+    # ara bicimler oldu (`... 16:47:16 ! INFO ...`). Yutulmazsa o satirlarda
+    # seviye bir kayiyor ve `!` seviye adi sanilyordu.
+    r"(?:[@!.|] )?"
+    r"(?P<level>\S+)\s+(?P<thread>\S+)\s+(?P<source>[^:]+): (?P<message>.*)$"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LogLine:
+    """Log DOSYASINDAN okunmus tek kayit (bellekteki `ErrorRecord` degil)."""
+
+    when: str
+    level: str  # HER ZAMAN ad ("WARNING"), simge degil
+    thread: str
+    source: str
+    message: str
+    detail: str = ""
+
+    def with_detail(self, detail: str) -> LogLine:
+        return replace(self, detail=detail)
+
+    @property
+    def time(self) -> str:
+        """Yalniz saat -- listede tarihi her satirda tekrarlamamak icin."""
+        return self.when[11:] if len(self.when) > 11 else self.when
+
+    @property
+    def date(self) -> str:
+        return self.when[:10]
+
+    @property
+    def icon(self) -> str:
+        """Seviyenin renkli simgesi. Bilinmeyen seviyede adin kendisi."""
+        return LEVEL_ICONS.get(self.level, self.level)
+
+    @property
+    def is_problem(self) -> bool:
+        return self.level in PROBLEM_LEVELS
+
+    @property
+    def text(self) -> str:
+        """Panoya kopyalanan tam metin -- dosyadaki bicimin aynisi."""
+        # Genislik dosyaya yazan bicimin aynisi (`%(threadName)-14s`):
+        # kopyalanan satir log'a geri yapistirildiginda hizada dursun.
+        head = (
+            f"{MARK_RECORD}{self.when} {self.icon} {self.thread:<14} "
+            f"{self.source}: {self.message}"
+        )
+        if not self.detail:
+            return head
+        return f"{head}\n{MARK_DETAIL}{self.detail}"
+
 
 MAX_ERRORS = 50
 MAX_BYTES = 512 * 1024
@@ -133,6 +230,30 @@ def _file_filter(record: logging.LogRecord) -> bool:
     )
 
 
+class MarkFormatter(logging.Formatter):
+    """Dosya bicimini yazan taraf (bkz. dosya basi).
+
+    Iki is yapiyor:
+
+    1. Seviye ADI yerine renkli simge (`%(icon)s`).
+    2. Detay blogunun ILK satirina `!` koyar. Blogun geri kalanina
+       DOKUNMAZ -- traceback'in kendi girintisi Python'un ciktisindaki
+       anlami tasiyor.
+
+    Satir basindaki `@` bicim dizgisinde sabit: her kayitta var.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        record.icon = LEVEL_ICONS.get(record.levelname, record.levelname)
+        return super().format(record)
+
+    def formatException(self, ei) -> str:
+        return MARK_DETAIL + super().formatException(ei)
+
+    def formatStack(self, stack_info: str) -> str:
+        return MARK_DETAIL + super().formatStack(stack_info)
+
+
 def lifecycle(message: str, *args) -> None:
     """Yasam dongusu satiri: INFO seviyesinde ama dosyaya HER ZAMAN yazilir."""
     log.info(message, *args, extra={ALWAYS: True})
@@ -140,13 +261,34 @@ def lifecycle(message: str, *args) -> None:
 
 @dataclass(frozen=True, slots=True)
 class ErrorRecord:
+    """Bellekteki tek hata kaydi.
+
+    `text` ozeti ve detayi BIRLIKTE tutar (menu ve pano bunu istiyor);
+    `summary`/`detail` ayrimini pencere kullaniyor -- traceback listede
+    degil alttaki panelde durmali. Ayrim veri seviyesinde YOKTU ve "son
+    hatalar" penceresi 15 traceback'i alt alta basip ekrani asiyordu.
+    """
+
     when: datetime
     level: str
     text: str
+    source: str = ""  # logger adi: keypilot.magnifier
+    thread: str = ""
 
     @property
     def line(self) -> str:
         return f"{self.when:%H:%M:%S} {self.level:<7} {self.text}"
+
+    @property
+    def summary(self) -> str:
+        """Ilk satir -- listede gorunen kisim."""
+        return self.text.splitlines()[0] if self.text else ""
+
+    @property
+    def detail(self) -> str:
+        """Ilk satirdan sonrasi (traceback). Yoksa bos."""
+        _, _, rest = self.text.partition("\n")
+        return rest
 
 
 class ErrorStore(logging.Handler):
@@ -167,12 +309,18 @@ class ErrorStore(logging.Handler):
         text = record.getMessage()
         if record.exc_info:
             text += "\n" + "".join(traceback.format_exception(*record.exc_info))
-        self.add(record.levelname, text)
+        self.add(record.levelname, text, record.name, record.threadName or "")
 
-    def add(self, level: str, text: str) -> None:
+    def add(self, level: str, text: str, source: str = "", thread: str = "") -> None:
         with self._lock:
             self._items.append(
-                ErrorRecord(when=datetime.now(), level=level, text=text.strip())
+                ErrorRecord(
+                    when=datetime.now(),
+                    level=level,
+                    text=text.strip(),
+                    source=source,
+                    thread=thread,
+                )
             )
         for callback in tuple(self._subs):
             with contextlib.suppress(Exception):  # abone loglamayi kirmasin
@@ -223,8 +371,8 @@ def setup(level: int = logging.INFO) -> None:
     for handler in list(root.handlers):
         root.removeHandler(handler)
 
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(threadName)-14s %(name)s: %(message)s",
+    formatter = MarkFormatter(
+        MARK_RECORD + "%(asctime)s %(icon)s %(threadName)-14s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -292,6 +440,91 @@ def install_qt_handler() -> None:
         logging.getLogger("qt").log(levels.get(mode, logging.INFO), "%s", message)
 
     qInstallMessageHandler(handler)
+
+
+def parse_log_text(text: str) -> tuple[LogLine, ...]:
+    """Log metnini kayitlara ayirir. ESKI bicimdeki satirlari da okur.
+
+    Kural sirasi:
+
+        `@` + zaman damgasi -> YENI kayit
+        `!` ile baslayan     -> DETAY blogunun ilk satiri (isaret soyulur)
+        digerleri            -> detayin devami, OLDUGU GIBI
+
+    Eski dosyalar icin `@` ve simge istege bagli: bicim degisti diye
+    gecmis log okunamaz olmamali.
+    """
+    records: list[LogLine] = []
+    details: list[list[str]] = []
+    for raw in text.splitlines():
+        match = _LINE_RE.match(raw)
+        if match:
+            level = match["level"]
+            records.append(
+                LogLine(
+                    when=match["when"],
+                    # Simge de ad da kabul: dosyada simge duruyor, kod
+                    # her yerde ADLA calisiyor.
+                    level=ICON_LEVELS.get(level, level),
+                    thread=match["thread"],
+                    source=match["source"],
+                    message=match["message"],
+                )
+            )
+            details.append([])
+            continue
+        if raw.strip() == MARK_DETAIL:
+            # Kisa omurlu bir ara bicimde `!` blogun SONUNA tek basina
+            # konuyordu; bugun bir kaydin parcasi degil.
+            continue
+        # `| ` kisa omurlu bir ara bicimdi; donmus yedeklerde (log.txt.1)
+        # kalmis olabilir. `!` disindaki satirlar OLDUGU GIBI aliniyor:
+        # traceback'in girintisi Python'un ciktisindaki anlami tasiyor.
+        if raw.startswith(MARK_DETAIL):
+            line = raw[1:]
+        elif raw.startswith("| "):
+            line = raw[2:]
+        else:
+            line = raw
+        if not records:
+            # Rotasyon dosyayi bir traceback'in ORTASINDAN kesmis olabilir;
+            # bas taraftaki oksuz satirlar atilmasin.
+            records.append(
+                LogLine(when="", level="", thread="", source="",
+                        message="(onceki dosyanin devami)")
+            )
+            details.append([])
+        details[-1].append(line)
+    return tuple(
+        record.with_detail("\n".join(lines))
+        for record, lines in zip(records, details, strict=True)
+    )
+
+
+def read_log(path=None, limit: int = 0) -> tuple[LogLine, ...]:
+    """Log dosyasini okur. `limit` > 0 ise yalnizca SON o kadar kayit."""
+    target = paths.LOG if path is None else path
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ()
+    records = parse_log_text(text)
+    return records[-limit:] if limit > 0 else records
+
+
+def clear_log(path=None) -> bool:
+    """Log dosyasini bosaltir (pencere altindaki "log temizle" dugmesi).
+
+    Dosya SILINMIYOR, iceriginin uzerine yaziliyor: calisan handler acik
+    tutamaci elinde tutuyor, dosyayi silmek onu kor birakirdi.
+    """
+    target = paths.LOG if path is None else path
+    try:
+        target.write_text("", encoding="utf-8")
+    except OSError:
+        log.exception("log dosyasi temizlenemedi")
+        return False
+    return True
 
 
 def recent_text(limit: int = 10) -> str:

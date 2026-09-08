@@ -51,6 +51,7 @@ from keypilot.store import SlotStore, slot_display
 from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.key_map_view import KeyMapView
+from keypilot.ui.log_view import LogView
 from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, PopupMenu
 from keypilot.ui.monitor import EventMonitor
@@ -188,6 +189,8 @@ class KeyPilot:
         theme.install()
         self.tip = Tip()
         self.monitor = EventMonitor()
+        #: Log penceresi -- hata rozeti ve birikmis kritik hata buraya aciyor.
+        self.log_view = LogView()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
         self._settings_dialog: SettingsDialog | None = None
         self._key_map_view: KeyMapView | None = None
@@ -452,12 +455,16 @@ class KeyPilot:
             VERSION,
             on_monitor=self.show_monitor,
             on_restart=self.restart,
+            on_restart_dev_off=self.restart_dev_off,
             on_exit=self.quit,
             on_pause_dialog=self.show_pause_dialog,
             on_toggle_pause=self.toggle_pause,
             on_settings=self.show_settings,
             on_copy_error=self.copy_last_error,
-            on_show_log=self.show_log_file,
+            # Tepsideki "Show log..." artik NOTEPAD degil log penceresi:
+            # filtre, seviye ve detay paneli orada. Notepad'e o pencerenin
+            # "Dosyayi ac" dugmesinden gidiliyor.
+            on_show_log=self.show_errors,
             on_show_errors=self.show_errors,
         )
         self.tray.show()
@@ -465,11 +472,6 @@ class KeyPilot:
         # calisir, log sisirir) ve komut satirindan da acilabiliyor, yani
         # ayar ekraninda KAPALI gorunurken acik olabilir. Simgedeki mor
         # halka o farkin tek isareti (ui/tray.set_dev).
-        self.tray.set_dev(dev.enabled())
-        dev.DEV_MODE.subscribe(lambda _value, _old: self.tray.set_dev(dev.enabled()))
-        # Gelistirme modu simgede gorunsun: ayardan acilmis da olabilir
-        # komut satirindan zorlanmis da (bkz. dev.forced_source) -- ikinci
-        # halde ayar ekrani KAPALI gosterir, tek iz tepsideki mor halka.
         self.tray.set_dev(dev.enabled())
         dev.DEV_MODE.subscribe(lambda _value, _old: self.tray.set_dev(dev.enabled()))
 
@@ -1120,34 +1122,38 @@ class KeyPilot:
 
     @command("errors.show")
     def show_errors(self, _argument: str = "") -> None:
-        """AHK: getStatsArray / getRecentErrors."""
-        QMessageBox.information(
-            None,
-            f"KeyPilot {VERSION} - son hatalar",
-            f"Hook callback  : en uzun {self.hook.max_callback_ms:.3f} ms (sinir 300)\n"
-            f"Dusen olay     : {self.hook.dropped}\n"
-            f"Hook tamiri    : {self.hook.reinstalls} kez yeniden kuruldu\n"
-            f"Hayalet tus    : {self.dispatcher.phantom_drops} dusuruldu\n"
-            f"Pano kaydi     : {len(self.clip.history)}\n"
-            f"Yutulan cift tik: {self._bounce_count} (arizali fare)\n"
-            f"Log dosyasi    : {paths.LOG}\n\n"
-            f"{logs.recent_text(15)}",
-        )
+        """AHK: getStatsArray / getRecentErrors -- artik log penceresi.
+
+        Onceden `QMessageBox` idi ve icine 15 kaydin TAM metni giriyordu.
+        Mesaj kutusu icerige gore buyur, kaydirmaz: birkac traceback
+        birikince pencere ekrani asiyor, kapatma dugmesi disarida
+        kaliyordu. Liste + detay paneli o isin dogru yeri (ui/log_view.py).
+        """
+        self.log_view.set_stats(self._diagnostics())
+        self.log_view.show_log()
         self._clear_error_badge()
 
-    def show_log_file(self) -> None:
-        """Tepsi menusu "Show log..." -- log dosyasini Notepad ile acar.
+    def _diagnostics(self) -> list[tuple[str, str]]:
+        """Tani sayaclari -- log penceresinin "Durum" sekmesi.
 
-        Ayar ekranindaki "settings.json" dugmesiyle ayni yol. Dosya henuz
-        yoksa bos olarak yaratiliyor: Notepad'in "olusturulsun mu" sorusu
-        cikmasin.
+        Eskiden "son hatalar" mesaj kutusunun ust yarisiydi; tek bir metin
+        blogu olarak degil (olcum, deger) ciftleri olarak veriliyor ki
+        pencere bunlari duz bir listede gosterebilsin.
         """
-        try:
-            paths.ensure_files_dir()
-            paths.LOG.touch(exist_ok=True)
-            subprocess.Popen(["notepad.exe", str(paths.LOG)])  # noqa: S603, S607
-        except OSError:
-            log.exception("log dosyasi acilamadi")
+        return [
+            ("hook: en uzun callback", f"{self.hook.max_callback_ms:.3f} ms (sinir 300)"),
+            ("hook: dusen olay", str(self.hook.dropped)),
+            ("hook: yeniden kurulum", f"{self.hook.reinstalls} kez"),
+            ("hayalet tus", f"{self.dispatcher.phantom_drops} dusuruldu"),
+            ("pano kaydi", str(len(self.clip.history))),
+            ("yutulan cift tik", f"{self._bounce_count} (arizali fare)"),
+            ("gelistirme modu", "acik" if dev.enabled() else "kapali"),
+            ("log dosyasi", str(paths.LOG)),
+        ]
+
+    # Notepad'i acan `show_log_file` KALDIRILDI: ayni is log penceresinin
+    # "Dosyayi ac" dugmesinde (ui/log_view.py) ve tepsi menusu artik
+    # pencereyi aciyor.
 
     @command("errors.copy")
     def copy_last_error(self, _argument: str = "") -> None:
@@ -1209,22 +1215,23 @@ class KeyPilot:
         self._critical_open = True
         try:
             headers = [item.splitlines()[0] for item in pending if item.splitlines()]
-            box = QMessageBox(QMessageBox.Icon.Critical, "KeyPilot - kritik hata", "")
             note = (
                 f"Ayrinti log'da: {paths.LOG}\n"
                 "Bozuk dosyanin yedegi Files/ icinde `.bozuk-<zaman>` adiyla duruyor."
             )
+            if len(headers) > 1:
+                # BIRIKMIS hata mesaj kutusuna sigmaz -- her kaydin metninde
+                # traceback var ve kutu kaydirmiyor, ekrani asiyordu. Coklu
+                # durumun dogru yeri log penceresi.
+                self.log_view.set_stats(self._diagnostics())
+                self.log_view.show_log()
+                self.tray.notify(
+                    "KeyPilot - kritik hata", f"{len(headers)} hata birikti, log penceresi acildi"
+                )
+                return
             box = QMessageBox(QMessageBox.Icon.Critical, "KeyPilot - kritik hata", "")
-            if len(headers) == 1:
-                box.setText(shorten(headers[0], 300))
-                box.setInformativeText(note)
-            else:
-                # Coklu bozulmada baslik SAYIYI soyluyor, govde hangileri
-                # oldugunu: "bir sey bozuldu" ile "uc dosya birden bozuldu"
-                # cok farkli iki durum.
-                box.setText(f"{len(headers)} kritik hata:")
-                bullets = "\n".join(f"• {shorten(head, 200)}" for head in headers)
-                box.setInformativeText(f"{bullets}\n\n{note}")
+            box.setText(shorten(headers[0], 300) if headers else "kritik hata")
+            box.setInformativeText(note)
             box.setDetailedText("\n\n".join(pending) + f"\n\nLog: {paths.LOG}")
             box.exec()
         finally:
@@ -1906,6 +1913,22 @@ class KeyPilot:
         self._shutdown()
 
     @command("app.restart")
+    @command("app.restart_dev_off")
+    def restart_dev_off(self, _argument: str = "") -> None:
+        """Gelistirme modu KAPALI olarak yeniden baslat.
+
+        Neden ayri bir dugme: mod `--dev` bayragiyla aciksa her "Reload"
+        onu geri getiriyor -- gozetmen altinda cocuk sureci biz degil bekci
+        programi baslatiyor ve kendi komut satirini (icinde `--dev`)
+        kullaniyor. Bu yuzden bayragi silmeye calismak yerine bir sonraki
+        calismaya disk uzerinden not birakiliyor (dev.request_off_once).
+
+        Kullanicinin ayarina DOKUNULMUYOR: not tek seferlik, program bir
+        daha normal baslarsa mod yine ayarin dedigi gibi olur.
+        """
+        dev.request_off_once()
+        self.restart()
+
     def restart(self, _argument: str = "") -> None:
         """AHK: Pause+Home -> reloadScript()
 
@@ -2066,4 +2089,5 @@ class KeyPilot:
         self.hook.stop()
         self.tip.hide()
         self.monitor.close()
+        self.log_view.close()
         self.tray.hide()

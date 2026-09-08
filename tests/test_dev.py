@@ -136,3 +136,40 @@ def test_gelistirme_kategorisi_en_ustte():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == Category.DEVELOPMENT
+
+
+# ---- tek seferlik kapatma: "Reload (dev off)" ----
+
+
+def test_isaret_bir_sonraki_calismayi_KAPALI_baslatir(monkeypatch, tmp_path):
+    """Gozetmen altinda cocugun komut satirina dokunamiyoruz.
+
+    "Reload" bekci programini calistiriyor, o da kendi komut satirini
+    (icinde `--dev`) kullaniyor -- yani bayragi silmek mumkun degil.
+    Sonraki calismaya not birakmanin tek yolu disk.
+    """
+    monkeypatch.setattr(dev, "OFF_ONCE_FILE", tmp_path / ".dev-off")
+    monkeypatch.setattr(dev.sys, "argv", ["main.py", "--dev"])
+
+    assert dev._override().mode is True  # bayrak: acik
+
+    dev.request_off_once()
+    over = dev._override()
+    assert over.mode is False  # isaret bayragi YENIYOR
+    assert "dev off" in over.source
+
+
+def test_isaret_TEK_SEFERLIK_tuketiliyor(monkeypatch, tmp_path):
+    """Ikinci acilista mod yine bayragin/ayarin dedigi gibi olmali."""
+    monkeypatch.setattr(dev, "OFF_ONCE_FILE", tmp_path / ".dev-off")
+    monkeypatch.setattr(dev.sys, "argv", ["main.py", "--dev"])
+
+    dev.request_off_once()
+    assert dev._override().mode is False
+    assert not (tmp_path / ".dev-off").exists()  # tuketildi
+    assert dev._override().mode is True
+
+
+def test_kapatma_zorlamasi_log_satirinda_dogru_yazilir(monkeypatch):
+    zorla(monkeypatch, mode=False, ms=None)
+    assert "kapali" in dev.override_note()

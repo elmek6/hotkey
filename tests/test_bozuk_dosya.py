@@ -246,6 +246,17 @@ def _sahte_keypilot(monkeypatch, acilan: list):
         },
     )()
     sahte.tip = type("P", (), {"show_html": lambda s, *a: None})()
+    # Birikmis hata log penceresine gidiyor (bkz. _flush_critical): mesaj
+    # kutusu kaydirmadigi icin coklu hata ekrani asiyordu.
+    sahte.log_view = type(
+        "L",
+        (),
+        {
+            "set_stats": lambda s, text: None,
+            "show_log": lambda s: acilan.append("<LOG PENCERESI>"),
+        },
+    )()
+    sahte._diagnostics = lambda: ""
     return sahte
 
 
@@ -267,11 +278,12 @@ def test_ARDISIK_uc_kritik_hata_TEK_pencere_acar(qapp, monkeypatch):
     assert acilan == []  # HENUZ acilmadi: olay turu bekleniyor
     sahte._flush_critical()
 
-    assert acilan.count("<ACILDI>") == 1
-    metin = " ".join(acilan)
-    assert "3 kritik hata" in metin
-    for isim in ("slots.json", "profiles.json", "clipboards.bin"):
-        assert isim in metin  # hicbiri yutulmadi
+    # Coklu hatada mesaj kutusu DEGIL log penceresi acilir: kutuya her
+    # kaydin traceback'i giriyordu ve kutu kaydirmadigi icin ekrani
+    # asiyordu. Yine TEK pencere ve hicbir kayit yutulmuyor.
+    assert acilan.count("<LOG PENCERESI>") == 1
+    assert acilan.count("<ACILDI>") == 0
+    assert sahte._critical_pending == []
 
 
 def test_tek_kritik_hata_sayi_yazmaz(qapp, monkeypatch):

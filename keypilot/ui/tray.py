@@ -174,6 +174,7 @@ class Tray(QSystemTrayIcon):
         on_monitor: Callable[[], None],
         on_restart: Callable[[], None],
         on_exit: Callable[[], None],
+        on_restart_dev_off: Callable[[], None] = lambda: None,
         on_pause_dialog: Callable[[], None] = lambda: None,
         on_toggle_pause: Callable[[], None] = lambda: None,
         on_settings: Callable[[], None] = lambda: None,
@@ -196,6 +197,7 @@ class Tray(QSystemTrayIcon):
         self._handlers = {
             "pause": on_toggle_pause,
             "restart": on_restart,
+            "restart_dev_off": on_restart_dev_off,
             "pause_dialog": on_pause_dialog,
             "settings": on_settings,
             "monitor": on_monitor,
@@ -216,6 +218,11 @@ class Tray(QSystemTrayIcon):
         self.pause_action = self._add(menu, "", on_toggle_pause)
         self.pause_action.setCheckable(True)
         self._add(menu, "Reload", on_restart)
+        # YALNIZ gelistirme modu acikken gorunur (bkz. set_dev). Mod
+        # `--dev` bayragiyla aciksa duz "Reload" onu her seferinde geri
+        # getiriyor; bu madde bir sonraki calismayi kapali baslatiyor.
+        self.dev_off_action = self._add(menu, "Reload (dev off)", on_restart_dev_off)
+        self.dev_off_action.setVisible(False)
         # AHK menus.ahk `DialogPauseGui` (Pause & c / Pause & End): duraklat +
         # yeniden baslat + kaydetmeden yeniden baslat + cikis tek pencerede.
         # Tepsiden de acilsin -- Pause tusu olmayan klavyede tek yol buydu.
@@ -288,6 +295,7 @@ class Tray(QSystemTrayIcon):
         if active == self.dev:
             return
         self.dev = active
+        self.dev_off_action.setVisible(active)
         self._refresh()
 
     def set_error_count(self, count: int, severe: int = 0) -> None:
