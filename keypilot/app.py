@@ -43,6 +43,7 @@ from keypilot.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
 from keypilot.fui.key_map import KeyMapPanel
+from keypilot.fui.pause import PausePanel
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
 from keypilot.repository import Repository
@@ -56,7 +57,6 @@ from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
-from keypilot.ui.pause import PauseDialog
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
 from keypilot.ui.qr_view import QrDialog
@@ -444,7 +444,7 @@ class KeyPilot:
         self._qr_view: QrDialog | None = None
 
         # AHK menus.ahk `DialogPauseGui`: Pause tusu basili tutulunca acilir.
-        self.pause_dialog = PauseDialog()
+        self.pause_dialog = PausePanel()
         self.pause_dialog.resume.connect(lambda: self.set_paused(False))
         self.pause_dialog.restart.connect(self.restart)
         self.pause_dialog.restart_nosave.connect(self._restart_without_saving)
@@ -1955,9 +1955,11 @@ class KeyPilot:
             self.pins.clear_all()
         # Flet panelleri: istemcileri AYRI surec (`flet.exe`) ve pencere
         # kapatilinca olmuyor, gizleniyor. Soylemezsek ardimizdan gorev
-        # cubugunda sahipsiz kaliyor -- her oturum bir tane.
-        if self._key_map_view is not None:
-            self._key_map_view.shutdown()
+        # cubugunda sahipsiz kaliyor -- her oturum, her panel icin bir
+        # tane. Panel tasindikca bu listeye eklenecek.
+        for panel in (self._key_map_view, self.pause_dialog):
+            if panel is not None:
+                panel.shutdown()
         saved = (
             self.clip.save()
             if self.save_on_exit

@@ -39,8 +39,8 @@ cagri ana thread'i bloklamiyor (0.001 sn'de donuyor).
 | # | Panel | Satir | Durum | Not |
 |---|---|---|---|---|
 | 1 | `key_map_view.py` | 176 | **BITTI** | Salt okunur tablo. Tek cikti: `closed`. |
-| 2 | `pause.py` | 99 | sirada | 4 dugme, 4 sinyal. `WindowStaysOnTopHint` -> `always_on_top`. |
-| 3 | `slot_edit.py` | 92 | bekliyor | Form: ad + eski deger + yeni deger. Sifre slotunda maskeleme. |
+| 2 | `pause.py` | 99 | **BITTI** | 4 dugme, 4 sinyal. `WindowStaysOnTopHint` -> `always_on_top`. |
+| 3 | `slot_edit.py` | 92 | sirada | Form: ad + eski deger + yeni deger. Sifre slotunda maskeleme. |
 | 4 | `qr_view.py` | 341 | bekliyor | Uretilen QR'i gosteriyor. Goruntu Flet'e `base64` ile verilebilir. |
 | 5 | `log_view.py` | 421 | bekliyor | Salt okunur liste + detay. Buyuk ama duz. |
 | 6 | `monitor.py` | 183 | bekliyor | Canli akan olay listesi. IIk kez "surekli guncelleme" testi. |
@@ -75,6 +75,28 @@ Bunlar "biraz ugrasinca olur" degil; her biri icin bir KARAR gerekiyor.
 **Sonuc:** Asama 3 asilmadan PySide6 bagimliligi KALKMAZ. Asama 1 ve 2
 tamamlandiginda 13 panel Flet'te, 8 pencere Qt'de olur ve program iki
 motorla calismaya devam eder. Bu sorun degil, ARA DURAK.
+
+---
+
+## Tasinan panelleri DENEME
+
+Gercek programi calistirmadan:
+
+    uv run python -m probes.flet            iki panel birden
+    uv run python -m probes.flet pause      yalniz duraklatma
+    uv run python -m probes.flet keymap     yalniz kisayol haritasi
+
+Sondaj yalnizca bir `QApplication` kuruyor: hook YOK, tepsi YOK, tuslara
+dokunulmuyor, calisan KeyPilot devralinmiyor. Pencerede iki sey izlenir:
+
+* **Alt satirdaki sayac.** Durursa Qt ana dongusu Flet yuzunden
+  bloklanmis demektir -- gecisin en temel varsayimi cokmus olur.
+* **Dokumdeki "alici thread".** `MainThread` yazmali: panel sinyali kendi
+  thread'inden gonderiyor, Qt kuyruga alip ana thread'de teslim etmeli.
+
+Sondaj penceresi kapatilinca `shutdown()` cagriliyor -- gercek programda
+bunu `app.py` `on_exit` yapiyor. Yapilmazsa `flet.exe` gorev cubugunda
+sahipsiz kaliyor.
 
 ---
 
@@ -114,6 +136,9 @@ sayilmaz.
 - [ ] **Panel basina `shutdown()` cagrilari** (`app.py` `on_exit`). Su an
       her Flet paneli kendi `flet.exe`sini kapatmak zorunda; tek kabuga
       gecilirse tek cagri kalir.
+- [ ] **`probes/flet.py`** -- "hangi panel Flet'te" sorusunun cevabi
+      oldugu surece ise yariyor. Her sey Flet'e gecince anlamsizlasir;
+      icindeki sahte veriler `probes/gui.py` gibi bir sondaja tasinabilir.
 
 ### Karara baglanacaklar
 

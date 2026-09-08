@@ -28,23 +28,13 @@ from __future__ import annotations
 import flet as ft
 from PySide6.QtCore import QObject, Signal
 
+from keypilot.fui import theme
 from keypilot.fui.engine import FletEngine
 
 # Qt surumunden aliniyor -- saf metin isi, iki yerde tutulup birbirinden
 # ayri dusmesin. O dosya silindiginde bu satir ve `owner_label` buraya
 # tasinacak; gecis suresince tek kaynak eski dosya.
 from keypilot.ui.key_map_view import owner_label
-
-#: Qt surumunun stil sayfasindaki renkler. Panel eskisiyle YAN YANA
-#: kullanilacagi icin ayni durmasi gerekiyor: kullanici hangi motorun
-#: cizdigini fark etmemeli.
-BG = "#0d1117"
-FG = "#e6edf3"
-MUTED = "#8b949e"
-FIELD_BG = "#161b22"
-BORDER = "#30363d"
-CONFLICT_BG = "#5a1e22"
-ALT_BG = "#11161d"
 
 COLUMNS = ("Sahip", "Tus", "Aciklama", "Eylem")
 
@@ -109,7 +99,7 @@ class KeyMapPanel(QObject):
         """Sayfa hazir. Denetimleri kur ve hemen goster (FLET thread'i)."""
         self._page = page
         page.title = "Kisayol haritasi"
-        page.bgcolor = BG
+        page.bgcolor = theme.BG
         page.padding = 12
         page.window.width, page.window.height = WINDOW_SIZE
         # Kapatma DUSMESIN: `ft.run` doner, thread olur ve bir sonraki
@@ -125,9 +115,9 @@ class KeyMapPanel(QObject):
             autofocus=True,
             dense=True,
             text_size=12,
-            color=FG,
-            bgcolor=FIELD_BG,
-            border_color=BORDER,
+            color=theme.FG,
+            bgcolor=theme.FIELD_BG,
+            border_color=theme.BORDER,
             border_radius=4,
             content_padding=8,
             expand=True,
@@ -138,27 +128,27 @@ class KeyMapPanel(QObject):
             label="yalniz benim atadiklarim",
             value=False,
             on_change=lambda _e: self._apply_and_update(),
-            label_style=ft.TextStyle(color=FG, size=12),
+            label_style=ft.TextStyle(color=theme.FG, size=12),
         )
         self._conflicts_only = ft.Checkbox(
             label="yalniz catisanlar",
             value=False,
             on_change=lambda _e: self._apply_and_update(),
-            label_style=ft.TextStyle(color=FG, size=12),
+            label_style=ft.TextStyle(color=theme.FG, size=12),
         )
         self._table = ft.DataTable(
             columns=[
-                ft.DataColumn(label=ft.Text(name, color=MUTED, size=12)) for name in COLUMNS
+                ft.DataColumn(label=ft.Text(name, color=theme.MUTED, size=12)) for name in COLUMNS
             ],
             rows=[],
-            heading_row_color=FIELD_BG,
+            heading_row_color=theme.FIELD_BG,
             heading_row_height=34,
             data_row_min_height=28,
             data_row_max_height=28,
             column_spacing=18,
             divider_thickness=0,
         )
-        self._status = ft.Text("", color=MUTED, size=12)
+        self._status = ft.Text("", color=theme.MUTED, size=12)
 
         page.controls.append(
             ft.Column(
@@ -232,9 +222,9 @@ class KeyMapPanel(QObject):
         system = owner.startswith(("keymap", "keypilot"))
         # Sistem satirlari soluk: burada olma sebepleri okunmak degil,
         # tusun DOLU oldugunu gostermek.
-        color = MUTED if system else FG
+        color = theme.MUTED if system else theme.FG
         return ft.DataRow(
-            color=CONFLICT_BG if clash else (ALT_BG if index % 2 else None),
+            color=theme.CONFLICT_BG if clash else (theme.ALT_BG if index % 2 else None),
             cells=[
                 ft.DataCell(ft.Text(text, color=color, size=12, no_wrap=True))
                 for text in (owner_label(owner), key, desc, action)
