@@ -19,6 +19,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet monitor   (yalniz olay izleyici)
            uv run python -m probes.flet macro     (yalniz makro kayit ekrani)
            uv run python -m probes.flet ocr       (yalniz OCR sonuc paneli)
+           uv run python -m probes.flet repo      (yalniz kod parcasi deposu)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -28,8 +29,10 @@ kalir ve sondaj cikarken kapatilir.
 from __future__ import annotations
 
 import sys
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -41,6 +44,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from keypilot import paths
 from keypilot.core.mouse import MouseSeen
 from keypilot.core.ocr_layout import Word
 from keypilot.fui.key_map import KeyMapPanel
@@ -50,7 +54,9 @@ from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.ocr import OcrPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
+from keypilot.fui.repository import RepositoryPanel
 from keypilot.fui.slot_edit import SlotEditPanel
+from keypilot.repository import Repository
 from keypilot.store import PASSWORD_SLOT, SlotStore
 from keypilot.win32.hook import KeyEvent
 
@@ -111,6 +117,50 @@ def ocr_words() -> tuple[Word, ...]:
         for row, cells in enumerate(OCR_ROWS)
         for column, cell in enumerate(cells)
     )
+
+
+#: Depo sondaji GERCEK repository.md'yi KOPYALIYOR: gorunum gercek
+#: veriyle sinansin ama "Sil"/"Kaydet" kullanicinin dosyasina dokunmasin
+#: (bu panelde iki dugme de diske yaziyor). Dosya yoksa asagidaki ornek.
+REPO_SAMPLE = """===
+uuid: ornek-1
+title: doorbell
+category: iot
+tags: tuya, zigbee
+---
+tuya doorbell, iki yonlu ses
+===
+uuid: ornek-2
+title: kamera
+category: iot
+tags: tuya
+---
+rtsp akisi
+===
+uuid: ornek-3
+title: git rebase
+category: git
+tags: gunluk
+---
+git rebase -i HEAD~3
+===
+uuid: ornek-4
+title: kategorisiz not
+---
+suzgeclerde parantezsiz gorunmeli
+"""
+
+
+def probe_repository() -> Repository:
+    """Sondajin yazabilecegi GECICI depo (gercek dosyanin kopyasi)."""
+    path = Path(tempfile.gettempdir()) / "keypilot-sondaj-repository.md"
+    if not path.exists():
+        source = paths.REPOSITORY
+        text = source.read_text(encoding="utf-8-sig") if source.exists() else REPO_SAMPLE
+        path.write_text(text, encoding="utf-8")
+    repo = Repository(path)
+    repo.load()
+    return repo
 
 
 #: "Durum" sekmesi icin sahte sayaclar -- app.py `_diagnostics` bicimi.
@@ -191,6 +241,11 @@ class Probe(QWidget):
         self.ocr.refresh_requested.connect(self._on_refresh)
         self.ocr.closed.connect(lambda: self._note("ocr", "closed"))
 
+        # Depo: GECICI dosya uzerinde calisiyor (bkz. `probe_repository`).
+        # Kaydet/Sil GERCEKTEN yaziyor -- ama kopyaya.
+        self.repository = RepositoryPanel(probe_repository())
+        self.repository.closed.connect(lambda: self._note("repository", "closed"))
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -223,6 +278,7 @@ class Probe(QWidget):
             ("Olay izleyici (sahte akis)", self.monitor.show_monitor, "monitor"),
             ("Makro kayit ekrani", self.macro.open, "macro"),
             ("OCR sonuc paneli (sahte tablo)", self._show_ocr, "ocr"),
+            ("Kod parcasi deposu (gecici kopya)", self.repository.open, "repo"),
             ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
             ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
             (
@@ -353,6 +409,7 @@ class Probe(QWidget):
         self.monitor.shutdown()
         self.macro.shutdown()
         self.ocr.shutdown()
+        self.repository.shutdown()
         super().closeEvent(event)
 
 

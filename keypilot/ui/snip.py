@@ -2,9 +2,10 @@
 
 Iki faz var, AHK ile ayni:
 
-**1. Secim fazi.** Tum ekranlarin DONDURULMUS goruntusu alinir, uzeri
-karartilir ve fare surukleyerek alan secilir. Orutu tiklamalari yutar, alttaki
-uygulamaya kaza tiklamasi gitmez.
+**1. Secim fazi.** Tum ekranlarin DONDURULMUS goruntusu alinir ve fare
+surukleyerek alan secilir. Goruntu KARARTILMAZ -- secim disi da okunur
+kalsin diye (once karartiliyordu, kullanici istegiyle kaldirildi). Orutu
+tiklamalari yutar, alttaki uygulamaya kaza tiklamasi gitmez.
 
 **2. Ayar fazi.** Secim birakilinca:
 
@@ -84,7 +85,6 @@ MIN_SIZE = 8  # bundan kucuk secim "yanlislikla tikladim" sayilir (AHK: MIN_SIZE
 GRIP_MIN = 44  # bu boyutun altinda tutamaclar ust uste biner: yalniz cerceve
 SETTLE_MS = 70  # cerceve gizlendikten sonra DWM'in temiz kareyi cizme suresi
 
-VEIL = QColor(0, 0, 0, 90)  # AHK: DIM_ALPHA 90
 # AHK'nin secim cercevesi KIRMIZIYDI (screen_ocr.ahk'deki "kirmizi cerceve"
 # notu). Ayni renk: ekranin geri kalaninda nadir, her zaman secilir.
 BORDER = QColor(220, 30, 40)
@@ -914,14 +914,21 @@ class SnipOverlay(QWidget):
             self._recapture(self._emit_rect_changed)
 
     def _settle_pick(self) -> None:
-        """Secim suruklemesi bitti: cok kucukse iptal, degilse cubugu ac."""
+        """Secim suruklemesi bitti: secim yoksa pencereyi KAPAT, varsa cubugu ac."""
         self._picking = False
         self._grip = Grip.NONE
         rect = self._rect.normalized()
         if rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
+            # Hic secim yapilmadi (bos tiklama ya da MIN_SIZE alti surukleme).
+            # Once secim silinip pencere ACIK BEKLIYORDU: ekran donmus
+            # duruyor, kullanici ne oldugunu anlamadan ikinci kez tiklamak
+            # zorunda kaliyordu. Artik Esc / orta tus ile ayni yol --
+            # kapanis tek yerden, `closeEvent` (Area kipinde kaydedilmemis
+            # is varsa yine orada soruluyor).
             self._rect = QRect()
             self._update_mask()
             self.update()
+            self.close()
             return
         self._rect = rect
         self._place_bar()
@@ -1219,7 +1226,7 @@ class SnipOverlay(QWidget):
             return
         adjusted = self._grip != Grip.NONE
         self._settle_pick()
-        if self._rect.isEmpty():  # tiklama: secim yok, beklemeye devam
+        if self._rect.isEmpty():  # secim yok: `_settle_pick` pencereyi kapatti
             return
         if self._session and adjusted:
             # Alan degisti: ekrani temiz haliyle yeniden cekip paneli tazele.
@@ -1264,24 +1271,10 @@ class SnipOverlay(QWidget):
             # sanal masaustune birebir oturdugu icin bu 1:1 esleme demek,
             # Qt'nin dpr'sinden bagimsiz.
             painter.drawPixmap(self.rect(), self._shot)
-            # Karartma: secim disindaki dort serit. Secimin ici dokunulmadan
-            # kalir -- kullanici ne kirpacagini oldugu gibi gorur.
-            if rect.isEmpty():
-                painter.fillRect(self.rect(), VEIL)
-            else:
-                painter.fillRect(QRect(0, 0, self.width(), rect.top()), VEIL)
-                painter.fillRect(
-                    QRect(0, rect.bottom() + 1, self.width(), self.height() - rect.bottom() - 1),
-                    VEIL,
-                )
-                painter.fillRect(QRect(0, rect.top(), rect.left(), rect.height()), VEIL)
-                painter.fillRect(
-                    QRect(
-                        rect.right() + 1, rect.top(),
-                        self.width() - rect.right() - 1, rect.height(),
-                    ),
-                    VEIL,
-                )
+            # Karartma YOK (kullanici istegi): dondurulmus goruntu oldugu
+            # gibi duruyor, secimin disi da okunur kaliyor. Secimi cerceve
+            # + ic dolgu (FILL) belirtir.
+            if not rect.isEmpty():
                 painter.fillRect(rect, FILL)
 
         if rect.isEmpty():

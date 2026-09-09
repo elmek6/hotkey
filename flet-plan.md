@@ -2,18 +2,24 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **8 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **9 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
-> (e4b4606), makro kayit ekrani (fda9923), OCR sonuc paneli (adim 8).
-> Kalan 13 pencere hala PySide6'da ve program iki motorla CALISIYOR.
+> (e4b4606), makro kayit ekrani (fda9923), OCR sonuc paneli (09dcb7a),
+> kod parcasi deposu (adim 9).
+> Kalan 12 pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
 > kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
-> olay izleyici dahil). **ASAMA 2 basladi:** adim 7 (makro kayit
-> ekrani) yazildi, testler geciyor -- GERCEK PROGRAMDA DOGRULANMAYI
-> BEKLIYOR (bkz. **Nasil denenir** -> makro kayit ekrani).
+> olay izleyici dahil). **ASAMA 2 SURUYOR:** adim 7 (makro), 8 (OCR) ve
+> 9 (depo) yazildi, testler geciyor -- ucu de GERCEK PROGRAMDA
+> DOGRULANMAYI BEKLIYOR (bkz. **Nasil denenir**).
+>
+> Adim 9'da ILK KEZ bir Flet panelinin kendi birim testi var
+> (`tests/test_fui_repository.py`, 19 test): Flet calistirilmadan
+> panelin QT TARAFI suruluyor. Kalibi buradan alinabilir -- bolunme
+> zaten oradan geciyor.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
@@ -23,8 +29,9 @@
 > cizim sinirlama), `keypilot/fui/qr.py` (calisma aninda dogan/olen
 > denetimler, resim), `keypilot/fui/monitor.py` (CANLI akan liste --
 > artimli cizim), `keypilot/fui/macro.py` (DISARIDAN gelen durumu yazan
-> ilk panel) ve `keypilot/fui/ocr.py` (HEP USTTE duran pencere +
-> gizle/geri getir).
+> ilk panel), `keypilot/fui/ocr.py` (HEP USTTE duran pencere +
+> gizle/geri getir) ve `keypilot/fui/repository.py` (UC SUTUNLU form --
+> suzgecler, sonuc listesi ve duzenleme alanlari birbirini besliyor).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -261,7 +268,7 @@ indiriyor.
 |---|---|---|---|
 | 7 | `macro_view.py` | 213 | Kayit ekrani. **BITTI** -> `fui/macro.py` |
 | 8 | `ocr_view.py` | 229 | `WindowStaysOnTopHint`. Sonuc paneli. **BITTI** -> `fui/ocr.py` |
-| 9 | `repository_view.py` | 404 | Kod parcasi deposu. |
+| 9 | `repository_view.py` | 404 | Kod parcasi deposu. **BITTI** -> `fui/repository.py` |
 | 10 | `mem_slots.py` | 454 | `WindowStaysOnTopHint`. |
 | 11 | `profiles_view.py` | 468 | Profil yoneticisi. |
 | 12 | `clip_images.py` | 486 | `QPainter` -- kucuk resim cizimi. Flet'te `ft.Image` ile. |
@@ -299,7 +306,7 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On uc dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+On dort dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
 penceresi, olay izleyici ve uc QR girisi (duz metin, link, hazir wifi
 dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
@@ -310,7 +317,11 @@ birinin iki kati (tuslara dokunulmuyor). Makro ekrani GERCEK slot
 dosyalarini (`Files/rec*.jsonl`) okuyor ve ad kutusu gercekten diske
 yaziyor; kayit/oynatma YAPILMIYOR -- onlari `macro_ctl.py` yapiyor,
 sondaj yalnizca gelen sinyali dokume yazip durumu elle geri besliyor
-(oynatma iki saniye sonra "Bitti" oluyor). Pencerede bakilacak iki sey:
+(oynatma iki saniye sonra "Bitti" oluyor). Kod parcasi deposu GERCEK
+`repository.md`nin GECICI BIR KOPYASI uzerinde calisiyor
+(`%TEMP%/keypilot-sondaj-repository.md`): gorunum gercek veriyle
+sinaniyor ama "Kaydet"/"Sil" kullanicinin dosyasina dokunmuyor. Pencerede
+bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
   Flet yuzunden takilmis demektir, yani mimari kirik.
@@ -535,21 +546,60 @@ Pencere 860x560 acilmali ve HEP USTTE durmali. Bakilacaklar:
     (`closed` -> `snip.end_session`). Cerceve ekranda kalirsa bu bir
     hata, haber ver.
 
+**Kod parcasi deposu:**
+
+* `´` menusunden **Repository** (ya da tepsi menusu > 📚 Repository).
+
+Pencere 1020x620 acilmali; solda kategoriler ve etiketler, ortada
+sonuclar, sagda alanlar. Bakilacaklar:
+
+1. **Acilista diskten okuma.** Depoyu Notepad'de degistirip pencereyi
+   ac -- yeni hal gelmeli (pencere yasiyor, veriyi HER acilista
+   tazeliyor). Acikken degistirdiysen **Diskten tazele**.
+2. **Arama** her tus vurusunda suzmeli: baslik, kategori ve GOVDE
+   iciyle eslesiyor, etiketle DEGIL.
+3. **Kategori tek secim**; secili satira tekrar tiklamak suzgeci
+   kaldirmali (Qt'deki `ToggleList` davranisi).
+4. **Etiketler coklu.** Secilen etiketlerin HEPSINI tasiyanlar kaliyor.
+   Ustteki `(tumu)` satiri secimi bosaltir; bir etiket secilince
+   `(tumu)` kendiliginden kalkmali. Etiket listesi arama + kategori
+   sonucundan geliyor: listede duran hicbir etiket sonucu SIFIRA
+   dusurmemeli.
+5. **Secim -> alanlar.** Sonuclardan bir kayda tikla; sagdaki alanlar
+   dolmali, UUID satiri kaydin kimligini yazmali.
+6. **Kaydet.** Basligi degistir, Kaydet -- ortadaki liste ANINDA
+   guncellenmeli ve dosyada AYNI uuid uzerine yazilmali (yeni kayit
+   ACILMAMALI). Bosluk: baslik bos birakilirsa "Baslik zorunlu."
+   kutusu cikmali.
+7. **Yeni.** Alanlar bosalir, UUID `(yeni)` olur; Kaydet'e basinca
+   listeye yeni bir kayit dusmeli. Yeni kategori/etiket yazdiysan
+   soldaki listelerde gorunmeli.
+8. **Sil** onay ister; Evet dendiginde kayit hem listeden hem dosyadan
+   gitmeli.
+9. **Esc / X / Kapat** pencereyi gizler. Tekrar acinca aninda gelmeli.
+
 ---
 
-## SIRADAKI ADIM (adim 9): kod parcasi deposu
+## SIRADAKI ADIM (adim 10): hafiza slotlari penceresi
 
-Dosya: `keypilot/ui/repository_view.py` (404 satir) -> `keypilot/fui/repository.py`
+Dosya: `keypilot/ui/mem_slots.py` (454 satir) -> `keypilot/fui/mem_slots.py`
 
-**Neden bu:** Asama 2'nin sirasindaki bir sonraki panel ve ilk kez
-BUYUK bir form (404 satir). Yeni olan sey liste + duzenleme alaninin
-YAN YANA yasamasi: secilen kayit sagdaki alanlara doluyor, kaydedilince
-listeye geri yaziliyor. Cizim kalibi hazir -- `fui/qr.py`nin slot
-listesi ile `fui/slot_edit.py`nin form alanlarinin toplami.
+**Neden bu:** Asama 2'nin sirasindaki bir sonraki panel. Adim 9'un
+kalibi (liste + duzenleme, secilen kaydin alanlara dolmasi) burada
+neredeyse birebir tekrar ediyor; YENI olan iki sey:
 
-**Once bakilacak yer:** `keypilot/repository.py` (veri katmani) ve
-`app.py`de paneli acan yer. Hangi cagrilarin diske dokundugu oradan
-cikacak; hepsi `ask_qt` ile Qt tarafinda kosmali (adim 7 ve 8'in dersi).
+  * **HEP USTTE** (`WindowStaysOnTopHint`). Adim 8'de (`fui/ocr.py`)
+    zaten yapildi -- `page.window.always_on_top`, tek satir.
+  * **Panel diske YAZAN bir depoyu paylasiyor** (`SlotStore`), ustelik
+    slot kutusu (`fui/slot_edit.py`) ve QR penceresi de ayni depoyu
+    okuyor. Yani bir yerde degisen slot otekilerde de gorunmeli;
+    `ask_qt` kurali burada en siki uygulanacak yer.
+
+**Once bakilacak yer:** `keypilot/store.py` (`SlotStore`) ve
+`keypilot/slots_ctl.py` -- kimin ne zaman diske yazdigi oradan cikacak.
+Ayrica `fui/qr.py`nin `slot_rows()` yardimcisi ayni veriyi zaten
+bicimlendiriyor; ikinci kullanicisi cikinca ortak yere alinmali
+(`ask_qt`in kaderi, bkz. `f56ff95`).
 
 **Adim 5'in dersini unutma:** bir sonraki adimin tahmini, bir onceki
 adimin ogrettikleriyle yeniden bakilmadan uygulanmamali.
@@ -573,7 +623,11 @@ sayilmaz.
       sessizce curuyorlar -- taniyan yok, test eden yok:
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
       `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
-      `ui/monitor.py`, `ui/macro_view.py`, `ui/ocr_view.py`.
+      `ui/monitor.py`, `ui/macro_view.py`, `ui/ocr_view.py`,
+      `ui/repository_view.py`. Bunlarin TESTLERI hala kosuyor
+      (`tests/test_repository_view.py` gibi) -- dosya silinirken o
+      testler de gidecek; Flet karsiliklari ayri dosyada
+      (`tests/test_fui_repository.py`).
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -644,9 +698,12 @@ sayilmaz.
 - [ ] **Testler.** `tests/` icinde Qt pencerelerini kuran testler var;
       panel tasindikca Flet karsiliklari yazilmali. Motorun iki global
       ayari artik test ediliyor (`tests/test_flet_engine.py`: signal
-      yamasi, otomatik guncelleme, `ask_qt`); tasinan BES PANELIN kendi
-      birim testi hala YOK -- dogrulama elle yapildi. En kolay baslangic
-      saf fonksiyonlar (Flet gerekmiyor, ekran gerekmiyor):
+      yamasi, otomatik guncelleme, `ask_qt`) ve adim 9'da ILK panel
+      testi yazildi (`tests/test_fui_repository.py`: Flet
+      calistirilmadan panelin Qt tarafi suruluyor -- suzgec, kaydetme,
+      silme). Kalan YEDI panelin birim testi hala YOK -- dogrulama elle
+      yapildi. En kolay baslangic saf fonksiyonlar (Flet gerekmiyor,
+      ekran gerekmiyor):
       `fui/slot_edit.py` `old_value()` (maskeleme, bosluk ezme, kirpma),
       `fui/qr.py` `masked()` / `slot_rows()` / `window_height()`,
       `fui/log_view.py` `line_text()` / `source_chars()` /

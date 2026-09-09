@@ -48,6 +48,7 @@ from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.ocr import OcrPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
+from keypilot.fui.repository import RepositoryPanel
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
 from keypilot.repository import Repository
@@ -61,7 +62,6 @@ from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
-from keypilot.ui.repository_view import RepositoryView
 from keypilot.ui.settings_dialog import SettingsDialog
 from keypilot.ui.snip import SnipOverlay
 from keypilot.ui.tip import Tip
@@ -432,12 +432,13 @@ class KeyPilot:
         self.profiles_view = ProfilesView(self.shorts)
         self.profiles_view.keys_changed = self.bind_profile_keys
 
-        # repository.ahk'nin VERI yarisi (keypilot/repository.py). Yonetici
-        # GUI'si henuz yok; profillerde oldugu gibi duzenleme dosyanin
-        # kendisinden -- bicim zaten bunun icin metin (bkz. repository.py).
+        # repository.ahk'nin VERI yarisi (keypilot/repository.py); yonetici
+        # penceresi FLET'te (fui/repository.py). Depo nesnesi PAYLASILIYOR:
+        # `repository.edit` komutu da ayni listeye yaziyor, bu yuzden
+        # panelin depoya dokunan her satiri Qt'nin ana thread'inde kosuyor.
         self.repository = Repository(paths.REPOSITORY)
         self.repository.load()
-        self.repository_view = RepositoryView(self.repository)
+        self.repository_view = RepositoryPanel(self.repository)
         self.runner.register("repository.open", lambda _: self.repository_view.open())
 
         # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
@@ -1971,6 +1972,7 @@ class KeyPilot:
             self.monitor,
             self.macro.view,
             self.ocr_view,
+            self.repository_view,
         ):
             if panel is not None:
                 panel.shutdown()
