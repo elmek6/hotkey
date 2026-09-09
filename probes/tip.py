@@ -180,28 +180,61 @@ def measure_fit(panel: TipPanel, hwnd: int, body: str, label: str) -> str:
     return chr(10).join(lines)
 
 
+#: Sondajin actigi HER panel. Kapanista hepsi kapatiliyor -- olcum
+#: yarida kesilse (Ctrl+C) ya da patlasa bile.
+_panels: list[TipPanel] = []
+
+
+def new_panel() -> TipPanel:
+    """Panel kur ve DEFTERE YAZ (bkz. `close_all`)."""
+    panel = TipPanel()
+    _panels.append(panel)
+    return panel
+
+
+def close_all() -> None:
+    """Acilan her panelin `flet.exe`sini kapat. Iki kez cagrilabilir:
+    `stop()` olu thread'de sessizce donuyor.
+
+    OLCULEN DERT: sondaj `main()`in sonuna gelemezse (istisna ya da
+    Ctrl+C) `shutdown()` hic kosmuyordu ve o turun panelleri gorev
+    cubugunda SAHIPSIZ kaliyordu -- bir turda uc tane, cunku sondaj uc
+    panel aciyor. Motorun kendisi saglam (olculdu: `stop()` 0.33 sn'de
+    thread'i olduruyor ve `flet.exe` gidiyor), eksik olan sey cagrinin
+    GARANTISIYDI.
+    """
+    for panel in _panels:
+        try:
+            panel.shutdown()
+        except Exception as error:  # noqa: BLE001 -- kapanista biri otekini engellemesin
+            print(f"UYARI: panel kapatilamadi: {error}")
+    _panels.clear()
+
+
 def measure_boot(cold: bool) -> str:
     """Ilk gosterimin ekranda GORUNME suresi. `cold` ise isitma YOK."""
-    panel = TipPanel()
+    panel = new_panel()
     if not cold:
         panel.warm()
         pump(5.0)  # isitma BITSIN: olculen sey isitmadan SONRAKI gosterim
     set_cursor_pos(*CURSOR)
     start = time.monotonic()
-    panel.show_html("olcum", 0)
-    hwnd = wait_window()
-    # Pencerenin ACILMASI degil GORUNMESI olculuyor: isitilmis panelde
-    # tutamak zaten var, bakilacak sey `IsWindowVisible`.
-    visible = 0.0
-    deadline = time.monotonic() + BOOT_TIMEOUT
-    while time.monotonic() < deadline:
-        if hwnd and win.is_window(hwnd) and _visible(hwnd):
-            visible = time.monotonic() - start
-            break
-        if not hwnd:
-            hwnd = win.find_window(title=TITLE)
-        pump(0.02)
-    panel.shutdown()
+    try:
+        panel.show_html("olcum", 0)
+        hwnd = wait_window()
+        # Pencerenin ACILMASI degil GORUNMESI olculuyor: isitilmis panelde
+        # tutamak zaten var, bakilacak sey `IsWindowVisible`.
+        visible = 0.0
+        deadline = time.monotonic() + BOOT_TIMEOUT
+        while time.monotonic() < deadline:
+            if hwnd and win.is_window(hwnd) and _visible(hwnd):
+                visible = time.monotonic() - start
+                break
+            if not hwnd:
+                hwnd = win.find_window(title=TITLE)
+            pump(0.02)
+    finally:
+        panel.shutdown()
     return f"{visible:.2f} sn" if visible else "GORUNMEDI"
 
 
@@ -243,14 +276,14 @@ def styles(hwnd: int) -> str:
     )
 
 
-def main() -> int:
+def run() -> int:
     app = QApplication(sys.argv)
     _ = app
 
     out: list[str] = []
 
     print("ipucu isitiliyor...")
-    panel = TipPanel()
+    panel = new_panel()
     panel.warm()
     pump(4.0)  # `flet.exe` ayaga kalksin (olculdu: 1.0-3.5 sn)
     # Isitilan pencere GIZLI, `find_window` yalniz gorunur pencere
@@ -260,7 +293,6 @@ def main() -> int:
     hwnd = wait_window()
     if not hwnd:
         print("ipucu penceresi acilmadi -- olcum yapilamadi")
-        panel.shutdown()
         return 1
     print(f"pencere: {hwnd:#x} [{win.window_class(hwnd)}]\n")
 
@@ -305,6 +337,24 @@ def main() -> int:
     print(f"    ISITILMIS ilk gosterim: {measure_boot(cold=False)}")
     print(f"    ISITILMAMIS ilk gosterim: {measure_boot(cold=True)}")
     return 0
+
+
+
+
+def main() -> int:
+    """Olcumu kostur, NE OLURSA OLSUN acilan panelleri kapat.
+
+    Sondaj uc panel aciyor (ana panel + iki acilis olcumu) ve her biri
+    ayri bir `flet.exe`. Kapanis garantisi olmadan yarida kesilen bir tur
+    gorev cubugunda uc sahipsiz pencere birakiyordu.
+    """
+    try:
+        return run()
+    except KeyboardInterrupt:
+        print("olcum yarida kesildi")
+        return 1
+    finally:
+        close_all()
 
 
 if __name__ == "__main__":
