@@ -1978,6 +1978,7 @@ class KeyPilot:
             self.ocr_view,
             self.repository_view,
             self.profiles_view,
+            self.clip.images,
         ):
             if panel is not None:
                 panel.shutdown()

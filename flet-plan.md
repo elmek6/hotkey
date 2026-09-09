@@ -2,13 +2,14 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **10 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **11 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
 > (e4b4606), makro kayit ekrani (fda9923), OCR sonuc paneli (09dcb7a),
-> kod parcasi deposu (885d832), profil yoneticisi (adim 11).
-> Kalan 11 pencere hala PySide6'da ve program iki motorla CALISIYOR.
+> kod parcasi deposu (885d832), profil yoneticisi (8fbd4ab), pano
+> gorselleri (adim 12).
+> Kalan 10 pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
 > kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
@@ -20,6 +21,13 @@
 > geciyor, GERCEK PROGRAMDA DOGRULANMAYI BEKLIYOR. Ilk kez Flet'in
 > yapamadigi bir isi Qt'ye yaptiran KALICI bir kopru var: kisayol
 > yakalama kutusu (`fui/profiles.py` `_capture_key`).
+>
+> **ADIM 12 (pano gorselleri) YAZILDI** ve baglandi (`clip_ctl.py`); 38
+> birim testi geciyor, GERCEK PROGRAMDA DOGRULANMAYI BEKLIYOR. Ilk kez
+> ekranda diskten gelen RESIM LISTESI var ve ilk kez bir Qt davranisinin
+> Flet'te KARSILIGI OLMADIGI icin arayuz degisti: Ctrl/Shift ile coklu
+> secim yerine satirda ISARET KUTUSU (tiklama olayi degistirici tuslari
+> tasimiyor).
 >
 > **ADIM 10 (hafiza slotlari) YARIM KALDI.** Panel yazildi ama
 > BAGLANMADI: satiri baska bir uygulamaya surukleyip birakmanin Flet'te
@@ -45,7 +53,9 @@
 > gizle/geri getir), `keypilot/fui/repository.py` (UC SUTUNLU form --
 > suzgecler, sonuc listesi ve duzenleme alanlari birbirini besliyor) ve
 > `keypilot/fui/profiles.py` (IKI KADEMELI liste + Flet'in yapamadigi
-> isi Qt'ye yaptiran kalici kopru).
+> isi Qt'ye yaptiran kalici kopru) ve `keypilot/fui/clip_images.py`
+> (DISKTEN gelen resim listesi + zoom/kaydirma icin
+> `ft.InteractiveViewer`).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -285,7 +295,7 @@ indiriyor.
 | 9 | `repository_view.py` | 404 | Kod parcasi deposu. **BITTI** -> `fui/repository.py` |
 | 10 | `mem_slots.py` | 454 | **YARIM KALDI -> Asama 3'e tasindi** (satiri disari surukleme). Asagidaki bolum. |
 | 11 | `profiles_view.py` | 468 | Profil yoneticisi. **BITTI** -> `fui/profiles.py` |
-| 12 | `clip_images.py` | 486 | `QPainter` -- kucuk resim cizimi. Flet'te `ft.Image` ile. |
+| 12 | `clip_images.py` | 486 | Pano gorselleri. **BITTI** -> `fui/clip_images.py` |
 | 13 | `settings_dialog.py` | 605 | En buyuk form. Tema secimi burada; `fui/theme.py`nin sabit koyu paleti burada ele alinacak. |
 
 ## Asama 3 -- zor: Flet'te KARSILIGI OLMAYAN pencere davranislari
@@ -321,10 +331,10 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On dort dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+On sekiz dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
-penceresi, olay izleyici ve uc QR girisi (duz metin, link, hazir wifi
-dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
+penceresi, olay izleyici, pano gorselleri (iki dugme) ve uc QR girisi
+(duz metin, link, hazir wifi dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
 (`Files/log.txt`, `slots.json`) -- sahte veri yok; "Log temizle"
 gercekten siliyor, QR'in grup secimi gercekten ayara yaziliyor. Olay
 izleyici SAHTE bir akisla besleniyor: saniyede ~40 olay, yani hizli yazan
@@ -335,7 +345,14 @@ sondaj yalnizca gelen sinyali dokume yazip durumu elle geri besliyor
 (oynatma iki saniye sonra "Bitti" oluyor). Kod parcasi deposu GERCEK
 `repository.md`nin GECICI BIR KOPYASI uzerinde calisiyor
 (`%TEMP%/keypilot-sondaj-repository.md`): gorunum gercek veriyle
-sinaniyor ama "Kaydet"/"Sil" kullanicinin dosyasina dokunmuyor. Pencerede
+sinaniyor ama "Kaydet"/"Sil" kullanicinin dosyasina dokunmuyor. Pano
+gorselleri GECICI bir depoda SAHTE uc resimle aciliyor
+(`%TEMP%/keypilot-sondaj-gorseller`); gercek `clipimg.dat` kopyalanmiyor
+cunku 500 MB'a kadar cikabiliyor ve "Sil" gercekten siliyor. Ucuncu
+ornek onizleme kutusundan BUYUK: "1:1 / sigdir" ve kaydirma ancak
+oyle sinaniyor. Ikinci dugme ("YENI resim ekle") depoya yeni bir gorsel
+yaziyor -- acik pencere listeyi 900 ms icinde KENDILIGINDEN
+tazelemeli. Pencerede
 bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
@@ -633,6 +650,52 @@ aksiyonlari, sagda secili aksiyonun alanlari. Bakilacaklar:
    `profiles.json`dan gitmeli.
 9. **Esc / X / Kapat** pencereyi gizler. Tekrar acinca aninda gelmeli.
 
+**Pano gorselleri:**
+
+* `´` menusunden **Pano gorselleri...**, ya da **F14** menusunde
+  **Clipboard images**.
+
+Once BIR EKRAN GORUNTUSU KOPYALA (PrintScreen ya da Win+Shift+S), yoksa
+depo bos olabilir. Pencere 1080x640 acilmali; solda 64x64 kucuk resimli
+liste, sagda secili kaydin onizlemesi. Bakilacaklar:
+
+1. **Kucuk resimler geliyor mu?** Her satirda resim + iki metin sutunu:
+   solda "son kullanim" ve `WxH · KB`, sagda "ilk kayit" ve kac kez
+   kopyalandigi. Resim gorunmuyorsa haber ver (thumb diskten HAM okunup
+   PNG'ye ceviriliyor, bu adimin yeni isi).
+2. **Secim ve onizleme.** Bir satira tikla: sag taraf o gorseli
+   gostermeli, alt satirda `WxH px · KB · #id · ilk: tarih` yazmali.
+3. **CANLI LISTE -- en onemli sinav.** Pencere ACIKKEN baska bir sey
+   kopyala (yeni bir ekran goruntusu). En gec bir saniye icinde yeni
+   kayit listenin BASINA dusmeli ve **bakilan kayit degismemeli**
+   (secim slot ile tasiniyor).
+4. **Zoom ve kaydirma.** Onizlemenin uzerinde fare tekerlegini cevir --
+   buyuyup kucumeli; basili tutup surukleyince kaymali. Buyuk bir
+   goruntude **1:1 / sigdir** dugmesi gercek piksel olcusu ile
+   sigdirilmis gorunum arasinda gidip gelmeli. Kucuk bir gorselde dugme
+   is yapmaz (zaten sigiyor, 1:1'de duruyor).
+5. **Cift tik = panoya al.** Bir satira cift tikla; sag altta
+   "📋 goruntu panoda WxH" ipucu cikmali ve bir yere yapistirinca o
+   gorsel gelmeli. Kayit listenin basina gecmeli (son kullanim
+   tazeleniyor).
+6. **Panoya Al** dugmesi ayni isi SECILI satir icin yapiyor.
+7. **Isaret kutulari.** Qt surumunde Ctrl/Shift + tik ile coklu secim
+   vardi; Flet'te satirin solundaki KUTU isaretleniyor. Iki kayit
+   isaretle ve **Sil**'e bas: "N gorsel silinecek" onayi cikmali. Hicbir
+   sey isaretli degilse Sil SECILI kaydi onaysiz siler (Qt'de de
+   oyleydi). **Delete** tusu da ayni is.
+8. **Liste bosalirsa pencere kapanmali** (Qt surumunun ayni davranisi).
+9. **PNG Kaydet** dosya kutusu acmali (kutu Qt'nin, Flet penceresinin
+   ARKASINDA kalirsa haber ver) ve secilen yere yazmali; sag altta
+   "💾 kaydedildi: ..." ipucu cikmali.
+10. **Paint+pano** gorseli Paint'te acmali (`Files/paint/clip-<slot>.png`).
+    Acilmazsa panelde "Gorsel Paint'te acilamadi." kutusu cikar.
+11. **En alttaki sayac:** `N gorsel · X MB · K kopyalama`. Silince ve
+    kopyalayinca guncellenmeli.
+12. **Esc / X / Kapat** pencereyi gizler; kapaliyken yoklama DURUR
+    (pencere kapaliyken maliyet sifir). Tekrar acinca aninda gelmeli ve
+    liste guncel olmali.
+
 ---
 
 ## ADIM 10 -- YARIM KALDI (hafiza slotlari penceresi)
@@ -735,27 +798,33 @@ sey: yazilmis, okunmus, ama kimsenin import etmedigi bir panel.
 
 ---
 
-## SIRADAKI ADIM (adim 12): pano resimleri
+## SIRADAKI ADIM (adim 13): ayar ekrani -- ASAMA 2'NIN SONU
 
-Dosya: `keypilot/ui/clip_images.py` (486 satir) -> `keypilot/fui/clip_images.py`
+Dosya: `keypilot/ui/settings_dialog.py` (605 satir) ->
+`keypilot/fui/settings.py`
 
-**Neden bu:** Asama 2'de kalan iki panelden kucugu (oteki 605 satirlik
-ayar ekrani). Adim 11'in liste + secim kalibi burada da var; YENI olan
-tek sey **resim**: Qt `QPainter` ile kucuk onizleme ciziyordu, Flet'te
-`ft.Image` var. Resmin Flet'e nasil verilecegi (dosya yolu mu, base64
-mu) `fui/qr.py`de bir kez cozuldu -- QR karesi orada `ft.Image`e
-veriliyor, kalip oradan alinabilir.
+**Neden bu:** Asama 2'de kalan tek panel ve gecisin en buyuk formu.
+Bitince 13 panel Flet'te, 8 pencere Qt'de olur (Asama 3 bassa da).
+Onemi boyutundan degil: **tema secimi burada**. `fui/theme.py` su an
+SABIT KOYU bir palet ve Qt surumu sistem temasini izliyordu -- iki
+motorun yan yana ayni gorunmesi kurali ancak burada karsilanir.
 
-**Once bakilacak yer:** `keypilot/imgstore.py` (resimleri kim yaziyor,
-onizleme nereden geliyor) ve `ui/clip_images.py`in `paintEvent` /
-onizleme ureten satirlari -- Flet'e verilecek seyin BICIMI oradan
-cikacak.
+**Once bakilacak yer:** `keypilot/settings.py` (ayarin tipi, varsayilani,
+araligi nereden geliyor) ve `ui/settings_dialog.py`nin `SettingCard`
+sinifi -- panelin govdesi o: her ayar bir KART ve kartin degeri tipe
+gore baska bir denetim (acik/kapali, secenek menusu, sayi, metin).
+Flet'te menu yerine `ft.Dropdown`/`ft.PopupMenuButton` secimi burada
+verilecek. `keypilot/theme.py` de acilmali: sistem temasini izleyen
+kod orada.
 
-**Adim 10'un dersi:** dosyayi ACMADAN once "neden bu" yazma. Adim 10'un
-gerekcesi de engeli de yanlis tahmin edilmisti; gercek engel dosyanin
-ilk elli satirinda duruyordu. Adim 11'de de plan "liste + duzenleme"
-diyordu, oysa panelin en zor yaninin KISAYOL YAKALAMA oldugu ancak
-dosya acilinca gorundu.
+**Onceki adimlarin dersi:** dosyayi ACMADAN once "neden bu" yazma.
+Adim 10'un gerekcesi de engeli de yanlis tahmin edilmisti; adim 11'de
+plan "liste + duzenleme" diyordu, panelin en zor yani KISAYOL YAKALAMA
+cikti; adim 12'de plan yalnizca "resim cizimi" diyordu, gercek engel
+Ctrl/Shift ile COKLU SECIMDI (Flet'in tiklama olayi degistirici tus
+tasimiyor). Ayni sey burada da olabilir: bu panelin en zor yeri
+kartlarin degil, ayar TIPINE gore dogan denetimlerin ve tema izlemenin
+yeri olabilir.
 
 ---
 
@@ -777,11 +846,12 @@ sayilmaz.
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
       `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
       `ui/monitor.py`, `ui/macro_view.py`, `ui/ocr_view.py`,
-      `ui/repository_view.py`, `ui/profiles_view.py`. Bunlarin TESTLERI
-      hala kosuyor (`tests/test_repository_view.py`,
-      `tests/test_profiles_view.py`) -- dosya silinirken o testler de
-      gidecek; Flet karsiliklari ayri dosyada
-      (`tests/test_fui_repository.py`, `tests/test_fui_profiles.py`).
+      `ui/repository_view.py`, `ui/profiles_view.py`,
+      `ui/clip_images.py`. Bunlarin TESTLERI hala kosuyor
+      (`tests/test_repository_view.py`, `tests/test_profiles_view.py`) --
+      dosya silinirken o testler de gidecek; Flet karsiliklari ayri
+      dosyada (`tests/test_fui_repository.py`,
+      `tests/test_fui_profiles.py`, `tests/test_fui_clip_images.py`).
       **`ui/key_capture.py` ISTISNA:** `ui/profiles_view.py` silinse de
       KALIYOR, cunku Flet paneli onu kullanmaya devam ediyor
       (`fui/profiles.py` `_capture_key`).
@@ -824,11 +894,14 @@ sayilmaz.
       vermiyor ve programin geri kalani VK ile konusuyor. Asama 3 #16
       (`key_capture.py`) cozulene kadar boyle kalacak; cozum muhtemelen
       "hook'tan besle" olacak ve o zaman bu kopru de gidecek.
-- [ ] **`fui/qr.py`deki `QFileDialog`** -- "Kaydet PNG" dosya kutusu hala
-      Qt'nin. Gecis suresince BILEREK boyle (`_on_qt` ile bir satir);
-      Qt gidince yerine `ft.FilePicker` yazilmali ve o bir SERVIS:
-      sayfaya eklenip sonucu geri cagriyla alinmali. Onceki `flet`
-      bransinda `cascade/fui/shell.py` ornegi var.
+- [ ] **`QFileDialog` iki panelde:** `fui/qr.py` ("Kaydet PNG") ve
+      `fui/clip_images.py` ("PNG Kaydet"). Gecis suresince BILEREK boyle
+      (`ask_qt` ile bir satir); Qt gidince yerine `ft.FilePicker`
+      yazilmali ve o bir SERVIS: sayfaya eklenip sonucu geri cagriyla
+      alinmali. Onceki `flet` bransinda `cascade/fui/shell.py` ornegi
+      var. Ayni panelde `QGuiApplication.clipboard()` da var -- pano
+      Flet'te YOK, o Qt gidince `win32/clipboard.py` uzerinden
+      cozulecek.
 - [ ] **`main.py`** `QApplication` kurulumu, `app.setQuitOnLastWindowClosed`,
       `logs.install_qt_handler()` -- hepsi `ft.run()` ile degisecek.
 - [ ] **Panel basina `shutdown()` cagrilari** (`app.py` `on_exit`). Su an
@@ -868,7 +941,9 @@ sayilmaz.
       yamasi, otomatik guncelleme, `ask_qt`) ve adim 9'da ILK panel
       testi yazildi (`tests/test_fui_repository.py`: Flet
       calistirilmadan panelin Qt tarafi suruluyor -- suzgec, kaydetme,
-      silme). Kalan YEDI panelin birim testi hala YOK -- dogrulama elle
+      silme). Ayni kalip adim 11 (`tests/test_fui_profiles.py`, 26 test)
+      ve adim 12'de (`tests/test_fui_clip_images.py`, 38 test) izlendi.
+      Kalan SEKIZ panelin birim testi hala YOK -- dogrulama elle
       yapildi. En kolay baslangic saf fonksiyonlar (Flet gerekmiyor,
       ekran gerekmiyor):
       `fui/slot_edit.py` `old_value()` (maskeleme, bosluk ezme, kirpma),
@@ -885,6 +960,13 @@ sayilmaz.
       (pencerede az denetim var, segno 1 ms altinda, PNG birkac kilobayt)
       ama log penceresindeki gecikmeli cizim kalibi (`FILTER_MS`) burada
       YOK. Alanlar cogalirsa ilk bakilacak yer.
+- [ ] **Pano gorselleri listesinde SINIR YOK** (`fui/clip_images.py`).
+      Her tazelemede butun satirlar yeniden kuruluyor ve her satirda bir
+      64x64 PNG var; depo 500 kayde kadar cikabiliyor (`MAX_SLOTS`).
+      PNG'ler onbellekte (slot+id) yani yeniden KODLANMIYOR, ama tam
+      cizimde hepsi Flutter tarafina yeniden gidiyor. Gercek depoda
+      (yuzlerce gorsel) acilis yavaslarsa ilk bakilacak yer burasi;
+      cozum kalibi hazir: `fui/log_view.py` `RENDER_LIMIT`.
 - [ ] **`RENDER_LIMIT = 500`** (`fui/log_view.py`). Cizim maliyeti satir
       sayisiyla dogru orantili oldugu icin kondu. Flet'in ileride
       gercekten sanallastiran (yalniz gorunen satiri cizen) bir liste
@@ -966,6 +1048,38 @@ sayilmaz.
       kullaniyordu; oteki dokuz panelle ayni kayip, ayni sebep. Not:
       kisayol YAKALAMA kutusu Qt oldugu icin O hala imlecin ekraninda
       aciliyor -- iki pencere iki ayri yerde acilabilir.
+
+- [ ] **Pano gorsellerinde Ctrl/Shift ile COKLU SECIM dustu.** Yerine
+      her satirda bir ISARET KUTUSU var. Sebep Flet'te: tiklama olayi
+      degistirici tuslari TASIMIYOR (`ft.TapEvent`de ctrl/shift alani
+      yok; `ft.KeyboardEvent`te var ama o yalnizca tusa BASILINCA geliyor
+      ve birakma haberi gelmedigi icin durum takip edilemiyor).
+      `ft.KeyboardListener` (on_key_down/on_key_up) bir gun bu isi
+      gorebilir -- odak sorunu cozulurse. Islev kaybi YOK: coklu secimin
+      tek kullanicisi toplu silmeydi.
+
+- [ ] **Pano gorsellerinde 1:1 GERCEKTEN 1:1 degil.** Qt cizimi
+      `devicePixelRatio`ya bolerek bir goruntu pikselini bir EKRAN
+      pikseline oturtuyordu; Flet'te cizim Flutter'in mantiksal
+      pikselinde ve olcegi veren bir alan YOK. %150 olcekli ekranda
+      "1:1" gorsel bir tik buyuk cikar. Bu makine %135 olcekli, yani
+      gozle gorulur.
+
+- [ ] **Pano gorsellerinde sutun genisligi degistirilemiyor.** Qt'de
+      `QSplitter` vardi ve liste kolonlarin GERCEK genisligine
+      cekiliyordu (`_fit_list_width`); Flet'te liste sabit (430, Qt'nin
+      acilis olcusu). Depo ve profil pencereleriyle ayni kayip, ayni
+      sebep.
+
+- [ ] **Pano gorselleri imlecin ekraninda acilmiyor.** Qt
+      `center_on_cursor_screen` kullaniyordu; oteki on panelle ayni
+      kayip, ayni sebep (`ui/place.py` karsiligi yok).
+
+- [ ] **Silme onayi acikken yoklama DURMUYOR.** Qt onay kutusu acilirken
+      zamanlayiciyi durduruyordu (liste altta degismesin). Flet'te kutu
+      Flet dongusunde, yoklama Qt thread'inde -- durdurmak iki thread'i
+      elle esitlemek demek. Zararsiz: isaretler SLOT ile tasiniyor, yani
+      liste tazelense de silinecek kayitlar ayni kalir.
 
 - [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
       380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri

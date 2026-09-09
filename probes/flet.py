@@ -21,6 +21,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet ocr       (yalniz OCR sonuc paneli)
            uv run python -m probes.flet repo      (yalniz kod parcasi deposu)
            uv run python -m probes.flet profil    (yalniz profil yoneticisi)
+           uv run python -m probes.flet gorsel    (yalniz pano gorselleri)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -35,6 +36,7 @@ import threading
 import time
 from pathlib import Path
 
+from PIL import Image
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QApplication,
@@ -49,6 +51,7 @@ from keypilot import paths
 from keypilot.app_shorts import ShortcutStore
 from keypilot.core.mouse import MouseSeen
 from keypilot.core.ocr_layout import Word
+from keypilot.fui.clip_images import ClipImagesPanel
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
 from keypilot.fui.macro import MacroPanel
@@ -59,6 +62,7 @@ from keypilot.fui.profiles import ProfilesPanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.repository import RepositoryPanel
 from keypilot.fui.slot_edit import SlotEditPanel
+from keypilot.imgstore import ClipImageStore
 from keypilot.repository import Repository
 from keypilot.store import PASSWORD_SLOT, SlotStore
 from keypilot.win32.hook import KeyEvent
@@ -185,6 +189,42 @@ def probe_shorts() -> ShortcutStore:
     return store
 
 
+#: Gorsel sondajinin uc ornegi: (genislik, yukseklik, renk). Ucuncusu
+#: onizleme kutusundan BUYUK -- "1:1 / sigdir" ve kaydirma ancak boyle
+#: sinaniyor.
+IMAGE_SAMPLES = (
+    (120, 80, (200, 30, 40)),
+    (640, 400, (40, 120, 200)),
+    (2400, 1600, (60, 170, 90)),
+)
+
+
+def probe_image_store() -> ClipImageStore:
+    """Sondajin yazabilecegi GECICI gorsel deposu -- SAHTE resimlerle.
+
+    Gercek `clipimg.dat` KOPYALANMIYOR: dosya 500 MB'a kadar cikabiliyor
+    ve bu panelin "Sil" dugmesi gercekten siliyor. Sahte uc resim
+    yetiyor; bakilacak sey liste, onizleme ve canli tazeleme.
+    """
+    directory = Path(tempfile.gettempdir()) / "keypilot-sondaj-gorseller"
+    directory.mkdir(parents=True, exist_ok=True)
+    store = ClipImageStore(directory)
+    if not store.records():
+        for width, height, color in IMAGE_SAMPLES:
+            store.save_image(sample_image(width, height, color))
+    return store
+
+
+def sample_image(width: int, height: int, color: tuple[int, int, int]) -> Image.Image:
+    """Kosegen cizgili duz renk: yumusatma ve 1:1 gozle ayirt edilebilsin."""
+    image = Image.new("RGBA", (width, height), (*color, 255))
+    pixels = image.load()
+    for x in range(0, width, 8):
+        for y in range(height):
+            pixels[min(width - 1, (x + y) % width), y] = (255, 255, 255, 255)
+    return image
+
+
 #: "Durum" sekmesi icin sahte sayaclar -- app.py `_diagnostics` bicimi.
 STATS = [
     ("hook: en uzun callback", "12.480 ms (sinir 300)"),
@@ -276,6 +316,16 @@ class Probe(QWidget):
         self.profiles.keys_changed = lambda: self._note("profiles", "keys_changed")
         self.profiles.closed.connect(lambda: self._note("profiles", "closed"))
 
+        # Gorseller: GECICI depo, SAHTE resimler (bkz. `probe_image_store`).
+        # "Sil" gercekten siliyor ama kopyaya; "Panoya Al" gercekten
+        # panoya yaziyor. Ikinci dugme yeni bir resim ekliyor: liste
+        # KENDILIGINDEN tazelenmeli (900 ms'lik yoklama).
+        self.image_store = probe_image_store()
+        self.images = ClipImagesPanel(self.image_store)
+        self.images.copied.connect(lambda detail: self._note("images", f"copied {detail!r}"))
+        self.images.closed.connect(lambda: self._note("images", "closed"))
+        self._added = 0
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -309,6 +359,12 @@ class Probe(QWidget):
             ("Makro kayit ekrani", self.macro.open, "macro"),
             ("OCR sonuc paneli (sahte tablo)", self._show_ocr, "ocr"),
             ("Kod parcasi deposu (gecici kopya)", self.repository.open, "repo"),
+            ("Pano gorselleri (sahte depo)", self.images.open, "gorsel"),
+            (
+                "Pano gorselleri -- YENI resim ekle (canli liste)",
+                self._add_image,
+                "gorsel",
+            ),
             ("Profil yoneticisi (gecici kopya)", self.profiles.open, "profil"),
             (
                 "Profil yoneticisi -- YENI profil (sinif dolu)",
@@ -379,6 +435,18 @@ class Probe(QWidget):
             # Her yedincisi YUTULDU: kirmizi satir da gorunsun.
             self.monitor.add(event, swallowed=self._feed % 7 == 0)
 
+    def _add_image(self) -> None:
+        """Sahte bir "gorsel kopyalandi" olayi -- gercekte `clip_ctl.on_other`.
+
+        Depo `rev`i artiyor; acik pencere listeyi kendiliginden
+        tazelemeli ve secili kayit YERINDE kalmali.
+        """
+        self._added += 1
+        width = 200 + 40 * (self._added % 5)
+        color = (30 + 40 * (self._added % 5), 90, 200)
+        slot = self.image_store.save_image(sample_image(width, 150, color))
+        self._note("images", f"yeni gorsel: slot={slot} ({width}x150)")
+
     # ---- makro: `macro_ctl.py`nin yerine gecen sahte denetleyici ----
     #
     # Gercekte durumu denetleyici yaziyor (`set_state`); sondajda ayni
@@ -447,6 +515,8 @@ class Probe(QWidget):
         self.ocr.shutdown()
         self.repository.shutdown()
         self.profiles.shutdown()
+        self.images.shutdown()
+        self.image_store.close()
         super().closeEvent(event)
 
 

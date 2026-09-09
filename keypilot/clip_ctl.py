@@ -27,9 +27,9 @@ from PySide6.QtGui import QGuiApplication, QImage
 from keypilot.core.clip_history import ClipHistory
 from keypilot.core.filter import FilterItem
 from keypilot.core.state import ClipboardState
+from keypilot.fui.clip_images import ClipImagesPanel
 from keypilot.imgstore import THUMB_SIZE, ClipImageStore
 from keypilot.store import ClipStore
-from keypilot.ui.clip_images import ClipImages
 from keypilot.ui.clipboard import ClipboardWatcher
 from keypilot.ui.preview import preview_html, shorten
 
@@ -63,7 +63,9 @@ class ClipController:
         # AHK clip_image_store.ahk + clip_image_dialog.ahk. Dosya bicimi
         # AHK ile ayni (clipimg.idx / clipimg.dat), pencere de ayni islevde.
         self.image_store = ClipImageStore(directory)
-        self.images = ClipImages(self.image_store)
+        # Panel FLET tarafinda (adim 12); Qt karsiligi
+        # `ui/clip_images.py` duruyor -- geri donmek bu satir.
+        self.images = ClipImagesPanel(self.image_store)
         self.images.copied.connect(self._on_image_copied)
         self.watcher = ClipboardWatcher()
         self.watcher.text_copied.connect(self.on_text)
