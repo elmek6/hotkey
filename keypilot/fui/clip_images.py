@@ -512,7 +512,7 @@ class ClipImagesPanel(QObject):
                 ],
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     @staticmethod
     def _header() -> ft.Row:

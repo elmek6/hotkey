@@ -28,6 +28,7 @@ from ctypes import wintypes
 
 from keypilot.win32.screen import BITMAPINFOHEADER, gdi32
 from keypilot.win32.structs import kernel32, user32
+from keypilot.win32.window import force_foreground as _force_foreground
 
 shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
@@ -110,9 +111,6 @@ user32.CreateWindowExW.argtypes = [
     wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p,
 ]
 user32.CreateWindowExW.restype = wintypes.HWND
-user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
-user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
 shell32.SHDefExtractIconW.argtypes = [
     wintypes.LPCWSTR, ctypes.c_int, wintypes.UINT,
     ctypes.POINTER(wintypes.HICON), ctypes.POINTER(wintypes.HICON), wintypes.UINT,
@@ -194,25 +192,12 @@ def force_foreground(hwnd: int) -> None:
     gormedigi icin odak alma hakki yok. Pencere ustte cikiyor ama klavye
     odagi almiyordu -- Esc calismiyor, kapatip elle acinca calisiyordu.
 
-    Windows, arka plandaki bir surecin odak calmasini engeller; standart
-    kacamak, o an odaktaki pencerenin girdi kuyruguna baglanip cagriyi
-    yapmak. Baglanti hemen kaldiriliyor -- kalirsa iki thread'in klavye
-    durumu birlesik kalir.
+    GOVDE `win32/window.py`YE TASINDI (adim 15): Flet penceresi ucuncu
+    kullanici oldu (odak koprusu, `window.force_focus`) ve ayni
+    `AttachThreadInput` dansi iki yerde durmasin. Ad burada kaliyor,
+    cunku `ui/snip.py` bunu cagiriyor.
     """
-    if user32.SetForegroundWindow(hwnd):
-        return
-    other = user32.GetForegroundWindow()
-    if not other:
-        return
-    target = user32.GetWindowThreadProcessId(other, None)
-    mine = kernel32.GetCurrentThreadId()
-    if target == mine:
-        return
-    user32.AttachThreadInput(mine, target, True)
-    try:
-        user32.SetForegroundWindow(hwnd)
-    finally:
-        user32.AttachThreadInput(mine, target, False)
+    _force_foreground(hwnd)
 
 
 def _icon_bitmap(name: str) -> int:

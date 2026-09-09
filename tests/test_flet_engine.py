@@ -100,3 +100,70 @@ def test_ask_qt_isi_ANA_threadde_kosturuyor(qapp):
     assert kosan == []
     qapp.processEvents()
     assert kosan == [threading.main_thread().name]
+
+
+# -- ON ISITMA (adim 15) ---------------------------------------------------
+#
+# `warm()` panelin ilk acilisini program bostayken odetiyor: `flet.exe`
+# ayaga kalkiyor ama pencere GORUNMUYOR. Olculen iki dert de o anda
+# bitiyor -- 1.0-3.5 saniyelik acilis ve adim 14'un F senaryosundaki odak
+# kararsizligi. Asagidaki testler `flet.exe` calistirmadan bayragin
+# davranisini suruyor: olculen sey `show_on_build`in ne yaptigi.
+
+
+class SahteMotor(FletEngine):
+    """Thread ACMAYAN motor: `_launch` bosa cikiyor, bayrak gercek."""
+
+    def __init__(self) -> None:
+        super().__init__(lambda page: None)
+        self.baslatildi = 0
+        self.gosterildi: list = []
+
+    def _launch(self) -> None:
+        self.baslatildi += 1
+
+    def call(self, job):  # type: ignore[override]
+        # Gercek `call` sayfa yoksa sessizce donuyor; burada cagrildigini
+        # gormek istiyoruz.
+        self.gosterildi.append(job)
+
+
+def yeni_motor() -> SahteMotor:
+    return SahteMotor()
+
+
+def test_on_isitma_PENCEREYI_GOSTERMIYOR():
+    motor = yeni_motor()
+    motor.warm()
+    motor.show_on_build(lambda: None)  # `_build`in son satiri
+    assert motor.baslatildi == 1
+    assert motor.gosterildi == []
+
+
+def test_normal_acilis_PENCEREYI_GOSTERIYOR():
+    motor = yeni_motor()
+    motor.start()
+    motor.show_on_build(lambda: None)
+    assert len(motor.gosterildi) == 1
+
+
+def test_isitirken_gelen_start_ISITMAYI_IPTAL_EDIYOR():
+    """Yaris: panel isitilirken kullanici onu gercekten aciyor. Thread
+    hala ayaga kalkiyorsa `_build` bayragi KAPALI gormeli, yoksa panel
+    istendigi halde gorunmez kalirdi."""
+    motor = yeni_motor()
+    motor.warm()
+    motor.start()
+    motor.show_on_build(lambda: None)
+    assert len(motor.gosterildi) == 1
+
+
+def test_isitilmis_panel_SONRA_normal_aciliyor():
+    """Isitmadan sonra `_build` kostu (pencere gizli). Panelin `show_*`
+    metodu artik `engine.page` dolu gordugu icin dogrudan `call()`
+    yoluna giriyor -- kacan bir sey yok."""
+    motor = yeni_motor()
+    motor.warm()
+    motor.show_on_build(lambda: None)
+    motor.call(lambda: None)  # panelin `show_*` yolu
+    assert len(motor.gosterildi) == 1

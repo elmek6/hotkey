@@ -165,7 +165,7 @@ class KeyMapPanel(QObject):
                 expand=True,
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     async def _show_now(self) -> None:
         """Tabloyu tazele ve pencereyi one getir (FLET thread'i).

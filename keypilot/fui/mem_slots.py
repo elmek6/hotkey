@@ -446,7 +446,7 @@ class MemSlotsPanel(QObject):
                 ],
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     @staticmethod
     def _check(label: str, value: bool, on_change: Callable[[ft.Event], None]) -> ft.Checkbox:

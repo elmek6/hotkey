@@ -128,7 +128,7 @@ class PausePanel(QObject):
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     async def _show_now(self) -> None:
         page = self._page

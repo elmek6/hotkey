@@ -299,7 +299,7 @@ class MacroPanel(QObject):
                 spacing=10,
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     def _button(
         self, label: str, action: Callable[[], None], width: int = 150

@@ -188,7 +188,7 @@ class SlotEditPanel(QObject):
                 spacing=8,
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     def _button(self, label: str, action: Callable[[], None]) -> ft.ElevatedButton:
         return ft.ElevatedButton(

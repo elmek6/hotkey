@@ -309,7 +309,7 @@ class MonitorPanel(QObject):
                 expand=True,
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     def _header_row(self) -> ft.Container:
         return ft.Container(

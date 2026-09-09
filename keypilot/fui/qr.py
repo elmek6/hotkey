@@ -391,7 +391,7 @@ class QrPanel(QObject):
         )
 
         page.controls.append(ft.Column(controls=rows, spacing=10))
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     def _button(self, label: str, action: Callable[[], None]) -> ft.ElevatedButton:
         return ft.ElevatedButton(

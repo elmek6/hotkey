@@ -24,10 +24,11 @@ onlari temizliyor (AHK'de bu yoktu, olu hwnd menude gorunmeye devam ederdi).
 from __future__ import annotations
 
 import ctypes
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
-from keypilot.win32.structs import user32
+from keypilot.win32.structs import kernel32, user32
 
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
@@ -75,6 +76,12 @@ user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.ShowWindow.restype = wintypes.BOOL
 user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.GetWindowLongW.restype = ctypes.c_long
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+user32.AttachThreadInput.restype = wintypes.BOOL
+user32.BringWindowToTop.argtypes = [wintypes.HWND]
+user32.BringWindowToTop.restype = wintypes.BOOL
 
 SW_RESTORE = 9
 SW_MINIMIZE = 6
@@ -189,6 +196,84 @@ def activate(hwnd: int) -> bool:
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, SW_RESTORE)
     return bool(user32.SetForegroundWindow(hwnd))
+
+
+#: `force_focus` denemeler arasinda ne kadar bekler. Bu cagri QT'NIN ANA
+#: THREAD'inde kosuyor: en kotu durumda `tries * SETTLE` kadar tepsi,
+#: ipucu ve tus kuyrugu bekler. Odagi zaten alabilen bir pencerede hic
+#: beklenmiyor (ilk deneme dogrulaniyor ve doniliyor); bekleme yalnizca
+#: Windows'un odak vermeyi reddettigi durumda odeniyor.
+FOCUS_SETTLE = 0.25
+
+
+def force_foreground(hwnd: int) -> bool:
+    """`SetForegroundWindow`u ZORLA calistir. TEK ATIS, dogrulama yok.
+
+    Windows arka plandaki bir surecin odak calmasini engelliyor: izin
+    yalnizca "son girdiyi alan" surecte. Standart kacamak, o an odaktaki
+    pencerenin girdi kuyruguna baglanip cagriyi oradan yapmak. Baglanti
+    hemen kaldiriliyor -- kalirsa iki thread'in klavye durumu birlesik
+    kalir.
+
+    `win32/menu.py` `force_foreground` bu isi menu ve `ui/snip.py` icin
+    yapiyordu; adim 14'te Flet penceresi ucuncu kullanici oldu ve is ortak
+    yere alindi. Menudeki ad korunuyor (`ui/snip.py` onu cagiriyor), govde
+    buraya delege ediyor.
+    """
+    if user32.SetForegroundWindow(hwnd):
+        return True
+    other = user32.GetForegroundWindow()
+    if not other:
+        return False
+    target = user32.GetWindowThreadProcessId(other, None)
+    mine = kernel32.GetCurrentThreadId()
+    if target == mine:
+        return False
+    user32.AttachThreadInput(mine, target, True)
+    try:
+        return bool(user32.SetForegroundWindow(hwnd))
+    finally:
+        user32.AttachThreadInput(mine, target, False)
+
+
+def force_focus(hwnd: int, tries: int = 3, settle: float = FOCUS_SETTLE) -> bool:
+    """Pencereyi one getir ve GERCEKTEN geldigini dogrula.
+
+    ODAK KOPRUSU -- adim 14'un olcumunden cikan yardimci (senaryo H).
+    Flet penceresi odagi kendisi ALAMIYOR: `flet.exe` ayri bir surec ve
+    kullanicinin son tusu ona gitmedi, yani `window.focused = True` da
+    `to_front()` de ise yaramiyor (senaryo G). BIZIM surecimiz
+    getirebiliyor; `array_filter` ve `quick_panel` bunu kullanacak
+    (ikisinde de arama kutusuna YAZILIYOR, yani odagi almalilar).
+
+    `activate`den farki: sonucu DOGRULUYOR. `SetForegroundWindow` izin
+    verilmeyince `False` donmuyor, pencereyi gorev cubugunda yanip soner
+    halde birakip `True` donebiliyor. Tek olcut `GetForegroundWindow`.
+
+    Tekrar neden: olcumde tek atis her seferinde yetmedi -- odak bir kez
+    alinip hemen kaybedilebiliyor (araya odak calan baska bir uygulama
+    giriyor). `tries=1, settle=0` verilirse hic beklemez.
+
+    IPUCU VE ROZET ICIN CAGIRILMAMALI (`tip.py`, `incognito_badge.py`):
+    onlar odak ALMAMALI ve Flet'in varsayilan davranisi zaten oyle.
+    """
+    for _ in range(max(1, tries)):
+        if not is_window(hwnd):
+            return False
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        force_foreground(hwnd)
+        user32.BringWindowToTop(hwnd)
+        if foreground_window() == hwnd:
+            return True
+        if not settle:
+            continue
+        # Odak degisimi cagri donerken bitmis olmayabilir: pencere baska
+        # bir surecte ve haber onun mesaj kuyrugundan geciyor.
+        time.sleep(settle)
+        if foreground_window() == hwnd:
+            return True
+    return False
 
 
 def find_window(cls: str = "", title: str = "") -> int:

@@ -77,56 +77,21 @@ BOOT_TIMEOUT = 20.0
 #: deneme yetmedi.
 TRIES = 6
 
-#: Odagi ZORLA geri almak icin. `SetForegroundWindow` tek basina
-#: yetmiyor: Windows odak calmayi kisitliyor ve baska bir uygulama
-#: ondeyken cagri `False` donuyor (ilk olcumde tam bu oldu -- araya
-#: baska bir Flutter penceresi girdi ve Not Defteri bir daha one
-#: gelemedi). `AttachThreadInput` ile o pencerenin girdi kuyruguna
-#: baglanip izin aliniyor. SONDAJA OZEL bir numara: olcum "cozuluyor"
-#: derse duzgun yeri `keypilot/win32/window.py`.
+#: D senaryosu icin. `SetWindowLongW` keypilot/win32'de YOK ve oraya
+#: eklenmiyor: olcum "gerekmiyor bile" dedi (D), yani kalici bir yetenek
+#: degil.
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
 SW_HIDE = 0
 SW_SHOWNOACTIVATE = 4
 
-# `SetWindowLongW` keypilot/win32'de YOK ve oraya eklenmiyor: bu bir
-# sondaj, kalici bir yetenek degil. Olcum "cozuluyor" derse o zaman
-# duzgun yerine yazilir.
 user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
 user32.SetWindowLongW.restype = ctypes.c_long
-user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
-user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
-user32.AttachThreadInput.restype = wintypes.BOOL
-user32.BringWindowToTop.argtypes = [wintypes.HWND]
-user32.BringWindowToTop.restype = wintypes.BOOL
 
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-kernel32.GetCurrentThreadId.restype = wintypes.DWORD
-
-
-def force_focus(hwnd: int, tries: int = 3) -> bool:
-    """Pencereyi ZORLA one getir (bkz. `AttachThreadInput` notu).
-
-    Birden fazla deneme: odak calan bir uygulama varken tek atis
-    yetmiyor -- bir kez alip hemen kaybetmek de olabiliyor.
-    """
-    for _ in range(tries):
-        if win.activate(hwnd) and win.foreground_window() == hwnd:
-            return True
-        front = win.foreground_window()
-        front_thread = user32.GetWindowThreadProcessId(front, None)
-        ours = kernel32.GetCurrentThreadId()
-        user32.AttachThreadInput(ours, front_thread, True)
-        try:
-            user32.SetForegroundWindow(hwnd)
-            user32.BringWindowToTop(hwnd)
-        finally:
-            user32.AttachThreadInput(ours, front_thread, False)
-        time.sleep(0.25)
-        if win.foreground_window() == hwnd:
-            return True
-    return False
+#: Odagi ZORLA vermek (senaryo H). Sondaj kendi kopyasini tasiyordu;
+#: olcum "cozuluyor" dedigi icin govde kalici yerine tasindi
+#: (`keypilot/win32/window.py`, adim 15) ve buradan cagriliyor.
+force_focus = win.force_focus
 
 
 def describe(hwnd: int) -> str:

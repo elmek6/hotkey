@@ -45,6 +45,17 @@
 > acilisi KARARSIZ: bir olcumde 2.12 sn sonra odagi caldi, bir
 > olcumde calmadi. Tablo ve karar: **ADIM 14 -- ODAK OLCUMU** bolumu.
 >
+> **ADIM 15 (ON ISITMA + ODAK KOPRUSU) BITTI -- iki yardimci, panel
+> tasima yok.** Adim 14'un olcumunun biraktiğı iki eksik kapandi:
+> `FletEngine.warm()` `flet.exe`yi PENCEREYI GOSTERMEDEN ayaga kaldiriyor
+> (paneller `_build`in son satirinda artik `show_on_build` cagiriyor) ve
+> `win32/window.py` `force_focus()` odagi bizim surecimizden Flet
+> penceresine veriyor -- sondajdaki kopya (`probes/focus.py`) artik onu
+> cagiriyor. Ayni dans iki yerdeydi: `menu.force_foreground` govdesini
+> `window.force_foreground`a birakti. 14 birim testi geciyor
+> (`tests/test_flet_engine.py` +4, `tests/test_window_focus.py` 5).
+> Ikisi de HENUZ KULLANILMIYOR: musterileri adim 16+'daki dort pencere.
+>
 > **TEMA KARARI:** Flet panelleri KOYU SABIT kaldi. Ayarin kendisi
 > calisiyor (Qt pencereleri tema degistiriyor) ama Flet tarafi renkleri
 > denetim kurulurken aliyor ve panel bir daha yok edilmiyor; "acik tema"
@@ -328,11 +339,11 @@ Bunlar "biraz ugrasinca olur" degil; her biri icin bir KARAR gerekiyor.
 | # | Panel | Satir | Engel | Secenek |
 |---|---|---|---|---|
 | 10 | `mem_slots.py` | 454 | Satiri BASKA BIR UYGULAMAYA surukleyip birakma (`QDrag`) | **Flet'te karsiligi YOK** ve Win32'ye inmek de yetmiyor -- olculdu, asagidaki "Adim 10 -- YARIM KALDI". Ya sürükleme kaybedilir (panel hazir: `fui/mem_slots.py`), ya pencere Qt'de kalir. |
-| 14 | `array_filter.py` | 313 | **OLCULDU, engel TERSINE CIKTI:** bu pencere odagi ALMAK zorunda (arama kutusuna yaziliyor, `activateWindow` + `setFocus`), Flet penceresi ise odagi ALAMIYOR | Odak KOPRUSU: gosterdikten sonra Qt tarafindan `AttachThreadInput` + `SetForegroundWindow` (olculdu, calisiyor) |
+| 14 | `array_filter.py` | 313 | **OLCULDU, engel TERSINE CIKTI:** bu pencere odagi ALMAK zorunda (arama kutusuna yaziliyor, `activateWindow` + `setFocus`), Flet penceresi ise odagi ALAMIYOR | Odak KOPRUSU YAZILDI (adim 15): `win32/window.py` `force_focus()` -- gosterdikten sonra Qt tarafindan cagrilacak |
 | 15 | `quick_panel.py` | 562 | Ayni: CapsLock paneli de kutuya yaziyor (`eventFilter`) | Ayni kopru |
 | 16 | `key_capture.py` | 112 | Ham tus yakalama: `ui_open` ile hook susturulup tuslar Qt olayi olarak okunuyor | Flet klavye olayi sayfa duzeyinde ve Windows tus kodlarini vermiyor. Hook'tan beslemek gerekir. |
-| 17 | `incognito_badge.py` | 188 | `QPainter` ile cizilen, hep ustte duran rozet | **Odak sorunu OLCULDU ve YOK:** Flet penceresi gosterilince odak calmiyor. Kalan is cerceve/saydamlik (`frameless`, `always_on_top`, `skip_task_bar` Flet'te var) |
-| 18 | `tip.py` | 173 | `FramelessWindowHint` + `WA_ShowWithoutActivating` | **OLCULDU: `WA_ShowWithoutActivating`in karsiligi BEDAVA** -- Flet penceresi gosterilirken odak calmiyor. Kalan is cercevesiz + hep ustte cizim ve ILK ACILIS gecikmesi (on isitma) |
+| 17 | `incognito_badge.py` | 188 | `QPainter` ile cizilen, hep ustte duran rozet | **Odak sorunu OLCULDU ve YOK:** Flet penceresi gosterilince odak calmiyor. Kalan is cerceve/saydamlik (`frameless`, `always_on_top`, `skip_task_bar` Flet'te var) ve ON ISITMA (adim 15, hazir) |
+| 18 | `tip.py` | 173 | `FramelessWindowHint` + `WA_ShowWithoutActivating` | **OLCULDU: `WA_ShowWithoutActivating`in karsiligi BEDAVA** -- Flet penceresi gosterilirken odak calmiyor. Kalan is cercevesiz + hep ustte cizim; ILK ACILIS gecikmesi icin on isitma HAZIR (adim 15) |
 | 19 | `menu.py` | 88 | Win32 `TrackPopupMenu` (zaten Qt degil) | Flet'e tasimak anlamsiz; oldugu gibi kalabilir. |
 | 20 | `tray.py` | 419 | `QSystemTrayIcon` -- Flet'te tepsi YOK | Onceki brans `pystray` eklemisti. Ayri bir karar. |
 | 21 | `snip.py` | 1347 | Tam ekran saydam bindirme + `QPainter` cizimi + basili tus takibi | **Flet'te karsiligi YOK.** Win32 katmanina inmeli (onceki brans `win32/overlay.py` yazmisti). En son, belki hic. |
@@ -942,38 +953,95 @@ sey: yazilmis, okunmus, ama kimsenin import etmedigi bir panel.
 
 ---
 
-## SIRADAKI ADIM (adim 15): ON ISITMA + ODAK KOPRUSU
+## ADIM 15 -- ON ISITMA + ODAK KOPRUSU (bitti)
 
-**Kucuk ve altyapisal: iki yardimci, panel tasima YOK.** Adim 14'un
-olcumu iki eksik birakti; ikisi de dort pencerenin ORTAK ihtiyaci, yani
-once bunlar yazilmali -- yoksa her panelde tekrar cozulur.
+**Iki yardimci, panel tasima YOK.** Adim 14'un olcumu iki eksik
+birakmisti; ikisi de dort pencerenin ORTAK ihtiyaci, o yuzden panelden
+once yazildilar -- yoksa her panelde tekrar cozulurlerdi.
 
-**1) On isitma (`fui/engine.py`).** Panelin ilk acilisi `flet.exe`yi
-ayaga kaldiriyor: 1-3.5 saniye VE olculen odak kararsizligi (F
-senaryosu). Motora "pencereyi gostermeden thread'i baslat" yolu
-eklenecek: `start()` zaten pencereyi `_build`de gosteriyor, on isitmada
-GOSTERMEMELI.
+### 1) On isitma -- `FletEngine.warm()`
 
-    -> Dikkat: her panelin kendi `flet.exe`si var, hepsini birden
-       isitmak 12 surec demek. Yalniz odaga duyarli / sik acilan
-       paneller isitilmali (ipucu, hizli panel). Hangileri oldugu
-       olculerek secilecek: bellek ve acilis suresi.
+Panelin ilk acilisi `flet.exe`yi ayaga kaldiriyor: 1.0-3.5 saniye VE
+olculen odak kararsizligi (F senaryosu -- bir olcumde yeni surec 2.12 sn
+sonra odagi caldi). `warm()` bu bedeli PROGRAM BOSTAYKEN odetiyor:
+thread baslar, `_build` kosar, pencere GORUNMEZ.
 
-**2) Odak koprusu (`win32/window.py`).** `probes/focus.py`deki
-`force_focus` sondajdan gercek yere tasinacak: `AttachThreadInput` +
-`SetForegroundWindow` + `BringWindowToTop`. Olculdu, calisiyor (H).
-Pencere tutamagi Flet tarafindan gelmiyor -- baslikla bulunuyor
-(`find_window`, sondaj bunu yapiyor); kalici cozumde panelin baslik
-metni kimlik olarak kullanilacak.
+Motorda uc parca:
 
-    -> Bu yardimci `array_filter` ve `quick_panel` icin SART, ipucu ve
-       rozet icin ZARARLI (onlar odak almamali). Yani panel basina
-       "odak ister/istemez" bir bayrak.
+| Ne | Is |
+|---|---|
+| `warm()` | `start()`in ta kendisi, tek farki bayrak (`_warming`) |
+| `show_on_build(job)` | `_build`in SON SATIRI. Isitmada gostermez. |
+| `start()` | bayragi DUSURUR -- isitirken gelen gercek acilis kazanir |
 
-**Sonra (adim 16+):** panel tasima sirasi kucukten buyuge --
-`tip.py` (173), `incognito_badge.py` (188), `array_filter.py` (313),
-`quick_panel.py` (562). Ilk ikisi odak istemiyor, ikinci ikisi koprüyü
-kullanacak.
+On uc panelin hepsi `_build` sonunda artik `self._engine.call(self._show_now)`
+degil `self._engine.show_on_build(self._show_now)` cagiriyor. Isitilmis
+panel sonradan normal acildiginda `engine.page` zaten dolu, yani panelin
+`show_*` metodu dogrudan `call()` yoluna giriyor -- kacan bir sey yok.
+
+    -> HANGI PANEL ISITILACAK, HENUZ SECILMEDI. Her panelin kendi
+       `flet.exe`si var: hepsini isitmak 12 surec demek. Yalniz odaga
+       duyarli / sik acilan paneller isitilmali (ipucu, hizli panel) ve
+       secim OLCULEREK yapilmali -- bellek ve acilis suresi. Su an
+       `warm()`i kimse cagirmiyor.
+
+### 2) Odak koprusu -- `win32/window.py` `force_focus()`
+
+`probes/focus.py`deki `force_focus` kalici yere tasindi:
+`AttachThreadInput` + `SetForegroundWindow` + `BringWindowToTop`, ve
+sonucu `GetForegroundWindow` ile DOGRULUYOR (`SetForegroundWindow` izin
+verilmeyince `True` donup pencereyi gorev cubugunda yanip soner
+birakabiliyor -- tek olcut odagin nerede oldugu). Sondaj artik kendi
+kopyasini degil bunu cagiriyor.
+
+**Ayni dans zaten iki yerdeydi:** `win32/menu.py` `force_foreground`
+menu ve `ui/snip.py` icin bunu yapiyordu. Flet penceresi UCUNCU
+kullanici oldu, yani govde ortak yere alindi
+(`window.force_foreground`); menudeki ad delege olarak KALDI cunku
+`ui/snip.py` onu cagiriyor.
+
+    -> Bu cagri QT'NIN ANA THREAD'inde kosuyor. Ilk atis tuttuysa hic
+       beklemiyor; tutmazsa deneme basina `FOCUS_SETTLE` (0.25 sn)
+       bekliyor, yani en kotu durumda tepsi ve tus kuyrugu o kadar
+       duruyor. Ana thread'de cagiranlar `tries`/`settle`i kismali.
+
+    -> `array_filter` ve `quick_panel` icin SART, ipucu ve rozet icin
+       ZARARLI (onlar odak ALMAMALI ve Flet'in varsayilani zaten oyle).
+       Yani panel basina "odak ister/istemez" bir bayrak gerekecek --
+       o bayrak panelle birlikte, adim 16+'da.
+
+### Testler
+
+`tests/test_flet_engine.py`ye dort test (isitma pencereyi gostermiyor,
+normal acilis gosteriyor, isitirken gelen `start()` isitmayi iptal
+ediyor, isitilmis panel sonra normal aciliyor) ve yeni
+`tests/test_window_focus.py` (5 test: dogrulama, bosuna beklememe,
+kucultulmus pencereyi geri acma). Ikisi de ekran ya da `flet.exe`
+ISTEMIYOR -- Win32 cagrilari yamaniyor; odagin gercekten degistigi
+`probes/focus.py`nin isi.
+
+---
+
+## SIRADAKI ADIM (adim 16): `tip.py` -- ilk Asama 3 paneli
+
+Panel tasima sirasi kucukten buyuge: `tip.py` (173),
+`incognito_badge.py` (188), `array_filter.py` (313),
+`quick_panel.py` (562). Ilk ikisi odak ISTEMIYOR (adim 14: Flet'in
+varsayilani zaten oyle), ikinci ikisi `force_focus` kullanacak.
+
+`tip.py` ile baslamanin sebebi en kucuk olmasi degil yalniz: ipucu
+penceresi PROGRAMIN HER YERINDEN aciliyor (slot kaydetme, pano, makro),
+yani hem `always_on_top` + `frameless` cizimini hem de ON ISITMANIN
+gercekten ise yarayip yaramadigini ilk orada gorecegiz. Bakilacaklar:
+
+* `frameless`, `always_on_top`, `skip_task_bar` -- ucu de Flet'te var,
+  GOZLE dogrulanmali (cerceve gercekten gidiyor mu, rozet gorev
+  cubugunda gorunuyor mu).
+* Ipucu kendi kendine kapaniyor (Qt'de `QTimer`): zamanlayici ANA
+  THREAD'de kalmali, `fui/monitor.py` kalibi.
+* **ON ISITMANIN ILK MUSTERISI.** Isitilmadan acilan ipucu 1-3.5 saniye
+  sonra gorunur -- yani gecikme oradaki isitmayla OLCULEBILIR: isitmali
+  ve isitmasiz acilis suresi.
 
 **Karar hala verilmedi (bilerek):** `menu.py` (zaten Win32),
 `tray.py` (Flet'te tepsi yok), `snip.py` (tam ekran saydam bindirme) ve
@@ -1066,8 +1134,8 @@ sayilmaz.
 - [ ] **`probes/focus.py` + `probes/focus_target.py`** -- adim 14'un
       olcumu. Karar verildi (yukaridaki tablo), yani sondajin isi bitti;
       yalnizca "acaba yeni Flet surumunde degisti mi" sorusu icin
-      duruyor. Icindeki `force_focus` kalici yere tasinacak
-      (`win32/window.py`, adim 15) -- sondajdaki kopya o zaman gidecek.
+      duruyor. Icindeki `force_focus` adim 15'te kalici yere TASINDI
+      (`win32/window.py`); sondaj artik onu cagiriyor, kopya kalmadi.
 - [ ] **`probes/flet.py`** -- "hangi panel Flet'te" sorusunun cevabi
       oldugu surece ise yariyor. Her sey Flet'e gecince anlamsizlasir;
       icindeki sahte veriler `probes/gui.py` gibi bir sondaja tasinabilir.

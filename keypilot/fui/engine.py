@@ -162,6 +162,7 @@ class FletEngine(QObject):
         self._build = build
         self._page: ft.Page | None = None
         self._thread: threading.Thread | None = None
+        self._warming = False
         self._to_qt.connect(self._run_job)
 
     @property
@@ -180,12 +181,61 @@ class FletEngine(QObject):
         ipucu cizilmez, tus kuyrugu bosalmaz. Panel kendini `build`
         icinde gosteriyor, yani bekleyecek bir sey yok.
         """
+        # Kullanici paneli ISTEDI: on isitma varsa iptal. Bayragi burada
+        # dusurmek yarisi da cozuyor -- thread hala ayaga kalkiyorsa
+        # `_build` bayragi kapali gorur ve pencereyi gosterir.
+        self._warming = False
+        self._launch()
+
+    def _launch(self) -> None:
+        """Thread'i baslatan ortak govde. Bayraga dokunmaz."""
         if self.alive:
             return
         _install_signal_shim()
         _disable_auto_update()
         self._thread = threading.Thread(target=self._run, name="keypilot-flet", daemon=True)
         self._thread.start()
+
+    def warm(self) -> None:
+        """ON ISITMA: `flet.exe`yi ayaga kaldir ama PENCEREYI GOSTERME.
+
+        Panelin ilk acilisi `flet.exe`nin ayaga kalkmasini bekliyor
+        (olculdu: 1.0-3.5 sn) ve adim 14'un F senaryosunda o an odagin
+        KARARSIZ oldugu goruldu: bir olcumde 2.12 saniye sonra yeni surec
+        odagi caldi. Ikisi de "pencere gorunmeden once" oluyor, yani
+        program bostayken odenirse kullanici hicbirini gormuyor.
+
+        Ayakta duran bir pencereyi gostermek odagi CALMIYOR (senaryolar
+        A-D), yani isitilmis panel bu iki dertten de temiz aciliyor.
+
+        BEDELI: her panelin kendi `flet.exe`si var, yani her isitma bir
+        SUREC demek. Hepsini isitmak 12 surec olurdu; yalniz odaga
+        duyarli ve sik acilan paneller isitilmali.
+
+        `start()`in ta kendisi -- tek fark `show_on_build`in pencereyi
+        gostermemesi. Panel gercekten istendiginde `start()` bayragi
+        dusuruyor, yani ayni panel sonra normal yoldan acilabiliyor.
+        """
+        if self.alive:
+            return
+        self._warming = True
+        self._launch()
+
+    def show_on_build(self, job: Callable[[], Any]) -> None:
+        """`_build`in SON SATIRI: paneli goster -- on isitmada GOSTERME.
+
+        Panel kendini `_build` icinde gosteriyor (bkz. dosya basi: ilk
+        cagri sayfayi bulamazsa thread baslatilir ve BEKLENMEZ). On
+        isitmada tam bu istenmiyor: surec ayaga kalksin, pencere
+        gorunmesin.
+
+        Isitilmis panelin `show_*` metodu sonradan cagrildiginda
+        `engine.page` artik dolu, yani panel dogrudan `call()` yoluna
+        giriyor ve pencere aninda aciliyor -- kacan bir sey yok.
+        """
+        if self._warming:
+            return
+        self.call(job)
 
     def stop(self) -> None:
         """Pencereyi GERCEKTEN kapat ve thread'i bekle. Cikista SART.

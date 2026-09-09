@@ -363,7 +363,7 @@ class OcrPanel(QObject):
                 expand=True,
             )
         )
-        self._engine.call(self._show_now)
+        self._engine.show_on_build(self._show_now)
 
     def _labelled(self, label: str, field: ft.Control) -> tuple[ft.Control, ft.Control]:
         return ft.Text(label, color=theme.MUTED, size=LABEL_SIZE), field
