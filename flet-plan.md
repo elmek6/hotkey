@@ -2,12 +2,12 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **7 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **8 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
-> (e4b4606), makro kayit ekrani (adim 7). Kalan 14 pencere hala
-> PySide6'da ve program iki motorla CALISIYOR.
+> (e4b4606), makro kayit ekrani (fda9923), OCR sonuc paneli (adim 8).
+> Kalan 13 pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
 > kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
@@ -22,8 +22,9 @@
 > `keypilot/fui/log_view.py` (iki sekme, zamanlayici, Qt'ye is yaptirma,
 > cizim sinirlama), `keypilot/fui/qr.py` (calisma aninda dogan/olen
 > denetimler, resim), `keypilot/fui/monitor.py` (CANLI akan liste --
-> artimli cizim) ve `keypilot/fui/macro.py` (DISARIDAN gelen durumu
-> yazan ilk panel).
+> artimli cizim), `keypilot/fui/macro.py` (DISARIDAN gelen durumu yazan
+> ilk panel) ve `keypilot/fui/ocr.py` (HEP USTTE duran pencere +
+> gizle/geri getir).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -259,7 +260,7 @@ indiriyor.
 | # | Panel | Satir | Not |
 |---|---|---|---|
 | 7 | `macro_view.py` | 213 | Kayit ekrani. **BITTI** -> `fui/macro.py` |
-| 8 | `ocr_view.py` | 229 | `WindowStaysOnTopHint`. Sonuc paneli. |
+| 8 | `ocr_view.py` | 229 | `WindowStaysOnTopHint`. Sonuc paneli. **BITTI** -> `fui/ocr.py` |
 | 9 | `repository_view.py` | 404 | Kod parcasi deposu. |
 | 10 | `mem_slots.py` | 454 | `WindowStaysOnTopHint`. |
 | 11 | `profiles_view.py` | 468 | Profil yoneticisi. |
@@ -298,7 +299,7 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On iki dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+On uc dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
 penceresi, olay izleyici ve uc QR girisi (duz metin, link, hazir wifi
 dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
@@ -499,22 +500,56 @@ satiri ve altta "Not defterinde ac" + "Kapat". Bakilacaklar:
 8. **Esc / X / Kapat** pencereyi gizler ve suren kaydi DURDURUR (Qt
    surumu de oyleydi). Tekrar acinca aninda gelmeli.
 
+**OCR sonuc paneli:**
+
+* **F14** tusuna BASILI TUT, bir alan sec -> OCR+ eylemi (menude
+  gelismis OCR).
+
+Pencere 860x560 acilmali ve HEP USTTE durmali. Bakilacaklar:
+
+1. **Hep ustte mi?** Baska bir pencereye tikla -- OCR paneli ustte
+   KALMALI (duraklatma kutusunda calisiyordu, burada pencere uzun sure
+   acik kaliyor). Kalmiyorsa haber ver.
+2. **Secim cercevesi.** Panel acikken cerceveyi kenarindan cek: alan
+   yeniden okunmali ve panel kendini tazelemeli. Bu sirada panel
+   EKRANDAN KAYBOLUP geri gelmeli (kirpimin icine girmesin) -- gecikme
+   gozle gorulur ama metin yeni alanin metni olmali.
+3. **Bicim.** "Duz metin" / "Kolonlu" / "Tablo (ayracli)" arasinda gec.
+   Tabloda hucreler ayracla ayrilmali; ayrac kutusu YALNIZ tabloda
+   acik, otekilerde pasif. "Duz metin"de kolon esigi de pasif.
+4. **Ayrac kutusuna elle yaz** (ornek: `	` ya da `;`) -- metin aninda
+   yeniden dizilmeli. Kutu duzenlenebilir: listeden secmek de elle
+   yazmak da is gormeli.
+5. **Kolon esigi.** "Otomatik" disinda bir deger sec (ornek `80px`) --
+   kolon bolme degismeli.
+6. **Olcek.** Degistirince alt satirda "okunuyor..." yazip yeniden OCR
+   yapmali (ekran TEKRAR CEKILMEZ, elimizdeki kirpim okunur).
+7. **Yenile.** Ekran tekrar cekilir: altta duran sayfayi kaydir, sonra
+   Yenile'ye bas -- yeni icerik gelmeli.
+8. **Metin kutusu.** Kolonlu/tablo biciminde sutunlar HIZALI olmali
+   (sabit genislikli yazi tipi, satir SARILMIYOR); uzun satirda alttan
+   yatay kaydirma cikmali. Metin SECILEBILIR ama duzenlenemez -- Qt
+   surumunde duzenlenebiliyordu, kaybin sebebi asagidaki listede.
+9. **Kopyala.** Bir yere yapistir; metin pano gecmisine de dusmeli.
+10. **Esc / X / Kapat** pencereyi gizler VE secim cercevesini de kapatir
+    (`closed` -> `snip.end_session`). Cerceve ekranda kalirsa bu bir
+    hata, haber ver.
+
 ---
 
-## SIRADAKI ADIM (adim 8): OCR sonuc paneli
+## SIRADAKI ADIM (adim 9): kod parcasi deposu
 
-Dosya: `keypilot/ui/ocr_view.py` (229 satir) -> `keypilot/fui/ocr.py`
+Dosya: `keypilot/ui/repository_view.py` (404 satir) -> `keypilot/fui/repository.py`
 
-**Neden bu:** Asama 2'nin sirasindaki bir sonraki panel ve adim 7 ile
-ayni kalibi kullaniyor (disaridan durum yaziliyor: tarama basladi,
-metin geldi). Yeni olan tek sey `WindowStaysOnTopHint` -- Flet'te
-`page.window.always_on_top`; calisip calismadigi OLCULMELI, adim 5'te
-`prevent_close`da oldugu gibi.
+**Neden bu:** Asama 2'nin sirasindaki bir sonraki panel ve ilk kez
+BUYUK bir form (404 satir). Yeni olan sey liste + duzenleme alaninin
+YAN YANA yasamasi: secilen kayit sagdaki alanlara doluyor, kaydedilince
+listeye geri yaziliyor. Cizim kalibi hazir -- `fui/qr.py`nin slot
+listesi ile `fui/slot_edit.py`nin form alanlarinin toplami.
 
-**Once bakilacak yer:** paneli acan kod (`app.py` icinde `ocr_view`) --
-metnin hangi thread'den geldigi oradan cikacak. OCR isi uzun surer;
-adim 7'nin dersi burada da gecerli: DISK VE UZUN IS `ask_qt` ile Qt
-tarafinda.
+**Once bakilacak yer:** `keypilot/repository.py` (veri katmani) ve
+`app.py`de paneli acan yer. Hangi cagrilarin diske dokundugu oradan
+cikacak; hepsi `ask_qt` ile Qt tarafinda kosmali (adim 7 ve 8'in dersi).
 
 **Adim 5'in dersini unutma:** bir sonraki adimin tahmini, bir onceki
 adimin ogrettikleriyle yeniden bakilmadan uygulanmamali.
@@ -538,7 +573,7 @@ sayilmaz.
       sessizce curuyorlar -- taniyan yok, test eden yok:
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
       `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
-      `ui/monitor.py`, `ui/macro_view.py`.
+      `ui/monitor.py`, `ui/macro_view.py`, `ui/ocr_view.py`.
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -663,6 +698,16 @@ sayilmaz.
       (bkz. **PENCERE OLCUSU kurali**); daha da daraltmak okunakliktan
       goturur. Tema/olcu isi adim 13'te (`settings_dialog.py`) topluca
       ele alinabilir.
+- [ ] **OCR panelinde metin DUZENLENEMIYOR.** Qt'de sonuc bir
+      `QPlainTextEdit`ti: kopyalamadan once elle duzeltilebiliyordu.
+      Flet'te `TextField` satiri SARIYOR ve kolonlu/tablo dizilimi
+      okunmaz hale geliyor; hizalamayi korumak icin secilebilir ama
+      duzenlenemez bir metin (`no_wrap`, iki eksende kaydirma) secildi.
+      Duzenleme gerekirse Kopyala ile disari alinip orada yapiliyor.
+
+- [ ] **OCR panelinde `QSizeGrip` yok.** Sag alttaki boyut tutamagi
+      dustu; Flet penceresi kenarlarindan zaten boyutlandiriliyor.
+
 - [ ] **Makro ekraninda "Hazir" zamanlayicisi dustu.** Qt'de 200 ms'lik
       bir `QTimer` bosta durum yazisini "Hazir"a cekiyordu; simdi durum
       yalnizca DEGISTIGINDE yaziliyor. Gorunen fark yok (bosta zaten

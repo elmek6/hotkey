@@ -45,6 +45,7 @@ from keypilot.dispatch import Dispatcher
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
 from keypilot.fui.monitor import MonitorPanel
+from keypilot.fui.ocr import OcrPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
 from keypilot.incognito import Incognito
@@ -57,7 +58,6 @@ from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
-from keypilot.ui.ocr_view import OcrView
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
@@ -267,7 +267,7 @@ class KeyPilot:
         self.snip.done.connect(self._on_snip_done)
         self.snip.rect_changed.connect(self._on_snip_rect_changed)
         self.snip.closed.connect(self._on_snip_closed)
-        self.ocr_view = OcrView()
+        self.ocr_view = OcrPanel()
         self.ocr_view.copy_text.connect(self.clip.copy_to_history)
         self.ocr_view.reocr_requested.connect(self._on_reocr)
         # "Yenile": secim cercevesi ekranda duruyor, ayni alan TAZE kareden
@@ -724,7 +724,10 @@ class KeyPilot:
         cagriliyor. Gorunmeyen pencere listeye girmez ki kapali bir panel
         yakalama sonrasi kendiliginden acilmasin.
         """
-        hidden = [w for w in (self.ocr_view,) if w is not None and w.isVisible()]
+        # OCR paneli FLET'te (fui/ocr.py): "acik mi" sorusu ana
+        # thread'deki `visible` bayragina soruluyor, Qt'deki
+        # `isVisible()` yerine.
+        hidden = [w for w in (self.ocr_view,) if w is not None and w.visible]
         for panel in hidden:
             panel.hide()
 
@@ -1967,6 +1970,7 @@ class KeyPilot:
             self._qr_view,
             self.monitor,
             self.macro.view,
+            self.ocr_view,
         ):
             if panel is not None:
                 panel.shutdown()

@@ -18,6 +18,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet qr        (yalniz QR penceresi)
            uv run python -m probes.flet monitor   (yalniz olay izleyici)
            uv run python -m probes.flet macro     (yalniz makro kayit ekrani)
+           uv run python -m probes.flet ocr       (yalniz OCR sonuc paneli)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -41,10 +42,12 @@ from PySide6.QtWidgets import (
 )
 
 from keypilot.core.mouse import MouseSeen
+from keypilot.core.ocr_layout import Word
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
 from keypilot.fui.macro import MacroPanel
 from keypilot.fui.monitor import MonitorPanel
+from keypilot.fui.ocr import OcrPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.slot_edit import SlotEditPanel
@@ -84,6 +87,30 @@ FEED_BURST = 2
 #: genisligi sinavi), biri bilinmeyen VK (VKxxSCxxx bicimi), sonuncusu
 #: fare olayina isaret: `sc` sutununda tarama kodu degil imlec konumu.
 FEED_KEYS = (0x5B, 0x70, 0x4D, 0xB3, 0x1B, 0xFE, 0xFF)
+
+
+#: OCR paneli icin sahte kelime kutulari: UC SUTUNLU bir tablo (uc satir).
+#: Kolon esigi ve tablo bicimi ancak boyle sinaniyor -- kutular ekranda
+#: nerede duruyorsa dizilim ondan cikiyor (core/ocr_layout.py).
+OCR_ROWS = (
+    ("Urun", "Adet", "Fiyat"),
+    ("Kalem", "12", "45,00"),
+    ("Defter", "3", "120,50"),
+    ("Silgi", "7", "9,90"),
+)
+#: Sutunlarin sol kenarlari (piksel) -- aralarindaki bosluk kolon
+#: ayracinin bulunmasi gereken yer.
+OCR_COLUMNS = (40, 300, 520)
+OCR_ROW_H = 34
+
+
+def ocr_words() -> tuple[Word, ...]:
+    return tuple(
+        Word(text=cell, x=float(OCR_COLUMNS[column]), y=float(20 + row * OCR_ROW_H),
+             w=float(len(cell) * 11), h=22.0)
+        for row, cells in enumerate(OCR_ROWS)
+        for column, cell in enumerate(cells)
+    )
 
 
 #: "Durum" sekmesi icin sahte sayaclar -- app.py `_diagnostics` bicimi.
@@ -152,6 +179,18 @@ class Probe(QWidget):
         )
         self.macro.play_requested.connect(lambda slot: self._on_play(slot))
 
+        # SAHTE OCR sonucu: gercekte kelime kutulari Windows.Media.Ocr'dan
+        # geliyor (app.py `_on_ocr_done`). "Yenile" ve olcek degisimi
+        # gercekte yeniden OCR baslatiyor; sondajda ayni sonucu geri
+        # veriyor -- bakilan sey panelin DURUM yazmasi ve dizilim.
+        self.ocr = OcrPanel()
+        self.ocr.copy_text.connect(
+            lambda text: self._note("ocr", f"copy_text ({len(text)} karakter)")
+        )
+        self.ocr.reocr_requested.connect(lambda scale: self._on_reocr(scale))
+        self.ocr.refresh_requested.connect(self._on_refresh)
+        self.ocr.closed.connect(lambda: self._note("ocr", "closed"))
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -183,6 +222,7 @@ class Probe(QWidget):
             # ucu de baska bir sablon tahmin ettiriyor.
             ("Olay izleyici (sahte akis)", self.monitor.show_monitor, "monitor"),
             ("Makro kayit ekrani", self.macro.open, "macro"),
+            ("OCR sonuc paneli (sahte tablo)", self._show_ocr, "ocr"),
             ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
             ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
             (
@@ -269,6 +309,21 @@ class Probe(QWidget):
             2000, lambda: self.macro.set_state(False, False, "Bitti -- 12 olay")
         )
 
+    # ---- OCR: `app.py`nin yerine gecen sahte akis ----
+
+    def _show_ocr(self) -> None:
+        self.ocr.show_result(ocr_words(), tuple(" ".join(r) for r in OCR_ROWS), 84.0)
+
+    def _on_reocr(self, scale: int) -> None:
+        self._note("ocr", f"reocr_requested olcek={scale}")
+        # Gercekte yeniden OCR ayri thread'de kosup sonucu ana thread'e
+        # donduruyor; sondaj ayni gecikmeyi taklit ediyor.
+        QTimer.singleShot(800, self._show_ocr)
+
+    def _on_refresh(self) -> None:
+        self._note("ocr", "refresh_requested")
+        QTimer.singleShot(800, self._show_ocr)
+
     def _show_log(self) -> None:
         # app.py `show_errors` ile ayni sira: once sayaclar, sonra pencere.
         self.log.set_stats(STATS)
@@ -297,6 +352,7 @@ class Probe(QWidget):
         self.qr.shutdown()
         self.monitor.shutdown()
         self.macro.shutdown()
+        self.ocr.shutdown()
         super().closeEvent(event)
 
 
