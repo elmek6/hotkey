@@ -36,6 +36,15 @@
 > hook sayaclari), o yuzden panelin HICBIR satiri degeri kendi yazmiyor
 > -- hepsi `ask_qt` ile ana thread'e dusuyor.
 >
+> **ADIM 14 (ODAK OLCUMU) BITTI -- kod degil olcum.** Sonuc tabloda:
+> **Asama 3 sekiz senaryoda olculdu** (`probes/focus.py`). Kisaca:
+> ayakta duran bir Flet penceresini gostermek odagi CALMIYOR (ipucu ve
+> rozet icin ISTENEN sey), ama Flet penceresi odagi ISTEYEREK DE
+> ALAMIYOR (pano gecmisi ve hizli panel icin GEREKEN sey) -- odak
+> BIZIM surecimizden Win32 ile verilebiliyor. Ayrica `flet.exe`nin ILK
+> acilisi KARARSIZ: bir olcumde 2.12 sn sonra odagi caldi, bir
+> olcumde calmadi. Tablo ve karar: **ADIM 14 -- ODAK OLCUMU** bolumu.
+>
 > **TEMA KARARI:** Flet panelleri KOYU SABIT kaldi. Ayarin kendisi
 > calisiyor (Qt pencereleri tema degistiriyor) ama Flet tarafi renkleri
 > denetim kurulurken aliyor ve panel bir daha yok edilmiyor; "acik tema"
@@ -319,11 +328,11 @@ Bunlar "biraz ugrasinca olur" degil; her biri icin bir KARAR gerekiyor.
 | # | Panel | Satir | Engel | Secenek |
 |---|---|---|---|---|
 | 10 | `mem_slots.py` | 454 | Satiri BASKA BIR UYGULAMAYA surukleyip birakma (`QDrag`) | **Flet'te karsiligi YOK** ve Win32'ye inmek de yetmiyor -- olculdu, asagidaki "Adim 10 -- YARIM KALDI". Ya sürükleme kaybedilir (panel hazir: `fui/mem_slots.py`), ya pencere Qt'de kalir. |
-| 14 | `array_filter.py` | 313 | Odak calmamali (pano gecmisi acilirken hedef uygulama odagi kaybetmemeli) | Flet penceresi acilinca odak alir. Ya davranis kabul edilir ya panel Qt'de kalir. |
-| 15 | `quick_panel.py` | 562 | Ayni odak sorunu (CapsLock paneli) | Ayni. |
+| 14 | `array_filter.py` | 313 | **OLCULDU, engel TERSINE CIKTI:** bu pencere odagi ALMAK zorunda (arama kutusuna yaziliyor, `activateWindow` + `setFocus`), Flet penceresi ise odagi ALAMIYOR | Odak KOPRUSU: gosterdikten sonra Qt tarafindan `AttachThreadInput` + `SetForegroundWindow` (olculdu, calisiyor) |
+| 15 | `quick_panel.py` | 562 | Ayni: CapsLock paneli de kutuya yaziyor (`eventFilter`) | Ayni kopru |
 | 16 | `key_capture.py` | 112 | Ham tus yakalama: `ui_open` ile hook susturulup tuslar Qt olayi olarak okunuyor | Flet klavye olayi sayfa duzeyinde ve Windows tus kodlarini vermiyor. Hook'tan beslemek gerekir. |
-| 17 | `incognito_badge.py` | 188 | `QPainter` ile cizilen, hep ustte duran rozet | Flet penceresi cerceveli; cerceve gizlense de odak/saydamlik sorunu surer. |
-| 18 | `tip.py` | 173 | `FramelessWindowHint` + `WA_ShowWithoutActivating` | **Flet'te karsiligi YOK.** Ipucu odak calarsa yazdiginiz yerden odak gider. Muhtemelen Qt'de KALIR ya da Win32 katmanina iner. |
+| 17 | `incognito_badge.py` | 188 | `QPainter` ile cizilen, hep ustte duran rozet | **Odak sorunu OLCULDU ve YOK:** Flet penceresi gosterilince odak calmiyor. Kalan is cerceve/saydamlik (`frameless`, `always_on_top`, `skip_task_bar` Flet'te var) |
+| 18 | `tip.py` | 173 | `FramelessWindowHint` + `WA_ShowWithoutActivating` | **OLCULDU: `WA_ShowWithoutActivating`in karsiligi BEDAVA** -- Flet penceresi gosterilirken odak calmiyor. Kalan is cercevesiz + hep ustte cizim ve ILK ACILIS gecikmesi (on isitma) |
 | 19 | `menu.py` | 88 | Win32 `TrackPopupMenu` (zaten Qt degil) | Flet'e tasimak anlamsiz; oldugu gibi kalabilir. |
 | 20 | `tray.py` | 419 | `QSystemTrayIcon` -- Flet'te tepsi YOK | Onceki brans `pystray` eklemisti. Ayri bir karar. |
 | 21 | `snip.py` | 1347 | Tam ekran saydam bindirme + `QPainter` cizimi + basili tus takibi | **Flet'te karsiligi YOK.** Win32 katmanina inmeli (onceki brans `win32/overlay.py` yazmisti). En son, belki hic. |
@@ -386,6 +395,21 @@ bakilacak iki sey:
 
 Deneme penceresini kapatinca Flet pencereleri de kapanir. Kapanmazsa
 gorev cubugunda `flet.exe` kalir (Gorev Yoneticisi'nden kapatilabilir).
+
+### 1b) Odak sondaji -- Asama 3'un olcumu
+
+    uv run python -m probes.focus
+
+Ayri bir sondaj: panel DENEMEZ, odak olcer (bkz. **ADIM 14 -- ODAK
+OLCUMU**). Kendi hedef penceresini aciyor
+(`probes/focus_target.py`), Flet penceresini sekiz ayri yoldan
+gosteriyor ve her seferinde odagin nerede oldugunu 20 ms'de bir
+orneklyor. ~2 dakika surer, sonuc konsola tablo olarak dusuyor.
+
+**Olcum sirasinda makineye DOKUNMA.** Odak calan baska bir uygulama
+(IDE, calisan bir Flutter ornegi) olcumu kirletiyor; sondaj bunu
+farkedip tekrar deniyor ama her seferinde kurtaramiyor -- satirda
+"OLCULEMEDI" yaziyorsa o senaryo yeniden calistirilmali.
 
 ### 2) Gercek program
 
@@ -765,6 +789,59 @@ altta durum + iki dugme. Bakilacaklar:
 
 ---
 
+## ADIM 14 -- ODAK OLCUMU (yapildi, kod yazilmadi)
+
+Sondaj: `probes/focus.py` (hedef pencere `probes/focus_target.py`).
+Calistir: `uv run python -m probes.focus`. Her senaryo, hedef pencere
+odaktayken Flet penceresini gosterip iki saniye boyunca 20 ms'de bir
+`GetForegroundWindow` orneklyor.
+
+**Olcum KIRLENEBILIYOR.** Makinede odak calan baska bir uygulama varsa
+(calisan bir Flutter ornegi, IDE) senaryo bosa gidiyor; sondaj bunu
+farkedip temiz olcum alana kadar alti kez deniyor ve alamazsa
+"OLCULEMEDI" yaziyor. Ilk iki calistirmada tam bu oldu -- yanlis veriyle
+karar verilmedi. Ilk hedef Not Defteri idi, o da guvenilmez cikti
+(Windows 11'de tek surec, sekmeli, aradan kapaniyor); hedef artik kendi
+actigimiz kucuk bir Qt penceresi.
+
+| # | Senaryo | Sonuc |
+|---|---|---|
+| A | `window.visible = True` + `to_front()` (panellerin BUGUN yaptigi) | odak hedefte KALDI (3 temiz olcum) |
+| B | yalniz `window.visible = True` | odak hedefte KALDI (3) |
+| C | `window.focused = False` | odak hedefte KALDI (2) |
+| D | `WS_EX_NOACTIVATE` + `ShowWindow(SW_SHOWNOACTIVATE)` | odak hedefte KALDI (2) -- yani gerekmiyor bile |
+| E | A'dan sonra odagi hedefe GERI verme | odak GERI GELDI (2) |
+| G | `window.focused = True` + `to_front()` | odak yine hedefte -- **Flet penceresi odagi ISTEYEREK DE ALAMIYOR** |
+| H | odagi BIZIM surecimizden Flet penceresine ZORLAMA | **odak Flet penceresine VERILEBILDI** (`AttachThreadInput` + `SetForegroundWindow`) |
+| F | ILK ACILIS -- `flet.exe` sifirdan ayaga kalkarken | **KARARSIZ:** bir olcumde 2.12 sn sonra odagi CALDI, bir olcumde calmadi, bir olcumde kirlendi |
+
+**Neden boyle:** Windows odak calmayi surec duzeyinde kisitliyor --
+`SetForegroundWindow` yalnizca "son girdiyi alan" surece izin veriyor.
+`flet.exe` AYRI bir surec ve kullanicinin son tusu bize (ya da hedef
+uygulamaya) gitti, yani Flet kendi penceresini one getiremiyor. Bizim
+surecimiz getirebiliyor -- H senaryosu bunu gosteriyor.
+
+**Kararlar (dort pencere, iki grup):**
+
+1. **Odak ALMAMASI gerekenler -- `tip.py` (#18), `incognito_badge.py`
+   (#17):** engel YOK. Qt'de bunun icin `WA_ShowWithoutActivating`
+   gerekiyordu, Flet'te varsayilan davranis zaten bu. Kalan is cercevesiz
+   ve hep ustte cizim (`frameless`, `always_on_top`, `skip_task_bar`
+   Flet'te var) ve ILK ACILIS gecikmesi.
+2. **Odak ALMASI gerekenler -- `array_filter.py` (#14),
+   `quick_panel.py` (#15):** planin tahmini TERSINE cikti. Bu iki
+   pencere odagi kaybetmemeli DEGIL, odagi ALMALI: ikisinde de kutuya
+   yaziliyor (`search.setFocus()`, `eventFilter`). Flet kendi basina
+   alamiyor; odak Qt tarafindan verilecek -- `ask_qt`in yeni bir
+   kullanimi.
+
+**Ilk acilis kararsizligi ikisini de ilgilendiriyor:** panel ilk kez
+acilirken `flet.exe` ayaga kalkiyor (1-3.5 sn) ve o anda odak GIDEBILIYOR.
+Cozum panelleri ONCEDEN, gizli olarak ayaga kaldirmak (on isitma) --
+sonraki adim.
+
+---
+
 ## ADIM 10 -- YARIM KALDI (hafiza slotlari penceresi)
 
 Dosya: `keypilot/ui/mem_slots.py` (454 satir). **Panel yazildi
@@ -865,52 +942,43 @@ sey: yazilmis, okunmus, ama kimsenin import etmedigi bir panel.
 
 ---
 
-## SIRADAKI ADIM (adim 14): ODAK OLCUMU -- ASAMA 3'UN KAPISI
+## SIRADAKI ADIM (adim 15): ON ISITMA + ODAK KOPRUSU
 
-**Bu adim KOD DEGIL, OLCUM.** Asama 3'te bekleyen dokuz pencerenin
-DORDU ayni sorunun arkasinda duruyor: pencere acilirken hedef
-uygulamanin odagi KAYBOLMAMALI.
+**Kucuk ve altyapisal: iki yardimci, panel tasima YOK.** Adim 14'un
+olcumu iki eksik birakti; ikisi de dort pencerenin ORTAK ihtiyaci, yani
+once bunlar yazilmali -- yoksa her panelde tekrar cozulur.
 
-| # | Pencere | Neden odak |
-|---|---|---|
-| 14 | `array_filter.py` | Pano gecmisi acilirken yaziyor oldugun uygulama odagi kaybetmemeli -- secilen metin oraya yapistiriliyor |
-| 15 | `quick_panel.py` | CapsLock paneli, ayni sey |
-| 17 | `incognito_badge.py` | Hep ustte duran rozet: odak alirsa yazdigin yerden odak gider |
-| 18 | `tip.py` | Ipucu; `WA_ShowWithoutActivating` ile aciliyordu |
+**1) On isitma (`fui/engine.py`).** Panelin ilk acilisi `flet.exe`yi
+ayaga kaldiriyor: 1-3.5 saniye VE olculen odak kararsizligi (F
+senaryosu). Motora "pencereyi gostermeden thread'i baslat" yolu
+eklenecek: `start()` zaten pencereyi `_build`de gosteriyor, on isitmada
+GOSTERMEMELI.
 
-Yani tek bir olcum dort pencerenin kaderini belirliyor. Once OLC, sonra
-karar ver -- adim 10'un dersi tam buydu (surukleme once denendi, sonra
-"olmuyor" denildi; sirasi dogruydu, kod yazilmadan once olculdu).
+    -> Dikkat: her panelin kendi `flet.exe`si var, hepsini birden
+       isitmak 12 surec demek. Yalniz odaga duyarli / sik acilan
+       paneller isitilmali (ipucu, hizli panel). Hangileri oldugu
+       olculerek secilecek: bellek ve acilis suresi.
 
-**Olculecek uc soru:**
+**2) Odak koprusu (`win32/window.py`).** `probes/focus.py`deki
+`force_focus` sondajdan gercek yere tasinacak: `AttachThreadInput` +
+`SetForegroundWindow` + `BringWindowToTop`. Olculdu, calisiyor (H).
+Pencere tutamagi Flet tarafindan gelmiyor -- baslikla bulunuyor
+(`find_window`, sondaj bunu yapiyor); kalici cozumde panelin baslik
+metni kimlik olarak kullanilacak.
 
-1. **Flet penceresi odagi CALIYOR mu?** `probes/flet.py`ye kucuk bir
-   olcum ekle: bir Flet paneli acilmadan once `GetForegroundWindow`
-   (win32/window.py'de hazir) ile odaktaki pencereyi yaz, panel
-   acildiktan 300 ms sonra tekrar yaz. Notepad acikken dene.
-2. **Odak vermeden gosterilebiliyor mu?** Flet'te `page.window.focused`
-   ve `page.window.skip_task_bar` var; `flet.exe`nin pencere tutamagini
-   bulup Win32 ile `WS_EX_NOACTIVATE` eklemek de bir yol (onceki
-   `flet` bransinda `win32/overlay.py` denemesi var). Ikisi de
-   OLCULMELI: "belgede yaziyor" yetmez.
-3. **Geri verilebiliyor mu?** Odak gittiyse, panel acilir acilmaz eski
-   pencereye `SetForegroundWindow` ile geri verilebiliyor mu ve
-   kullanici bunu goz kirpmasi olarak gorur mu?
+    -> Bu yardimci `array_filter` ve `quick_panel` icin SART, ipucu ve
+       rozet icin ZARARLI (onlar odak almamali). Yani panel basina
+       "odak ister/istemez" bir bayrak.
 
-**Cikacak karar** su uc secenekten biri:
+**Sonra (adim 16+):** panel tasima sirasi kucukten buyuge --
+`tip.py` (173), `incognito_badge.py` (188), `array_filter.py` (313),
+`quick_panel.py` (562). Ilk ikisi odak istemiyor, ikinci ikisi koprüyü
+kullanacak.
 
-* **Odak korunuyor** -> dort pencere de tasinabilir, sirayla en
-  kucugunden (`tip.py` 173 satir) baslanir.
-* **Korunmuyor ama Win32 ile cozuluyor** -> once o katman yazilir
-  (`win32/` altinda, panellerin ortak kullandigi tek yer), sonra
-  paneller.
-* **Cozulmuyor** -> dort pencere Qt'de KALIR ve gecis "iki motor
-  kalici" olarak biter. Bu da bir sonuc: o zaman `pyproject.toml`den
-  `pyside6` HIC cikmaz ve plan buna gore kisalir.
-
-**Adim 10'un dersi tekrar:** olcum yapilmadan bu dort pencere icin kod
-YAZILMAMALI. Adim 10'da panel yazildi, sonra baglanamadi ve dosya
-oylece duruyor (`fui/mem_slots.py`).
+**Karar hala verilmedi (bilerek):** `menu.py` (zaten Win32),
+`tray.py` (Flet'te tepsi yok), `snip.py` (tam ekran saydam bindirme) ve
+adim 10'da kalan `mem_slots.py`. Bunlar odak sorunundan bagimsiz, ayri
+kararlar.
 
 ---
 
@@ -995,6 +1063,11 @@ sayilmaz.
 - [ ] **Panel basina `shutdown()` cagrilari** (`app.py` `on_exit`). Su an
       her Flet paneli kendi `flet.exe`sini kapatmak zorunda; tek kabuga
       gecilirse tek cagri kalir.
+- [ ] **`probes/focus.py` + `probes/focus_target.py`** -- adim 14'un
+      olcumu. Karar verildi (yukaridaki tablo), yani sondajin isi bitti;
+      yalnizca "acaba yeni Flet surumunde degisti mi" sorusu icin
+      duruyor. Icindeki `force_focus` kalici yere tasinacak
+      (`win32/window.py`, adim 15) -- sondajdaki kopya o zaman gidecek.
 - [ ] **`probes/flet.py`** -- "hangi panel Flet'te" sorusunun cevabi
       oldugu surece ise yariyor. Her sey Flet'e gecince anlamsizlasir;
       icindeki sahte veriler `probes/gui.py` gibi bir sondaja tasinabilir.
