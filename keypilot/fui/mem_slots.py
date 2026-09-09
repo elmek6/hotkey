@@ -1,5 +1,13 @@
 """Hafiza bloklari -- ui/mem_slots.py'nin Flet karsiligi.
 
+>>> BU DOSYA BAGLANMADI -- BEKLEMEDE. `app.py` hala Qt surumunu
+>>> (`ui/mem_slots.py`) kuruyor. Sebep: satiri BASKA BIR UYGULAMAYA
+>>> surukleyip birakma (Notepad'den metin surukler gibi) Flet'te
+>>> yapilamiyor ve o davranis kullanici icin bu pencerenin ana
+>>> islevlerinden. Olculen gerekce ve secenekler flet-plan.md
+>>> "Adim 10 -- YARIM KALDI" bolumunde. Karar donerse baglanmasi
+>>> `app.py`de uc satir; donmezse bu dosya SILINECEK.
+
 ONUNCU PANEL. Planin bu adim icin yazdigi gerekce YANLIS CIKTI: "diske
 yazan `SlotStore`u slot kutusu ve QR ile PAYLASIYOR, `ask_qt` en siki
 burada uygulanacak" deniyordu. Dosyaya bakinca oyle olmadigi gorundu --
@@ -73,7 +81,6 @@ import flet as ft
 from PySide6.QtCore import QObject, Signal
 
 from keypilot.fui import theme
-
 from keypilot.fui.engine import FletEngine
 
 SLOT_COUNT = 10  # AHK: Loop 10
@@ -398,12 +405,8 @@ class MemSlotsPanel(QObject):
             self._on_middle,
         )
 
-        self._slots_header = self._make_header(
-            "\U0001f986 Hafiza slotlari", self._on_slots_header
-        )
-        self._hist_header = self._make_header(
-            "\U0001f4cb Pano gecmisi", self._on_hist_header
-        )
+        self._slots_header = self._make_header("\U0001f986 Hafiza slotlari", self._on_slots_header)
+        self._hist_header = self._make_header("\U0001f4cb Pano gecmisi", self._on_hist_header)
         self._slot_list = ft.ListView(controls=[], spacing=0, expand=True)
         self._hist_list = ft.ListView(controls=[], spacing=0, expand=True)
 
@@ -446,9 +449,7 @@ class MemSlotsPanel(QObject):
         self._engine.call(self._show_now)
 
     @staticmethod
-    def _check(
-        label: str, value: bool, on_change: Callable[[ft.Event], None]
-    ) -> ft.Checkbox:
+    def _check(label: str, value: bool, on_change: Callable[[ft.Event], None]) -> ft.Checkbox:
         return ft.Checkbox(
             label=label,
             value=value,
@@ -602,9 +603,7 @@ class MemSlotsPanel(QObject):
         thread'de (`app.py`), Qt kendiliginden kuyruga aliyor."""
         self._fkeys_on = bool(event.control.value)
         self.fkeys_toggled.emit(self._fkeys_on)
-        self.tip.emit(
-            "\U0001f539 <b>F1-F10</b> " + ("acik" if self._fkeys_on else "kapali")
-        )
+        self.tip.emit("\U0001f539 <b>F1-F10</b> " + ("acik" if self._fkeys_on else "kapali"))
 
     def _on_allow_repeat(self, event: ft.Event) -> None:
         self._allow_repeat = bool(event.control.value)

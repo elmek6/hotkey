@@ -2,13 +2,13 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **9 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **10 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
 > (e4b4606), makro kayit ekrani (fda9923), OCR sonuc paneli (09dcb7a),
-> kod parcasi deposu (adim 9).
-> Kalan 12 pencere hala PySide6'da ve program iki motorla CALISIYOR.
+> kod parcasi deposu (885d832), profil yoneticisi (adim 11).
+> Kalan 11 pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
 > kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
@@ -16,10 +16,22 @@
 > 9 (depo) yazildi, testler geciyor -- ucu de GERCEK PROGRAMDA
 > DOGRULANMAYI BEKLIYOR (bkz. **Nasil denenir**).
 >
+> **ADIM 11 (profil yoneticisi) YAZILDI** ve baglandi; 26 birim testi
+> geciyor, GERCEK PROGRAMDA DOGRULANMAYI BEKLIYOR. Ilk kez Flet'in
+> yapamadigi bir isi Qt'ye yaptiran KALICI bir kopru var: kisayol
+> yakalama kutusu (`fui/profiles.py` `_capture_key`).
+>
+> **ADIM 10 (hafiza slotlari) YARIM KALDI.** Panel yazildi ama
+> BAGLANMADI: satiri baska bir uygulamaya surukleyip birakmanin Flet'te
+> karsiligi yok ve Win32 yolu OLCULDU, calismiyor. Pencere PySide'da
+> KALDI, Asama 3'e tasindi. Gerekce ve secenekler: **ADIM 10 -- YARIM
+> KALDI** bolumu.
+>
 > Adim 9'da ILK KEZ bir Flet panelinin kendi birim testi var
-> (`tests/test_fui_repository.py`, 19 test): Flet calistirilmadan
-> panelin QT TARAFI suruluyor. Kalibi buradan alinabilir -- bolunme
-> zaten oradan geciyor.
+> (`tests/test_fui_repository.py`, 19 test); adim 11 ayni kalibi izledi
+> (`tests/test_fui_profiles.py`, 26 test): Flet calistirilmadan panelin
+> QT TARAFI suruluyor. Kalibi buradan alinabilir -- bolunme zaten oradan
+> geciyor.
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
@@ -30,8 +42,10 @@
 > denetimler, resim), `keypilot/fui/monitor.py` (CANLI akan liste --
 > artimli cizim), `keypilot/fui/macro.py` (DISARIDAN gelen durumu yazan
 > ilk panel), `keypilot/fui/ocr.py` (HEP USTTE duran pencere +
-> gizle/geri getir) ve `keypilot/fui/repository.py` (UC SUTUNLU form --
-> suzgecler, sonuc listesi ve duzenleme alanlari birbirini besliyor).
+> gizle/geri getir), `keypilot/fui/repository.py` (UC SUTUNLU form --
+> suzgecler, sonuc listesi ve duzenleme alanlari birbirini besliyor) ve
+> `keypilot/fui/profiles.py` (IKI KADEMELI liste + Flet'in yapamadigi
+> isi Qt'ye yaptiran kalici kopru).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -269,8 +283,8 @@ indiriyor.
 | 7 | `macro_view.py` | 213 | Kayit ekrani. **BITTI** -> `fui/macro.py` |
 | 8 | `ocr_view.py` | 229 | `WindowStaysOnTopHint`. Sonuc paneli. **BITTI** -> `fui/ocr.py` |
 | 9 | `repository_view.py` | 404 | Kod parcasi deposu. **BITTI** -> `fui/repository.py` |
-| 10 | `mem_slots.py` | 454 | `WindowStaysOnTopHint`. |
-| 11 | `profiles_view.py` | 468 | Profil yoneticisi. |
+| 10 | `mem_slots.py` | 454 | **YARIM KALDI -> Asama 3'e tasindi** (satiri disari surukleme). Asagidaki bolum. |
+| 11 | `profiles_view.py` | 468 | Profil yoneticisi. **BITTI** -> `fui/profiles.py` |
 | 12 | `clip_images.py` | 486 | `QPainter` -- kucuk resim cizimi. Flet'te `ft.Image` ile. |
 | 13 | `settings_dialog.py` | 605 | En buyuk form. Tema secimi burada; `fui/theme.py`nin sabit koyu paleti burada ele alinacak. |
 
@@ -280,6 +294,7 @@ Bunlar "biraz ugrasinca olur" degil; her biri icin bir KARAR gerekiyor.
 
 | # | Panel | Satir | Engel | Secenek |
 |---|---|---|---|---|
+| 10 | `mem_slots.py` | 454 | Satiri BASKA BIR UYGULAMAYA surukleyip birakma (`QDrag`) | **Flet'te karsiligi YOK** ve Win32'ye inmek de yetmiyor -- olculdu, asagidaki "Adim 10 -- YARIM KALDI". Ya sürükleme kaybedilir (panel hazir: `fui/mem_slots.py`), ya pencere Qt'de kalir. |
 | 14 | `array_filter.py` | 313 | Odak calmamali (pano gecmisi acilirken hedef uygulama odagi kaybetmemeli) | Flet penceresi acilinca odak alir. Ya davranis kabul edilir ya panel Qt'de kalir. |
 | 15 | `quick_panel.py` | 562 | Ayni odak sorunu (CapsLock paneli) | Ayni. |
 | 16 | `key_capture.py` | 112 | Ham tus yakalama: `ui_open` ile hook susturulup tuslar Qt olayi olarak okunuyor | Flet klavye olayi sayfa duzeyinde ve Windows tus kodlarini vermiyor. Hook'tan beslemek gerekir. |
@@ -578,31 +593,169 @@ sonuclar, sagda alanlar. Bakilacaklar:
    gitmeli.
 9. **Esc / X / Kapat** pencereyi gizler. Tekrar acinca aninda gelmeli.
 
+**Profil yoneticisi:**
+
+* `´` menusunden **Profiller** (ya da F13 menusunde "Profil duzenle
+  (...)"), ya da tepsi menusu.
+
+Pencere 1000x660 acilmali; solda profiller, ortada secili profilin
+aksiyonlari, sagda secili aksiyonun alanlari. Bakilacaklar:
+
+1. **Acilista diskten okuma** ve ILK profilin secili gelmesi. F13
+   menusunden "Profil duzenle (<ad>)" ile acildiysa O profil secili
+   gelmeli.
+2. **Profil secimi** ortadaki listeyi kurmali ve SAG SUTUNU BOSALTMALI
+   -- oteki profilin aksiyonu sagda asili kalirsa bu bir hata.
+3. **Eslesme kurali** (sol altta) sinif/baslik alanlarini duz Turkce
+   anlatmali; ikisi de bosken UYARI yazmali. Kural SECIMDE ve
+   KAYDETTE tazeleniyor, yazarken degil (Qt'de de oyleydi).
+4. **KISAYOL -- bu adimin en onemli sinavi.** Sagdaki "Kisayol"
+   dugmesine bas: **Qt tarafinda** kucuk bir pencere acilmali ve
+   "tusa bas..." demeli. Bir tus kombosuna bas (ornegin Ctrl+Shift+K)
+   -- pencere kapanmali ve dugmede o kombo yazmali. Bakilacaklar:
+   * Kucuk pencere ONDE aciliyor mu? Flet penceresi baska bir SUREC
+     (`flet.exe`) ve odak onda; kutu arkada kalir ya da tus almazsa
+     HABER VER -- o zaman yakalamayi hook'tan beslemek gerekecek
+     (Asama 3 #16).
+   * **Esc** yakalamayi iptal etmeli (eski deger kalir),
+     **Backspace/Delete** kisayolu SILMELI.
+   * Tek basina Ctrl/Shift/Alt yakalamayi BITIRMEMELI.
+   * Kisayolu atadiktan sonra **Kaydet**; sonra o tusa bas -- aksiyon
+     calismali (kayit defterine tutturuluyor, `keys_changed`).
+5. **Aksiyon Kaydet/Yeni/Sil** ve **▲/▼ tasima**. Sira F13 menusundeki
+   siradir: tasidiktan sonra menuyu acip bak.
+6. **Tus dizileri** kutusunun altindaki ipucu her satiri "kisayol" ya
+   da "duz metin" diye ayirmali (`^+t` kisayol, `merhaba` metin).
+7. **Zorunlu alanlar:** profil adi bos -> "Profil adi zorunlu.",
+   aksiyon adi bos -> "Aksiyon adi zorunlu.", profil secilmeden
+   aksiyon kaydetmek -> "Once profil sec ya da kaydet."
+8. **Silme** onay ister; Evet dendiginde hem listeden hem
+   `profiles.json`dan gitmeli.
+9. **Esc / X / Kapat** pencereyi gizler. Tekrar acinca aninda gelmeli.
+
 ---
 
-## SIRADAKI ADIM (adim 10): hafiza slotlari penceresi
+## ADIM 10 -- YARIM KALDI (hafiza slotlari penceresi)
 
-Dosya: `keypilot/ui/mem_slots.py` (454 satir) -> `keypilot/fui/mem_slots.py`
+Dosya: `keypilot/ui/mem_slots.py` (454 satir). **Panel yazildi
+(`keypilot/fui/mem_slots.py`) ama BAGLANMADI**: `app.py` hala Qt
+surumunu kuruyor, program bu adimdan once neyse o. Sebep tek bir
+davranis: **satiri baska bir uygulamaya surukleyip birakma.**
 
-**Neden bu:** Asama 2'nin sirasindaki bir sonraki panel. Adim 9'un
-kalibi (liste + duzenleme, secilen kaydin alanlara dolmasi) burada
-neredeyse birebir tekrar ediyor; YENI olan iki sey:
+### Planin tahmini yanlis cikti
 
-  * **HEP USTTE** (`WindowStaysOnTopHint`). Adim 8'de (`fui/ocr.py`)
-    zaten yapildi -- `page.window.always_on_top`, tek satir.
-  * **Panel diske YAZAN bir depoyu paylasiyor** (`SlotStore`), ustelik
-    slot kutusu (`fui/slot_edit.py`) ve QR penceresi de ayni depoyu
-    okuyor. Yani bir yerde degisen slot otekilerde de gorunmeli;
-    `ask_qt` kurali burada en siki uygulanacak yer.
+Bu adimin gerekcesi "diske yazan `SlotStore`u slot kutusu ve QR ile
+PAYLASIYOR, `ask_qt` en siki burada uygulanacak" idi. Dosyaya bakinca
+oyle olmadigi gorundu: bu pencerenin bloklari BELLEKTE yasiyor,
+`slots.json` ile ILGISI YOK (`ui/mem_slots.py` dosya basi bunu zaten
+yaziyor -- "isim benzerligi yuzunden karistiriliyordu"). Paylasilan
+durum da yok, disk de. **Adim 5'in dersi bir kez daha dogrulandi:** bir
+sonraki adimin tahmini, dosyaya bakilmadan uygulanmamali.
 
-**Once bakilacak yer:** `keypilot/store.py` (`SlotStore`) ve
-`keypilot/slots_ctl.py` -- kimin ne zaman diske yazdigi oradan cikacak.
-Ayrica `fui/qr.py`nin `slot_rows()` yardimcisi ayni veriyi zaten
-bicimlendiriyor; ikinci kullanicisi cikinca ortak yere alinmali
-(`ask_qt`in kaderi, bkz. `f56ff95`).
+Gercek engel bambaska bir yerdeydi.
 
-**Adim 5'in dersini unutma:** bir sonraki adimin tahmini, bir onceki
-adimin ogrettikleriyle yeniden bakilmadan uygulanmamali.
+### Engel: OS'e surukleyip birakma
+
+Qt surumunde `DragTable` var (AHK `OleDragSource`): tabloda kisaltilmis
+onizleme yazar, satiri Notepad'e surukleyince blogun TAM icerigi duser.
+Kullanici bunu pencerenin ana islevlerinden sayiyor.
+
+* `ft.Draggable` / `ft.DragTarget` yalnizca UYGULAMANIN ICINDE tasiyor;
+  isletim sistemine birakma diye bir sey yok.
+* Onceki `flet` bransina bakildi: **orada da cozulmemis.** mem_slots o
+  bransta Flet'e hic tasinmamis, PySide penceresi olarak kalmis --
+  kalan `cascade/ui/__pycache__/mem_slots.cpython-313.pyc` icinde hala
+  `DragTable`, `QDrag`, `startDrag` geciyor.
+
+### Win32 yolu DENENDI ve OLCULDU -- calismiyor
+
+Windows'ta surukleme `ole32.dll` `DoDragDrop` ile yapiliyor ve projede
+zaten kurulu olan `pywin32` bunu aciyor. Borunun tamami ucuz cikti:
+`pythoncom.DoDragDrop` var, `IDropSource` icin gecit var
+(`win32com.server.util.wrap`), ve `IDataObject` yazmaya bile gerek yok
+-- `pythoncom.OleGetClipboard()` panodaki icerigi hazir bir
+`IDataObject` olarak veriyor (bu pencere zaten pano yoneticisi, panoya
+yazmak normal).
+
+Tek kullanimlik betikle olculdu (projede TUTULMADI): `DoDragDrop`
+cagrildi, modal donguye girdi ve **`QueryContinueDrag`i HIC cagirmadi**;
+sentetik Esc de kirmadi, 40 saniyede timeout ile oldurulmesi gerekti.
+
+Sebep belgelerde yaziyor: `DoDragDrop`un dongusu fare mesajlarini
+CAGIRAN THREAD'IN kuyrugundan okuyor ve bunun icin fareyi yakalamasi
+gerekiyor; `SetCapture` ise BASKA BIR SURECE giden fare girdisini
+yakalayamiyor. Flet her paneli ayri bir surecte aciyor (`flet.exe`),
+yani tusa basilan pencere onun, sürüklemeyi baslatacak kod bizim
+surecimizde. Notepad'de calismasinin sebebi de bu: orada ikisi ayni
+surec.
+
+**Ayni duvar `QDrag` icin de gecerli** -- Qt de iceride ayni
+`DoDragDrop`u cagiriyor. Yani "Qt koprusu" ile "DLL yolu" ayni sey;
+Qt'nin silinmesi bu konuda bir sey kaybettirmiyor.
+
+**Basarisizlik sekli "calismaz" degil, KILITLENIR.** Gercek programda o
+cagri Qt ana thread'inde kosardi: tepsi, ipucu ve zamanlayicilar kalici
+olarak donardi. Bu yuzden panele HIC konmadi.
+
+### Yapilabilecekler (sirasiyla ucu de bir KARAR)
+
+1. **Surukleme kaybedilir, panel baglanir.** `fui/mem_slots.py` hazir ve
+   bekliyor; `app.py`de degisecek uc satir: import, `MemSlotsPanel()`
+   kurulumu, `isVisible()` -> `visible` (bir de kapanista `shutdown()`
+   listesi). Yerine cift tiklama duruyor: blok -> panoya kopyalar,
+   gecmis -> dogrudan yapistirir.
+2. **`AttachThreadInput` ile flet.exe'nin girdi kuyruguna baglanmak.**
+   `SetCapture` sinirini kaldirmasi beklenir. DENENMEDI: bagli
+   thread'lerden biri takilirsa kullanicinin fare/klavye girdisi donuyor
+   -- bir "guzel olurdu" ozelligi icin fazla riskli bulundu.
+3. **Flet'in istemcisini degistirmek.** Isi gercekten Flutter tarafinda
+   `super_drag_and_drop` cozer; bu, `flet-desktop`in yerine ozel
+   derlenmis bir Flutter istemcisi demek. Bu projenin olcusunu asiyor.
+
+Karar 1'e donerse `fui/mem_slots.py` baglanir; donmezse **o dosya
+SILINECEK** (bkz. asagidaki silinecekler listesi). Su an tuttugu tek
+sey: yazilmis, okunmus, ama kimsenin import etmedigi bir panel.
+
+### Yazilan panelde ne var (karar 1 secilirse hazir)
+
+* Iki liste (10 blok + en cok 10 gecmis kaydi), satir basina TEK yazi --
+  sabit genislikli yazi tipinde "F01" sutunu dolguyla ayni satirda
+  (`row_text`).
+* **Cift tiklama Flet'te BULUNDU:** `ft.GestureDetector` `on_double_tap`.
+  Log ve olay izleyicide "Flet'te cift tiklama yok" diye yazilmisti --
+  dogrusu `Container`da yok, `GestureDetector`da var. Bedeli tek
+  tiklamanin ~300 ms gec islenmesi (Flutter iki olayi ancak boyle
+  ayiriyor). O iki panelde de istenirse ayni yolla geri gelir.
+* `visible` bayragi (`app.py` `memslots_paste_enter` Qt'de `isVisible()`
+  soruyordu), `always_on_top`, baslik seridine tiklayinca listeyi ters
+  cevirme, F1..F10 kutusunun kapanista birakilmasi.
+* Kutular (`F1-F10`, `veri tekrari`, `orta tus`) Flet'te ama degerleri
+  duz `bool` alanlarda: `on_clip` ve `smart_paste` bunlari ANA
+  THREAD'den okuyor (`fui/monitor.py` kalibi).
+
+---
+
+## SIRADAKI ADIM (adim 12): pano resimleri
+
+Dosya: `keypilot/ui/clip_images.py` (486 satir) -> `keypilot/fui/clip_images.py`
+
+**Neden bu:** Asama 2'de kalan iki panelden kucugu (oteki 605 satirlik
+ayar ekrani). Adim 11'in liste + secim kalibi burada da var; YENI olan
+tek sey **resim**: Qt `QPainter` ile kucuk onizleme ciziyordu, Flet'te
+`ft.Image` var. Resmin Flet'e nasil verilecegi (dosya yolu mu, base64
+mu) `fui/qr.py`de bir kez cozuldu -- QR karesi orada `ft.Image`e
+veriliyor, kalip oradan alinabilir.
+
+**Once bakilacak yer:** `keypilot/imgstore.py` (resimleri kim yaziyor,
+onizleme nereden geliyor) ve `ui/clip_images.py`in `paintEvent` /
+onizleme ureten satirlari -- Flet'e verilecek seyin BICIMI oradan
+cikacak.
+
+**Adim 10'un dersi:** dosyayi ACMADAN once "neden bu" yazma. Adim 10'un
+gerekcesi de engeli de yanlis tahmin edilmisti; gercek engel dosyanin
+ilk elli satirinda duruyordu. Adim 11'de de plan "liste + duzenleme"
+diyordu, oysa panelin en zor yaninin KISAYOL YAKALAMA oldugu ancak
+dosya acilinca gorundu.
 
 ---
 
@@ -624,12 +777,20 @@ sayilmaz.
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
       `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
       `ui/monitor.py`, `ui/macro_view.py`, `ui/ocr_view.py`,
-      `ui/repository_view.py`. Bunlarin TESTLERI hala kosuyor
-      (`tests/test_repository_view.py` gibi) -- dosya silinirken o
-      testler de gidecek; Flet karsiliklari ayri dosyada
-      (`tests/test_fui_repository.py`).
+      `ui/repository_view.py`, `ui/profiles_view.py`. Bunlarin TESTLERI
+      hala kosuyor (`tests/test_repository_view.py`,
+      `tests/test_profiles_view.py`) -- dosya silinirken o testler de
+      gidecek; Flet karsiliklari ayri dosyada
+      (`tests/test_fui_repository.py`, `tests/test_fui_profiles.py`).
+      **`ui/key_capture.py` ISTISNA:** `ui/profiles_view.py` silinse de
+      KALIYOR, cunku Flet paneli onu kullanmaya devam ediyor
+      (`fui/profiles.py` `_capture_key`).
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
+- [ ] **`keypilot/fui/mem_slots.py` -- BAGLANMAMIS panel.** Adim 10 karara
+      baglanmadigi icin duruyor (bkz. **ADIM 10 -- YARIM KALDI**).
+      Surukleme kaybi kabul edilirse baglanir; edilmezse bu dosya
+      silinir. Ucuncu bir hali YOK: import edilmeyen panel curur.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
       eski `flet` brans'indan kalma `.pyc` artiklari, kaynaklari yok.
       Zararsiz (Python kaynaksiz `.pyc` yuklemez) ama kafa karistiriyor.
@@ -657,6 +818,12 @@ sayilmaz.
       (`f56ff95`). `FletEngine.ask_qt(job)`; iki panelden kalkti.
       Motorun `QObject` olmasinin TEK sebebi bu sinyal, yani Qt gidince
       hem `ask_qt` hem miras birlikte silinecek.
+- [ ] **`fui/profiles.py`deki `_capture_key`** -- kisayol yakalama kutusu
+      hala Qt'nin (`ui/key_capture.py` + kucuk bir `QDialog`). Gecici
+      DEGIL bir tercih: `ft.KeyboardEvent` Windows sanal tus kodunu (VK)
+      vermiyor ve programin geri kalani VK ile konusuyor. Asama 3 #16
+      (`key_capture.py`) cozulene kadar boyle kalacak; cozum muhtemelen
+      "hook'tan besle" olacak ve o zaman bu kopru de gidecek.
 - [ ] **`fui/qr.py`deki `QFileDialog`** -- "Kaydet PNG" dosya kutusu hala
       Qt'nin. Gecis suresince BILEREK boyle (`_on_qt` ile bir satir);
       Qt gidince yerine `ft.FilePicker` yazilmali ve o bir SERVIS:
@@ -789,6 +956,16 @@ sayilmaz.
 - [ ] **Olay izleyici Qt surumunden GENIS** (820x520, Qt 660x460). Alt
       siradaki alti denetim Flet'in Material olculeriyle 660'a sigmiyor
       (bkz. **PENCERE OLCUSU kurali**).
+
+- [ ] **Profil yoneticisinde sutun genisligi degistirilemiyor.** Qt'de
+      `QSplitter` vardi (fareyle surukleniyordu); Flet'te sutunlar sabit
+      ve Qt'nin acilis olculeri korundu (330/250/gerisi). Depo penceresi
+      (`fui/repository.py`) ile ayni kayip, ayni sebep.
+
+- [ ] **Profil yoneticisi imlecin ekraninda acilmiyor.** Qt `place.py`
+      kullaniyordu; oteki dokuz panelle ayni kayip, ayni sebep. Not:
+      kisayol YAKALAMA kutusu Qt oldugu icin O hala imlecin ekraninda
+      aciliyor -- iki pencere iki ayri yerde acilabilir.
 
 - [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
       380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri

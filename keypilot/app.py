@@ -47,6 +47,7 @@ from keypilot.fui.log_view import LogPanel
 from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.ocr import OcrPanel
 from keypilot.fui.pause import PausePanel
+from keypilot.fui.profiles import ProfilesPanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.repository import RepositoryPanel
 from keypilot.incognito import Incognito
@@ -60,7 +61,6 @@ from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.preview import preview_html, shorten
-from keypilot.ui.profiles_view import ProfilesView
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
 from keypilot.ui.settings_dialog import SettingsDialog
 from keypilot.ui.snip import SnipOverlay
@@ -429,7 +429,11 @@ class KeyPilot:
         # AHK: App.AppShorts (app_shorts.ahk). On plandaki pencereye gore
         # F13 menusune ekstra kisayol maddeleri girer.
         self.shorts = ShortcutStore()
-        self.profiles_view = ProfilesView(self.shorts)
+        # Yonetici penceresi FLET'te (fui/profiles.py). Depo nesnesi
+        # PAYLASILIYOR: F13 menusu ve kayit defteri baglamalari da ayni
+        # listeyi okuyor, bu yuzden panelin depoya dokunan her satiri
+        # Qt'nin ana thread'inde kosuyor (`ask_qt`).
+        self.profiles_view = ProfilesPanel(self.shorts)
         self.profiles_view.keys_changed = self.bind_profile_keys
 
         # repository.ahk'nin VERI yarisi (keypilot/repository.py); yonetici
@@ -1973,6 +1977,7 @@ class KeyPilot:
             self.macro.view,
             self.ocr_view,
             self.repository_view,
+            self.profiles_view,
         ):
             if panel is not None:
                 panel.shutdown()

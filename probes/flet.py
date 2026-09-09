@@ -20,6 +20,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet macro     (yalniz makro kayit ekrani)
            uv run python -m probes.flet ocr       (yalniz OCR sonuc paneli)
            uv run python -m probes.flet repo      (yalniz kod parcasi deposu)
+           uv run python -m probes.flet profil    (yalniz profil yoneticisi)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -45,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from keypilot import paths
+from keypilot.app_shorts import ShortcutStore
 from keypilot.core.mouse import MouseSeen
 from keypilot.core.ocr_layout import Word
 from keypilot.fui.key_map import KeyMapPanel
@@ -53,6 +55,7 @@ from keypilot.fui.macro import MacroPanel
 from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.ocr import OcrPanel
 from keypilot.fui.pause import PausePanel
+from keypilot.fui.profiles import ProfilesPanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.repository import RepositoryPanel
 from keypilot.fui.slot_edit import SlotEditPanel
@@ -163,6 +166,25 @@ def probe_repository() -> Repository:
     return repo
 
 
+def probe_shorts() -> ShortcutStore:
+    """Sondajin yazabilecegi GECICI profil deposu (gercek dosyanin kopyasi).
+
+    `probe_repository` ile ayni gerekce: bu panelde Kaydet/Sil diske
+    yaziyor ve kayit defterine kisayol tutturuyor; sondaj kullanicinin
+    profiles.json'una dokunmamali.
+    """
+    directory = Path(tempfile.gettempdir()) / "keypilot-sondaj-profiller"
+    directory.mkdir(parents=True, exist_ok=True)
+    hedef = directory / "profiles.json"
+    if not hedef.exists():
+        kaynak = paths.FILES / "profiles.json"
+        if kaynak.exists():
+            hedef.write_bytes(kaynak.read_bytes())
+    store = ShortcutStore(directory)
+    store.load()
+    return store
+
+
 #: "Durum" sekmesi icin sahte sayaclar -- app.py `_diagnostics` bicimi.
 STATS = [
     ("hook: en uzun callback", "12.480 ms (sinir 300)"),
@@ -246,6 +268,14 @@ class Probe(QWidget):
         self.repository = RepositoryPanel(probe_repository())
         self.repository.closed.connect(lambda: self._note("repository", "closed"))
 
+        # Profiller: depo yine GECICI bir klasorde (bkz. `probe_shorts`).
+        # "Kisayol" dugmesi Qt tarafinda kucuk bir pencere aciyor -- bu
+        # sondajin en onemli sinavi: tus yakalama Flet'te DEGIL Qt'de
+        # kosuyor (fui/profiles.py dosya basi).
+        self.profiles = ProfilesPanel(probe_shorts())
+        self.profiles.keys_changed = lambda: self._note("profiles", "keys_changed")
+        self.profiles.closed.connect(lambda: self._note("profiles", "closed"))
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -279,6 +309,12 @@ class Probe(QWidget):
             ("Makro kayit ekrani", self.macro.open, "macro"),
             ("OCR sonuc paneli (sahte tablo)", self._show_ocr, "ocr"),
             ("Kod parcasi deposu (gecici kopya)", self.repository.open, "repo"),
+            ("Profil yoneticisi (gecici kopya)", self.profiles.open, "profil"),
+            (
+                "Profil yoneticisi -- YENI profil (sinif dolu)",
+                lambda: self.profiles.open_new("Chrome_WidgetWin_1"),
+                "profil",
+            ),
             ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
             ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
             (
@@ -410,6 +446,7 @@ class Probe(QWidget):
         self.macro.shutdown()
         self.ocr.shutdown()
         self.repository.shutdown()
+        self.profiles.shutdown()
         super().closeEvent(event)
 
 
