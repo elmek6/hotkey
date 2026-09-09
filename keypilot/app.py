@@ -50,6 +50,7 @@ from keypilot.fui.pause import PausePanel
 from keypilot.fui.profiles import ProfilesPanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.repository import RepositoryPanel
+from keypilot.fui.settings import SettingsPanel
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
 from keypilot.repository import Repository
@@ -62,7 +63,6 @@ from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
-from keypilot.ui.settings_dialog import SettingsDialog
 from keypilot.ui.snip import SnipOverlay
 from keypilot.ui.tip import Tip
 from keypilot.ui.tray import Tray
@@ -194,7 +194,7 @@ class KeyPilot:
         #: Log penceresi -- hata rozeti ve birikmis kritik hata buraya aciyor.
         self.log_view = LogPanel()
         #: Ayar ekrani ilk istendiginde kuruluyor -- acilista maliyeti olmasin.
-        self._settings_dialog: SettingsDialog | None = None
+        self._settings_dialog: SettingsPanel | None = None
         #: FLET'e tasindi (fui/key_map.py). Arayuzu Qt surumuyle ayni:
         #: `show_rows` + `closed`. Ilk acilis ~3.5 saniye surer -- Flet'in
         #: kendi istemcisi ayaga kalkiyor -- sonrakiler aninda.
@@ -1466,9 +1466,9 @@ class KeyPilot:
 
     @command("app.settings")
     def show_settings(self, _argument: str = "") -> None:
-        """AHK subMenuSet "Settings" -- ayar ekrani (ui/settings_dialog.py)."""
+        """AHK subMenuSet "Settings" -- ayar ekrani (fui/settings.py)."""
         if self._settings_dialog is None:
-            self._settings_dialog = SettingsDialog()
+            self._settings_dialog = SettingsPanel()
         self._settings_dialog.show_dialog()
 
     # ---- incognito (AHK: incognito.ahk) ----
@@ -1979,6 +1979,7 @@ class KeyPilot:
             self.repository_view,
             self.profiles_view,
             self.clip.images,
+            self._settings_dialog,
         ):
             if panel is not None:
                 panel.shutdown()
@@ -2176,6 +2177,8 @@ class KeyPilot:
         if self._qr_view is not None:
             self._qr_view.close()
         self.profiles_view.close()
+        if self._settings_dialog is not None:
+            self._settings_dialog.close()
         self.macro.shutdown()
         self.macro.view.close()
         self.pause_dialog.close()

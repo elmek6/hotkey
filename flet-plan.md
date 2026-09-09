@@ -2,14 +2,14 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **11 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **12 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
 > (e4b4606), makro kayit ekrani (fda9923), OCR sonuc paneli (09dcb7a),
 > kod parcasi deposu (885d832), profil yoneticisi (8fbd4ab), pano
-> gorselleri (adim 12).
-> Kalan 10 pencere hala PySide6'da ve program iki motorla CALISIYOR.
+> gorselleri (0103f83), ayar ekrani (adim 13).
+> Kalan 9 pencere hala PySide6'da ve program iki motorla CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
 > kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
@@ -28,6 +28,19 @@
 > Flet'te KARSILIGI OLMADIGI icin arayuz degisti: Ctrl/Shift ile coklu
 > secim yerine satirda ISARET KUTUSU (tiklama olayi degistirici tuslari
 > tasimiyor).
+>
+> **ASAMA 2 BITTI (adim 13, ayar ekrani).** 42 birim testi geciyor,
+> GERCEK PROGRAMDA DOGRULANMAYI BEKLIYOR. Gecisin en buyuk formu artik
+> Flet'te ve ilk kez bir panel PROGRAMIN DAVRANISINI degistiriyor: her
+> `Setting.set` abonelere haber veriyor (tema paleti, baslangic kisayolu,
+> hook sayaclari), o yuzden panelin HICBIR satiri degeri kendi yazmiyor
+> -- hepsi `ask_qt` ile ana thread'e dusuyor.
+>
+> **TEMA KARARI:** Flet panelleri KOYU SABIT kaldi. Ayarin kendisi
+> calisiyor (Qt pencereleri tema degistiriyor) ama Flet tarafi renkleri
+> denetim kurulurken aliyor ve panel bir daha yok edilmiyor; "acik tema"
+> on iki panelin hepsinin elden gecirilmesi demek. Panel bunu ekranda
+> SOYLUYOR. Gerekce ve yapilacaklar: **Karara baglanacaklar** bolumu.
 >
 > **ADIM 10 (hafiza slotlari) YARIM KALDI.** Panel yazildi ama
 > BAGLANMADI: satiri baska bir uygulamaya surukleyip birakmanin Flet'te
@@ -53,9 +66,10 @@
 > gizle/geri getir), `keypilot/fui/repository.py` (UC SUTUNLU form --
 > suzgecler, sonuc listesi ve duzenleme alanlari birbirini besliyor) ve
 > `keypilot/fui/profiles.py` (IKI KADEMELI liste + Flet'in yapamadigi
-> isi Qt'ye yaptiran kalici kopru) ve `keypilot/fui/clip_images.py`
+> isi Qt'ye yaptiran kalici kopru), `keypilot/fui/clip_images.py`
 > (DISKTEN gelen resim listesi + zoom/kaydirma icin
-> `ft.InteractiveViewer`).
+> `ft.InteractiveViewer`) ve `keypilot/fui/settings.py` (ayarin TIPINE
+> gore dogan denetim + tek kart tazeleme).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -296,7 +310,7 @@ indiriyor.
 | 10 | `mem_slots.py` | 454 | **YARIM KALDI -> Asama 3'e tasindi** (satiri disari surukleme). Asagidaki bolum. |
 | 11 | `profiles_view.py` | 468 | Profil yoneticisi. **BITTI** -> `fui/profiles.py` |
 | 12 | `clip_images.py` | 486 | Pano gorselleri. **BITTI** -> `fui/clip_images.py` |
-| 13 | `settings_dialog.py` | 605 | En buyuk form. Tema secimi burada; `fui/theme.py`nin sabit koyu paleti burada ele alinacak. |
+| 13 | `settings_dialog.py` | 605 | En buyuk form. **BITTI** -> `fui/settings.py`. Tema karari: **Karara baglanacaklar**. |
 
 ## Asama 3 -- zor: Flet'te KARSILIGI OLMAYAN pencere davranislari
 
@@ -314,9 +328,10 @@ Bunlar "biraz ugrasinca olur" degil; her biri icin bir KARAR gerekiyor.
 | 20 | `tray.py` | 419 | `QSystemTrayIcon` -- Flet'te tepsi YOK | Onceki brans `pystray` eklemisti. Ayri bir karar. |
 | 21 | `snip.py` | 1347 | Tam ekran saydam bindirme + `QPainter` cizimi + basili tus takibi | **Flet'te karsiligi YOK.** Win32 katmanina inmeli (onceki brans `win32/overlay.py` yazmisti). En son, belki hic. |
 
-**Sonuc:** Asama 3 asilmadan PySide6 bagimliligi KALKMAZ. Asama 1 ve 2
-tamamlandiginda 13 panel Flet'te, 8 pencere Qt'de olur ve program iki
-motorla calismaya devam eder. Bu sorun degil, ARA DURAK.
+**Sonuc:** Asama 3 asilmadan PySide6 bagimliligi KALKMAZ. **Asama 1 ve 2
+BITTI:** 12 panel Flet'te, 9 pencere Qt'de (hafiza slotlari adim 10'da
+Qt'de kaldi, bkz. asagisi) ve program iki motorla calisiyor. Bu sorun
+degil, ARA DURAK.
 
 ---
 
@@ -331,12 +346,13 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On sekiz dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+On dokuz dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
-penceresi, olay izleyici, pano gorselleri (iki dugme) ve uc QR girisi
-(duz metin, link, hazir wifi dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
+penceresi, olay izleyici, ayar ekrani, pano gorselleri (iki dugme) ve uc
+QR girisi (duz metin, link, hazir wifi dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
 (`Files/log.txt`, `slots.json`) -- sahte veri yok; "Log temizle"
-gercekten siliyor, QR'in grup secimi gercekten ayara yaziliyor. Olay
+gercekten siliyor, QR'in grup secimi gercekten ayara yaziliyor (ama
+ayar dosyasi GECICI -- asagida). Olay
 izleyici SAHTE bir akisla besleniyor: saniyede ~40 olay, yani hizli yazan
 birinin iki kati (tuslara dokunulmuyor). Makro ekrani GERCEK slot
 dosyalarini (`Files/rec*.jsonl`) okuyor ve ad kutusu gercekten diske
@@ -352,7 +368,15 @@ cunku 500 MB'a kadar cikabiliyor ve "Sil" gercekten siliyor. Ucuncu
 ornek onizleme kutusundan BUYUK: "1:1 / sigdir" ve kaydirma ancak
 oyle sinaniyor. Ikinci dugme ("YENI resim ekle") depoya yeni bir gorsel
 yaziyor -- acik pencere listeyi 900 ms icinde KENDILIGINDEN
-tazelemeli. Pencerede
+tazelemeli.
+
+Ayar ekrani GERCEK ayar defteri uzerinde calisiyor ama dosya GECICI:
+sondaj acilirken `paths.SETTINGS` bir kopyaya cevriliyor
+(`%TEMP%/keypilot-sondaj-settings.json`, bkz. `use_probe_settings`).
+Yani "Tumu varsayilana" gercekten calisir, kullanicinin
+`Files/settings.json`ina DOKUNMAZ -- ve sondaj ayri bir surec oldugu
+icin calisan KeyPilot da etkilenmez. Ayni sebeple QR panelinin grup
+secimi de artik gercek ayara degil bu kopyaya yaziliyor. Pencerede
 bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
@@ -696,6 +720,49 @@ liste, sagda secili kaydin onizlemesi. Bakilacaklar:
     (pencere kapaliyken maliyet sifir). Tekrar acinca aninda gelmeli ve
     liste guncel olmali.
 
+**Ayar ekrani:**
+
+* `´` menusunden **⚙️ Ayarlar...** (ya da F14 menusu > System > Ayarlar).
+
+Pencere 860x560 acilmali; ustte arama, solda kategoriler, sagda kartlar,
+altta durum + iki dugme. Bakilacaklar:
+
+1. **Kartlar.** Her kartta ad, ortada bilgi (aralik: `1-9`, `0-500 ms`),
+   sagda DEGER ve altta aciklama. Deger sutunu butun kartlarda AYNI
+   hizada olmali.
+2. **Acik/kapali ve secenek** kartlarinda deger bir acilir kutu. Ac:
+   VARSAYILAN secenek KALIN yazili olmali. Degistir -- deger kalin olur
+   (degismis ayar isareti) ve alt satirdaki "N degismis" sayaci artar.
+3. **Sayi kartlari.** Kutu VARSAYILANDA BOS duruyor, saginda `↺` ve
+   silik varsayilan var. Bir sayi yaz + Enter: deger yerine yazilir,
+   kalinlasir. `↺` varsayilana dondurur ve kutu yine bosalir. Kutuyu
+   ELLE BOSALTMAK da varsayilana donmek demek.
+4. **Gecersiz deger.** Araligin disinda bir sayi yaz (ornek `mouse`
+   gecikmesine 999) ve Enter: **yazdigin kutuda KALIR**, ortadaki bilgi
+   KIRMIZI yanar ve ayar DEGISMEZ. Sonra gecerli bir deger yaz --
+   kirmizi kalkmali.
+5. **Kategori suzgeci** (sol sutun): tiklayinca yalniz o kategori
+   gorunur ve kart aralarindaki kategori BASLIKLARI kalkar. Ayracin
+   ALTINDA GELISTIRME, en altta **Tümü** olmali.
+6. **Arama** her tus vurusunda suzuyor; ad, anahtar, aciklama, etiket ve
+   secenekler icinde ariyor. Arama yazinca kategori suzgeci
+   KENDILIGINDEN kalkmali (secim "Tümü"ye doner).
+7. **Tema.** "Tema" ayarini Koyu/Acik yap: **Qt pencereleri** (tepsi
+   menusu, ipucu, hafiza slotlari, ayar ekraninin KENDISI degil) rengini
+   degistirmeli. Flet panelleri KOYU KALIR -- alt satirda bunu soyleyen
+   bir uyari cikmali. Bu bilerek boyle (bkz. **Karara baglanacaklar**).
+8. **↺ Tumu varsayilana** ONAY sorar; Evet dendiginde butun kartlar
+   varsayilana doner ve sayac sifirlanir.
+9. **📝 settings.json** once diske yazip Notepad'de acar. Dosyada YALNIZ
+   varsayilandan farkli ayarlar durmali.
+10. **Kapanista kaydetme.** Bir ayar degistir, pencereyi kapat (Esc / X /
+    Kapat), sonra programi yeniden baslat (`´` > p > Yeniden baslat):
+    ayar YERINDE kalmali.
+11. **Ayarin ETKISI.** Degistirdigin ayar gercekten calismali (ornek:
+    ipucu suresi, fare gecikmesi). Panel degeri yazmakla kalmiyor,
+    aboneleri de tetikliyor -- calismazsa haber ver, bu adimin en onemli
+    sinavi o.
+
 ---
 
 ## ADIM 10 -- YARIM KALDI (hafiza slotlari penceresi)
@@ -798,33 +865,52 @@ sey: yazilmis, okunmus, ama kimsenin import etmedigi bir panel.
 
 ---
 
-## SIRADAKI ADIM (adim 13): ayar ekrani -- ASAMA 2'NIN SONU
+## SIRADAKI ADIM (adim 14): ODAK OLCUMU -- ASAMA 3'UN KAPISI
 
-Dosya: `keypilot/ui/settings_dialog.py` (605 satir) ->
-`keypilot/fui/settings.py`
+**Bu adim KOD DEGIL, OLCUM.** Asama 3'te bekleyen dokuz pencerenin
+DORDU ayni sorunun arkasinda duruyor: pencere acilirken hedef
+uygulamanin odagi KAYBOLMAMALI.
 
-**Neden bu:** Asama 2'de kalan tek panel ve gecisin en buyuk formu.
-Bitince 13 panel Flet'te, 8 pencere Qt'de olur (Asama 3 bassa da).
-Onemi boyutundan degil: **tema secimi burada**. `fui/theme.py` su an
-SABIT KOYU bir palet ve Qt surumu sistem temasini izliyordu -- iki
-motorun yan yana ayni gorunmesi kurali ancak burada karsilanir.
+| # | Pencere | Neden odak |
+|---|---|---|
+| 14 | `array_filter.py` | Pano gecmisi acilirken yaziyor oldugun uygulama odagi kaybetmemeli -- secilen metin oraya yapistiriliyor |
+| 15 | `quick_panel.py` | CapsLock paneli, ayni sey |
+| 17 | `incognito_badge.py` | Hep ustte duran rozet: odak alirsa yazdigin yerden odak gider |
+| 18 | `tip.py` | Ipucu; `WA_ShowWithoutActivating` ile aciliyordu |
 
-**Once bakilacak yer:** `keypilot/settings.py` (ayarin tipi, varsayilani,
-araligi nereden geliyor) ve `ui/settings_dialog.py`nin `SettingCard`
-sinifi -- panelin govdesi o: her ayar bir KART ve kartin degeri tipe
-gore baska bir denetim (acik/kapali, secenek menusu, sayi, metin).
-Flet'te menu yerine `ft.Dropdown`/`ft.PopupMenuButton` secimi burada
-verilecek. `keypilot/theme.py` de acilmali: sistem temasini izleyen
-kod orada.
+Yani tek bir olcum dort pencerenin kaderini belirliyor. Once OLC, sonra
+karar ver -- adim 10'un dersi tam buydu (surukleme once denendi, sonra
+"olmuyor" denildi; sirasi dogruydu, kod yazilmadan once olculdu).
 
-**Onceki adimlarin dersi:** dosyayi ACMADAN once "neden bu" yazma.
-Adim 10'un gerekcesi de engeli de yanlis tahmin edilmisti; adim 11'de
-plan "liste + duzenleme" diyordu, panelin en zor yani KISAYOL YAKALAMA
-cikti; adim 12'de plan yalnizca "resim cizimi" diyordu, gercek engel
-Ctrl/Shift ile COKLU SECIMDI (Flet'in tiklama olayi degistirici tus
-tasimiyor). Ayni sey burada da olabilir: bu panelin en zor yeri
-kartlarin degil, ayar TIPINE gore dogan denetimlerin ve tema izlemenin
-yeri olabilir.
+**Olculecek uc soru:**
+
+1. **Flet penceresi odagi CALIYOR mu?** `probes/flet.py`ye kucuk bir
+   olcum ekle: bir Flet paneli acilmadan once `GetForegroundWindow`
+   (win32/window.py'de hazir) ile odaktaki pencereyi yaz, panel
+   acildiktan 300 ms sonra tekrar yaz. Notepad acikken dene.
+2. **Odak vermeden gosterilebiliyor mu?** Flet'te `page.window.focused`
+   ve `page.window.skip_task_bar` var; `flet.exe`nin pencere tutamagini
+   bulup Win32 ile `WS_EX_NOACTIVATE` eklemek de bir yol (onceki
+   `flet` bransinda `win32/overlay.py` denemesi var). Ikisi de
+   OLCULMELI: "belgede yaziyor" yetmez.
+3. **Geri verilebiliyor mu?** Odak gittiyse, panel acilir acilmaz eski
+   pencereye `SetForegroundWindow` ile geri verilebiliyor mu ve
+   kullanici bunu goz kirpmasi olarak gorur mu?
+
+**Cikacak karar** su uc secenekten biri:
+
+* **Odak korunuyor** -> dort pencere de tasinabilir, sirayla en
+  kucugunden (`tip.py` 173 satir) baslanir.
+* **Korunmuyor ama Win32 ile cozuluyor** -> once o katman yazilir
+  (`win32/` altinda, panellerin ortak kullandigi tek yer), sonra
+  paneller.
+* **Cozulmuyor** -> dort pencere Qt'de KALIR ve gecis "iki motor
+  kalici" olarak biter. Bu da bir sonuc: o zaman `pyproject.toml`den
+  `pyside6` HIC cikmaz ve plan buna gore kisalir.
+
+**Adim 10'un dersi tekrar:** olcum yapilmadan bu dort pencere icin kod
+YAZILMAMALI. Adim 10'da panel yazildi, sonra baglanamadi ve dosya
+oylece duruyor (`fui/mem_slots.py`).
 
 ---
 
@@ -847,11 +933,13 @@ sayilmaz.
       `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
       `ui/monitor.py`, `ui/macro_view.py`, `ui/ocr_view.py`,
       `ui/repository_view.py`, `ui/profiles_view.py`,
-      `ui/clip_images.py`. Bunlarin TESTLERI hala kosuyor
-      (`tests/test_repository_view.py`, `tests/test_profiles_view.py`) --
+      `ui/clip_images.py`, `ui/settings_dialog.py`. Bunlarin TESTLERI
+      hala kosuyor (`tests/test_repository_view.py`,
+      `tests/test_profiles_view.py`, `tests/test_settings_dialog.py`) --
       dosya silinirken o testler de gidecek; Flet karsiliklari ayri
       dosyada (`tests/test_fui_repository.py`,
-      `tests/test_fui_profiles.py`, `tests/test_fui_clip_images.py`).
+      `tests/test_fui_profiles.py`, `tests/test_fui_clip_images.py`,
+      `tests/test_fui_settings.py`).
       **`ui/key_capture.py` ISTISNA:** `ui/profiles_view.py` silinse de
       KALIYOR, cunku Flet paneli onu kullanmaya devam ediyor
       (`fui/profiles.py` `_capture_key`).
@@ -929,9 +1017,26 @@ sayilmaz.
       yukseltmesinde ONCE o testlere bakilmali. Flet resmi bir
       "auto-update kapali" ayari sunarsa oraya gecilmeli.
 
-- [ ] **`fui/theme.py` sabit koyu palet.** Qt surumu sistem temasini
-      izliyordu (`theme.py`: Windows 10'da `AppsUseLightTheme`). Ayar
-      ekrani tasinirken (Asama 2, #13) tema izleme geri gelmeli.
+- [ ] **`fui/theme.py` sabit koyu palet -- ADIM 13'TE KARARA BAGLANDI:
+      simdilik OYLE KALIYOR.** Qt surumu sistem temasini izliyordu
+      (`theme.py`: `AppsUseLightTheme`) ve plan "ayar ekrani tasinirken
+      geri gelsin" diyordu. Ayar ekrani tasindi, tema izleme GELMEDI.
+      Sebep uc tane: (1) renkler denetime KURULURKEN giriyor (`_build`
+      panel omrunde BIR KEZ kosuyor, pencere kapaninca yok edilmiyor
+      GIZLENIYOR), yani canli tema degisimi her panelin denetim agacini
+      yeniden kurmak demek; (2) panel basina ayri bir `flet.exe` var,
+      yani is on iki surecte birden yapilacak; (3) panellerin bir kismi
+      kendi sabit rengini tasiyor (`fui/clip_images.py` `PREVIEW_BG`,
+      `fui/monitor.py` satir renkleri, `fui/mem_slots.py` baslik
+      renkleri) -- acik palet bunlarin uzerinde okunmaz.
+      **Yapilacak is:** `fui/theme.py`ye acik palet + `resolve()`
+      cagrisi, panellerdeki sabit renklerin temaya baglanmasi, panellerin
+      tema degisiminde yeniden kurulmasi. On iki panelin hepsinin gozle
+      dogrulanmasini istiyor; tek kabuga gecilirse (asagidaki
+      `FletEngine` karari) is TEK panele iner, o yuzden SIRASI ondan
+      sonra. Ayar ekrani bu durumu kullaniciya yaziyor
+      (`fui/settings.py` `THEME_NOTE`) -- is bitince kaldirilacak yer
+      orasi.
 - [ ] **`pyproject.toml`den `pyside6`** -- yalnizca Asama 3 bittikten
       sonra. `flet-desktop` ACIKCA eklendi cunku Flet onu ilk
       calistirmada kendi kendine pip'liyor; kilitli projede istenmez.
@@ -941,10 +1046,10 @@ sayilmaz.
       yamasi, otomatik guncelleme, `ask_qt`) ve adim 9'da ILK panel
       testi yazildi (`tests/test_fui_repository.py`: Flet
       calistirilmadan panelin Qt tarafi suruluyor -- suzgec, kaydetme,
-      silme). Ayni kalip adim 11 (`tests/test_fui_profiles.py`, 26 test)
-      ve adim 12'de (`tests/test_fui_clip_images.py`, 38 test) izlendi.
-      Kalan SEKIZ panelin birim testi hala YOK -- dogrulama elle
-      yapildi. En kolay baslangic saf fonksiyonlar (Flet gerekmiyor,
+      silme). Ayni kalip adim 11 (`tests/test_fui_profiles.py`, 26 test),
+      adim 12 (`tests/test_fui_clip_images.py`, 38 test) ve adim 13'te
+      (`tests/test_fui_settings.py`, 42 test) izlendi. Kalan SEKIZ
+      panelin birim testi hala YOK -- dogrulama elle yapildi. En kolay baslangic saf fonksiyonlar (Flet gerekmiyor,
       ekran gerekmiyor):
       `fui/slot_edit.py` `old_value()` (maskeleme, bosluk ezme, kirpma),
       `fui/qr.py` `masked()` / `slot_rows()` / `window_height()`,
@@ -967,6 +1072,11 @@ sayilmaz.
       cizimde hepsi Flutter tarafina yeniden gidiyor. Gercek depoda
       (yuzlerce gorsel) acilis yavaslarsa ilk bakilacak yer burasi;
       cozum kalibi hazir: `fui/log_view.py` `RENDER_LIMIT`.
+- [ ] **Ayar ekraninda her tus vurusunda TAM cizim** (`fui/settings.py`
+      `_on_search`). Qt surumu de her harfte suzuyordu ve 26 kartta
+      olculebilir bir gecikme yok. Ayar sayisi buyurse ya da kartlar
+      agirlasirsa `fui/log_view.py`nin gecikmeli suzgeci (`FILTER_MS`)
+      buraya da gelmeli.
 - [ ] **`RENDER_LIMIT = 500`** (`fui/log_view.py`). Cizim maliyeti satir
       sayisiyla dogru orantili oldugu icin kondu. Flet'in ileride
       gercekten sanallastiran (yalniz gorunen satiri cizen) bir liste
@@ -1080,6 +1190,21 @@ sayilmaz.
       Flet dongusunde, yoklama Qt thread'inde -- durdurmak iki thread'i
       elle esitlemek demek. Zararsiz: isaretler SLOT ile tasiniyor, yani
       liste tazelense de silinecek kayitlar ayni kalir.
+
+- [ ] **Ayar ekraninda deger MENUSU yerine acilir kutu.** Qt deger
+      dugmesine basinca `QMenu` aciyordu: secilide TIK, varsayilan
+      KALIN. Flet'te `ft.Dropdown`; varsayilan yine kalin duruyor, tik
+      isaretini Dropdown kendi koyuyor. Tek fark menunun dugmenin
+      ALTINDA degil kutunun icinde acilmasi.
+
+- [ ] **Ayar ekrani sistem temasini izlemiyor** -- yukaridaki tema
+      karari. Ayar ekraninin KENDISI artik Flet oldugu icin "temayi
+      degistirdim, bu pencere degismedi" goruntusu en cok burada goze
+      carpiyor; panel bunu alt satirda yaziyor.
+
+- [ ] **Ayar ekrani imlecin ekraninda acilmiyor.** Qt
+      `center_on_cursor_screen` kullaniyordu; oteki on bir panelle ayni
+      kayip, ayni sebep.
 
 - [ ] **Slot kutusunun olcusu sabit** (480x330). Qt `adjustSize` ile
       380-520 piksel arasinda kendini ayarliyordu; cok uzun "eski" degeri

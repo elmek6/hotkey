@@ -22,6 +22,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet repo      (yalniz kod parcasi deposu)
            uv run python -m probes.flet profil    (yalniz profil yoneticisi)
            uv run python -m probes.flet gorsel    (yalniz pano gorselleri)
+           uv run python -m probes.flet ayar      (yalniz ayar ekrani)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -61,9 +62,11 @@ from keypilot.fui.pause import PausePanel
 from keypilot.fui.profiles import ProfilesPanel
 from keypilot.fui.qr import QrPanel
 from keypilot.fui.repository import RepositoryPanel
+from keypilot.fui.settings import SettingsPanel
 from keypilot.fui.slot_edit import SlotEditPanel
 from keypilot.imgstore import ClipImageStore
 from keypilot.repository import Repository
+from keypilot.settings import SETTINGS
 from keypilot.store import PASSWORD_SLOT, SlotStore
 from keypilot.win32.hook import KeyEvent
 
@@ -199,6 +202,25 @@ IMAGE_SAMPLES = (
 )
 
 
+def use_probe_settings() -> Path:
+    """`paths.SETTINGS`i GECICI bir kopyaya cevirir -- sondaj kullanicinin
+    ayar dosyasina yazmasin.
+
+    Ayar defteri (`SETTINGS`) SUREC genelinde tek ornek ve panel gercekten
+    onun uzerinde calisiyor: "Tumu varsayilana" gercek ayarlari sifirlar,
+    kapanista da diske yazar. Sondaj ayri bir surec oldugu icin bellekteki
+    degisiklik calisan KeyPilot'u etkilemiyor; tek risk DOSYA, o da bu
+    satirla geciciye cevriliyor. Yan etki: QR panelinin grup secimi de
+    ayni dosyaya gider.
+    """
+    hedef = Path(tempfile.gettempdir()) / "keypilot-sondaj-settings.json"
+    if not hedef.exists() and paths.SETTINGS.exists():
+        hedef.write_bytes(paths.SETTINGS.read_bytes())
+    paths.SETTINGS = hedef
+    SETTINGS.load(hedef)
+    return hedef
+
+
 def probe_image_store() -> ClipImageStore:
     """Sondajin yazabilecegi GECICI gorsel deposu -- SAHTE resimlerle.
 
@@ -320,6 +342,12 @@ class Probe(QWidget):
         # "Sil" gercekten siliyor ama kopyaya; "Panoya Al" gercekten
         # panoya yaziyor. Ikinci dugme yeni bir resim ekliyor: liste
         # KENDILIGINDEN tazelenmeli (900 ms'lik yoklama).
+        # Ayar ekrani: GERCEK ayar defteri, GECICI dosya (bkz.
+        # `use_probe_settings`). Degisiklikler bu surecte kaliyor.
+        use_probe_settings()
+        self.settings = SettingsPanel()
+        self.settings.closed.connect(lambda: self._note("settings", "closed"))
+
         self.image_store = probe_image_store()
         self.images = ClipImagesPanel(self.image_store)
         self.images.copied.connect(lambda detail: self._note("images", f"copied {detail!r}"))
@@ -359,6 +387,7 @@ class Probe(QWidget):
             ("Makro kayit ekrani", self.macro.open, "macro"),
             ("OCR sonuc paneli (sahte tablo)", self._show_ocr, "ocr"),
             ("Kod parcasi deposu (gecici kopya)", self.repository.open, "repo"),
+            ("Ayar ekrani (gecici settings.json)", self.settings.show_dialog, "ayar"),
             ("Pano gorselleri (sahte depo)", self.images.open, "gorsel"),
             (
                 "Pano gorselleri -- YENI resim ekle (canli liste)",
@@ -515,6 +544,7 @@ class Probe(QWidget):
         self.ocr.shutdown()
         self.repository.shutdown()
         self.profiles.shutdown()
+        self.settings.shutdown()
         self.images.shutdown()
         self.image_store.close()
         super().closeEvent(event)
