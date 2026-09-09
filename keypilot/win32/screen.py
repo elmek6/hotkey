@@ -155,6 +155,69 @@ def monitors() -> list[tuple[str, tuple[int, int, int, int]]]:
     return named
 
 
+#: `GetDpiForMonitor` icin. MDT_EFFECTIVE_DPI: kullanicinin sectigi
+#: olcek (%135 -> 130 DPI), MDT_RAW yerine bu isteniyor.
+MDT_EFFECTIVE_DPI = 0
+MONITOR_DEFAULTTONEAREST = 2
+
+user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+user32.MonitorFromPoint.restype = wintypes.HMONITOR
+
+#: Olcek yalniz bu DLL'den ogreniliyor. Windows 8.1+ -- yoksa olcek 1.0
+#: varsayiliyor (asagida).
+try:
+    _shcore = ctypes.WinDLL("shcore")
+    _shcore.GetDpiForMonitor.argtypes = [
+        wintypes.HMONITOR, ctypes.c_int,
+        ctypes.POINTER(wintypes.UINT), ctypes.POINTER(wintypes.UINT),
+    ]
+    _shcore.GetDpiForMonitor.restype = ctypes.c_long
+except OSError:  # pragma: no cover -- Windows 8 oncesi
+    _shcore = None
+
+
+def dpi_scale_at(x: int, y: int) -> float:
+    """Verilen FIZIKSEL noktadaki monitorun olcegi (%135 -> 1.35).
+
+    NEDEN GEREKIYOR. Bu paketteki her sey fiziksel pikselde konusuyor
+    (`GetCursorPos`, `virtual_rect`, `monitors`) ama Flutter -- dolayisiyla
+    Flet penceresinin `window.left/top`u -- MANTIKSAL pikselde. Ipucunu
+    imlecin yanina koymak icin cevrim sart: bu makine %135 olcekli, yani
+    ham koordinat verilirse pencere ekranin dortte biri kadar sapiyor.
+
+    Cevrilemezse 1.0: ipucu yanlis yerde acilir ama ACILIR. Olcegi
+    bilmemek pencereyi hic gostermemek icin sebep degil.
+    """
+    if _shcore is None:
+        return 1.0
+    point = wintypes.POINT(int(x), int(y))
+    handle = user32.MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST)
+    horizontal = wintypes.UINT()
+    vertical = wintypes.UINT()
+    if _shcore.GetDpiForMonitor(
+        handle, MDT_EFFECTIVE_DPI, ctypes.byref(horizontal), ctypes.byref(vertical)
+    ) != 0:
+        return 1.0
+    return (horizontal.value or 96) / 96.0
+
+
+def work_area_at(x: int, y: int) -> tuple[int, int, int, int]:
+    """Noktadaki monitorun CALISMA alani (gorev cubugu haric), fiziksel.
+
+    (sol, ust, sag, alt). Ipucu ekran disina tasmasin diye gerekiyor --
+    Qt surumu `screen.availableGeometry()` kullaniyordu.
+    """
+    point = wintypes.POINT(int(x), int(y))
+    handle = user32.MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST)
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(MONITORINFO)
+    if not user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+        left, top, width, height = virtual_rect()
+        return (left, top, left + width, top + height)
+    box = info.rcWork
+    return (box.left, box.top, box.right, box.bottom)
+
+
 def grab_virtual() -> tuple[QImage, tuple[int, int, int, int]]:
     """Tum ekranlari tek karede yakalar. (goruntu, sanal dikdortgen) doner.
 

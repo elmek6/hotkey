@@ -232,10 +232,31 @@ class FletEngine(QObject):
         Isitilmis panelin `show_*` metodu sonradan cagrildiginda
         `engine.page` artik dolu, yani panel dogrudan `call()` yoluna
         giriyor ve pencere aninda aciliyor -- kacan bir sey yok.
+
+        ON ISITMADA PENCERE ACIKCA GIZLENIYOR. Flet istemcisi pencereyi
+        KENDISI aciyor: `ft.run()` calisir calismaz ekranda varsayilan
+        olculu, bos bir pencere var. "Gostermemek" icin hicbir sey
+        yapmamak YETMIYOR -- OLCULDU (`probes/tip.py`): isitilan panel
+        ekranda bos bir kutu birakiyordu ve panelin `_build`de yazdigi
+        ayarlar (baslik, cercevesizlik) istemciye hic gitmedigi icin
+        pencere basliksiz kaliyor, tutamagi da bulunamiyordu.
+
+        Gizleme MOTORDA, panelde degil: isitilan her panelin ayni
+        ihtiyaci var ve `_build`i yazan kisinin bunu bilmesi gerekmesin.
         """
-        if self._warming:
+        if not self._warming:
+            self.call(job)
             return
-        self.call(job)
+        self.call(self._hide_for_warm)
+
+    def _hide_for_warm(self) -> None:
+        """On isitma: pencereyi gizle ve panelin `_build`de yazdiklarini
+        istemciye GONDER (`update` olmadan hicbiri uygulanmiyor)."""
+        page = self._page
+        if page is None:
+            return
+        page.window.visible = False
+        page.update()
 
     def stop(self) -> None:
         """Pencereyi GERCEKTEN kapat ve thread'i bekle. Cikista SART.

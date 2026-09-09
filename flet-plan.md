@@ -56,6 +56,17 @@
 > (`tests/test_flet_engine.py` +4, `tests/test_window_focus.py` 5).
 > Ikisi de HENUZ KULLANILMIYOR: musterileri adim 16+'daki dort pencere.
 >
+> **ADIM 16 (IPUCU) YAZILDI ve OLCULDU, BAGLANMADI.** Ilk Asama 3
+> paneli (`fui/tip.py`): cercevesiz, hep ustte, imlecin yaninda, odak
+> calmayan pencere. 29 birim testi geciyor. Panel yazildiktan sonra
+> EKRANDAN olculdu (`probes/tip.py` -- piksel sayan sondaj) ve olcum UC
+> SESSIZ HATA buldu: `window.movable = False` gizlemeyi BOZUYOR,
+> `skip_task_bar` HIC ISLEMIYOR (is Win32'ye dustu), ve on isitma
+> pencereyi acikca gizlemiyordu. Ucu de duzeltildi ve testi yazildi.
+> SAYDAMLIK CALISIYOR (pencerenin yalnizca %30-39'u boyaniyor).
+> `app.py`ye BAGLANMADI -- ipucu programin KIRK yerinden cagriliyor
+> (hata bildirimi dahil). Ayrinti: **ADIM 16 -- IPUCU** bolumu.
+>
 > **TEMA KARARI:** Flet panelleri KOYU SABIT kaldi. Ayarin kendisi
 > calisiyor (Qt pencereleri tema degistiriyor) ama Flet tarafi renkleri
 > denetim kurulurken aliyor ve panel bir daha yok edilmiyor; "acik tema"
@@ -343,7 +354,7 @@ Bunlar "biraz ugrasinca olur" degil; her biri icin bir KARAR gerekiyor.
 | 15 | `quick_panel.py` | 562 | Ayni: CapsLock paneli de kutuya yaziyor (`eventFilter`) | Ayni kopru |
 | 16 | `key_capture.py` | 112 | Ham tus yakalama: `ui_open` ile hook susturulup tuslar Qt olayi olarak okunuyor | Flet klavye olayi sayfa duzeyinde ve Windows tus kodlarini vermiyor. Hook'tan beslemek gerekir. |
 | 17 | `incognito_badge.py` | 188 | `QPainter` ile cizilen, hep ustte duran rozet | **Odak sorunu OLCULDU ve YOK:** Flet penceresi gosterilince odak calmiyor. Kalan is cerceve/saydamlik (`frameless`, `always_on_top`, `skip_task_bar` Flet'te var) ve ON ISITMA (adim 15, hazir) |
-| 18 | `tip.py` | 173 | `FramelessWindowHint` + `WA_ShowWithoutActivating` | **OLCULDU: `WA_ShowWithoutActivating`in karsiligi BEDAVA** -- Flet penceresi gosterilirken odak calmiyor. Kalan is cercevesiz + hep ustte cizim; ILK ACILIS gecikmesi icin on isitma HAZIR (adim 15) |
+| 18 | `tip.py` | 173 | `FramelessWindowHint` + `WA_ShowWithoutActivating` | **YAZILDI ve OLCULDU (adim 16) -> `fui/tip.py`**, baglanmadi. Odak bedava cikti (adim 14); gercek engel `adjustSize` idi -- saydam zeminle cozuldu, olculdu |
 | 19 | `menu.py` | 88 | Win32 `TrackPopupMenu` (zaten Qt degil) | Flet'e tasimak anlamsiz; oldugu gibi kalabilir. |
 | 20 | `tray.py` | 419 | `QSystemTrayIcon` -- Flet'te tepsi YOK | Onceki brans `pystray` eklemisti. Ayri bir karar. |
 | 21 | `snip.py` | 1347 | Tam ekran saydam bindirme + `QPainter` cizimi + basili tus takibi | **Flet'te karsiligi YOK.** Win32 katmanina inmeli (onceki brans `win32/overlay.py` yazmisti). En son, belki hic. |
@@ -366,7 +377,7 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On dokuz dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+Yirmi dort dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
 penceresi, olay izleyici, ayar ekrani, pano gorselleri (iki dugme) ve uc
 QR girisi (duz metin, link, hazir wifi dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
@@ -407,6 +418,42 @@ bakilacak iki sey:
 Deneme penceresini kapatinca Flet pencereleri de kapanir. Kapanmazsa
 gorev cubugunda `flet.exe` kalir (Gorev Yoneticisi'nden kapatilabilir).
 
+**Ipucu (adim 16) -- BES DUGME, en onemli sinav.** Panel `app.py`ye
+BAGLANMADI: gordugun sey yalnizca sondajda kosuyor, gercek programin
+ipuclari hala Qt'nin. Sondaj ipucunu ON ISITMA ile aciyor, yani ILK
+dugme de aninda gorunmeli (isitma calismiyorsa 1-3.5 saniye beklersin --
+o zaman haber ver). Bakilacaklar:
+
+1. **Kutu IMLECIN sag altinda mi?** Fareyi ekranin ortasina getir, bas.
+   Sonra fareyi sag alt koseye goturup tekrar bas: kutu ekran disina
+   TASMAMALI, ice cekilmeli. Ikinci monitorde de dene -- konum hesabi
+   fiziksel/mantiksal piksel cevrimi yapiyor ve orasi negatif
+   koordinatta.
+2. **Cerceve gitti mi?** Baslik cubugu, kenarlik ve kapatma dugmesi
+   OLMAMALI; yalnizca yuvarlak koseli koyu kutu.
+3. **SAYDAMLIK -- bu adimin en kritik sinavi.** Kutunun DISINDA kalan yer
+   saydam olmali. Kutunun etrafinda koyu bir DIKDORTGEN gorunuyorsa
+   saydamlik tutmamis demektir: haber ver, o zaman pencere olcusu
+   metinden hesaplanacak (`window_size` comert degil TAM olacak).
+4. **ODAK GITMIYOR mu?** Bir yere yazarken (Not Defteri) ipucu dugmesine
+   bas -- yazdigin yerden odak GITMEMELI. Adim 14'te olculdu, burada
+   dogrulaniyor.
+5. **Gorev cubugunda gorunmuyor mu?** Ipucu acikken gorev cubuguna bak:
+   `KeyPilot ipucu` diye bir pencere OLMAMALI (`skip_task_bar`).
+6. **Metin dogru mu?** "HTML" dugmesi: **KeyPilot** kalin, `version` ve
+   `build` SOLUK gri, uc satir. "Duz metin" dugmesinde HTML
+   yorumlanmamali.
+7. **Olcu.** Metin KIRPILIYORSA ya da kutu gereksiz genisse `CHAR_PX`
+   tahmini tutmamis demektir -- haber ver, hangi metinde oldugunu soyle.
+8. **Resimli ipucu.** Solda 64x64 kucuk resim, saginda iki satir metin.
+   Resim gorunmuyorsa haber ver.
+9. **Menu.** Rozetler (1/2/3) sabit genislikli ve kendi zeminli; ikinci
+   satirdaki `x4` SOLUK olmali. Baslik MAVI.
+10. **Kendi kendine kapaniyor mu?** Sureler 2-4 saniye. "KAPAT" dugmesi
+    hemen kapatmali; kapattiktan sonra suresi dolan bir sayac pencereyi
+    ikinci kez KAPATMAYA CALISMAMALI (goze carpan bir sey olmaz, ama
+    log'a hata dusmemeli).
+
 ### 1b) Odak sondaji -- Asama 3'un olcumu
 
     uv run python -m probes.focus
@@ -421,6 +468,22 @@ orneklyor. ~2 dakika surer, sonuc konsola tablo olarak dusuyor.
 (IDE, calisan bir Flutter ornegi) olcumu kirletiyor; sondaj bunu
 farkedip tekrar deniyor ama her seferinde kurtaramiyor -- satirda
 "OLCULEMEDI" yaziyorsa o senaryo yeniden calistirilmali.
+
+### 1c) Ipucu sondaji -- adim 16'nin olcumu
+
+    uv run python -m probes.tip
+
+Panel DENEMEZ, ipucu penceresini OLCER. Ekrani ipucu kapaliyken yakalar,
+gosterir, tekrar yakalar ve degisen pikselleri sayar -- saydamligin
+calisip calismadigi ancak boyle anlasiliyor. Ayrica pencere bayraklarini
+dokuyor (hangi Flet ayari GERCEKTEN isledi) ve isitilmis/isitilmamis
+acilis suresini olcer. ~1 dakika surer.
+
+Makineye dokunmak GEREKMIYOR (odak sondajindan farki bu: burada odak
+degil piksel okunuyor), ama ekran gorunur olmali -- kilitli ekranda ya da
+uzak masaustu kapaliyken olcum anlamsiz.
+
+Sonuc tablosu ve cikan kararlar: **ADIM 16 -- IPUCU** bolumu.
 
 ### 2) Gercek program
 
@@ -1022,31 +1085,186 @@ ISTEMIYOR -- Win32 cagrilari yamaniyor; odagin gercekten degistigi
 
 ---
 
-## SIRADAKI ADIM (adim 16): `tip.py` -- ilk Asama 3 paneli
+## ADIM 16 -- IPUCU (yazildi, BAGLANMADI)
 
-Panel tasima sirasi kucukten buyuge: `tip.py` (173),
-`incognito_badge.py` (188), `array_filter.py` (313),
-`quick_panel.py` (562). Ilk ikisi odak ISTEMIYOR (adim 14: Flet'in
-varsayilani zaten oyle), ikinci ikisi `force_focus` kullanacak.
+Dosya: `keypilot/fui/tip.py`. Qt karsiligi `keypilot/ui/tip.py` (173
+satir). **ILK ASAMA 3 PANELI.**
 
-`tip.py` ile baslamanin sebebi en kucuk olmasi degil yalniz: ipucu
-penceresi PROGRAMIN HER YERINDEN aciliyor (slot kaydetme, pano, makro),
-yani hem `always_on_top` + `frameless` cizimini hem de ON ISITMANIN
-gercekten ise yarayip yaramadigini ilk orada gorecegiz. Bakilacaklar:
+### Engel tahmin edildiginden BASKA cikti
 
-* `frameless`, `always_on_top`, `skip_task_bar` -- ucu de Flet'te var,
-  GOZLE dogrulanmali (cerceve gercekten gidiyor mu, rozet gorev
-  cubugunda gorunuyor mu).
-* Ipucu kendi kendine kapaniyor (Qt'de `QTimer`): zamanlayici ANA
-  THREAD'de kalmali, `fui/monitor.py` kalibi.
-* **ON ISITMANIN ILK MUSTERISI.** Isitilmadan acilan ipucu 1-3.5 saniye
-  sonra gorunur -- yani gecikme oradaki isitmayla OLCULEBILIR: isitmali
-  ve isitmasiz acilis suresi.
+Plan bu pencereyi "odak" yuzunden Asama 3'e koymustu. Adim 14 odagi
+olcup gecti (Flet zaten calmiyor). Panel yazilirken gercek engel ortaya
+cikti ve o plana HIC girmemisti:
+
+| Ne | Qt | Flet |
+|---|---|---|
+| odak calmama | `WA_ShowWithoutActivating` | **varsayilan** (adim 14) |
+| cercevesiz | `FramelessWindowHint` | `frameless` + `title_bar_hidden` |
+| gorev cubugunda yok | `Qt.ToolTip` | `skip_task_bar` |
+| **icerige gore boy** | **`adjustSize()`** | **KARSILIGI YOK** |
+
+Ipucu bir satirdan on satira kadar degisiyor (`show_menu` pano
+gecmisinde dokuz satir). Sabit olcu verilseydi ya metin kirpilirdi ya
+altta bos serit kalirdi.
+
+**COZUM SAYDAMLIK.** Pencereye COMERT bir olcu veriliyor ve zemini
+saydam birakiliyor (`window.bgcolor` + `page.bgcolor` TRANSPARENT);
+gorunen kutu pencerenin kendisi degil, icindeki `Container`. Container
+Flet'in kendi yerlesimiyle iceriginin boyuna oturuyor -- yani
+"adjustSize" isini Flutter yapiyor, artan yer saydam kaliyor.
+`window_size` yine de icerikle buyuyor: sabit buyuk bir pencere ekranin
+kenarinda yerlestirme hesabini bozardi.
+
+### HTML korundu -- cagiran kirk yer degismedi
+
+`show_html` ipucunun ANA arayuzu: `app.py`, `clip_ctl.py` ve
+`fui/mem_slots.py` toplam kirk yerde HTML govdesi uretiyor. Plandaki
+panel tasima kurali geregi imza korundu ve HTML burada `ft.TextSpan`lara
+CEVRILIYOR (`parse`). Kullanilan dagarcik ONCE TARANDI, kucuk cikti:
+kalin, satir sonu, renkli span (tek renk: `#8b949e`), kacis dizileri.
+`<i>` yalnizca ornek metinlerde. **Bilinmeyen etiket atiliyor, metni
+kaliyor** -- ipucu bir metin kutusu, tanimadigi bir etiket yuzunden BOS
+gorunmesi en kotu sonuc olurdu.
+
+`show_menu` HTML'den GECMIYOR: Qt bir tablo uretiyordu, Flet'te tablo
+yok ve gerek de yok -- satirlar dogrudan denetim (rozet bir
+`Container`).
+
+### Imlecin yaninda -- ILK KEZ konum hesabi
+
+Oteki on iki panelin hepsinde "imlecin ekraninda acilmiyor" diye bir
+kayip yazili (bkz. asagidaki liste). Ipucunda bu kabul edilemez:
+ekranin ortasinda acilan bir ipucu ipucu degildir.
+
+Cevrim gerekiyor cunku iki taraf ayri birimde konusuyor: bu paketteki
+her sey FIZIKSEL pikselde (`GetCursorPos`, `virtual_rect`, `monitors`),
+Flutter -- yani `window.left/top` -- MANTIKSAL pikselde. Iki yeni
+yardimci `win32/screen.py`de: `dpi_scale_at(x, y)` ve `work_area_at`.
+
+    -> OLCULDU: bu makinenin UC monitorunde de olcek 1.104 (106 DPI).
+       Plandaki "%135" notu artik GECERLI DEGIL; cevrim yapilmasaydi
+       pencere yuzlerce piksel sapardi.
+
+Bu yardimci hazir olduguna gore oteki panellerin "imlecin ekraninda
+acilmiyor" kaybi da artik ucuz: `place()` kalibi oradan alinabilir.
+
+### ON ISITMANIN ILK MUSTERISI
+
+Ipucu programin HER YERINDEN aciliyor ve suresi 900-2500 ms. Isitilmasa
+ILK ipucu `flet.exe` ayaga kalkana kadar (1.0-3.5 sn) gorunmezdi -- yani
+hic gorunmemis sayilirdi. `TipPanel.warm()` adim 15'in `FletEngine.warm`
+yolunu cagiriyor; sondaj bunu yapiyor.
+
+### Testler -- ve BIR DERS
+
+`tests/test_fui_tip.py`, 29 test, Flet de ekran da gerekmiyor: `parse`
+(dagarcik + bozuk HTML), `window_size` (icerikle buyume, tavan, resim) ve
+`place` (cevrim, kenara cekme, negatif koordinatli ikinci monitor --
+olcek testte BILEREK 1.25 yamaniyor ki cevrimin gercekten yapildigi
+gorulsun).
+
+**DENETIM AGACI TESTI (yeni kalip, bir hatadan dogdu).** Ilk surumde
+`ft.border.all` ve `ft.padding.symmetric` yaziliydi; dogrusu
+`ft.Border.all` ve `ft.Padding.symmetric`. Saf fonksiyonlarin 21 testi
+GECIYORDU ama panel ekranda acilirken Flet
+`module ... has no attribute` diye dusuyordu -- yani yanlis Flet API'si
+ancak GERCEK PENCEREDE gorunuyordu.
+
+Cozum ucuz: `_build` ve `_content` SAHTE bir sayfayla (`SahteSayfa`,
+duz bir nesne) cagriliyor. Denetimler gercekten kuruluyor, Flet
+calistirilmiyor, ekran gerekmiyor -- yanlis bir ad ya da imza artik
+testte patliyor. **Yeni panel yazacak olana: bu kalibi kullan.** On uc
+panelin hicbirinde bu test yok; ayni hata onlarda da olabilir (tarandi,
+`ft.<kucuk harf>.<...>` bicimli baska cagri KALMADI, ama tarama yalnizca
+bu hata bicimini yakalar).
+
+### EKRANDAN OLCULDU (`probes/tip.py`) -- UC SESSIZ HATA
+
+Panel yazildi, testleri geciyordu ve ekranda YANLIS calisiyordu. Adim
+14'un dersi burada tersinden dogrulandi: **Flet ayarlarinin ISLEYIP
+ISLEMEDIGI ancak gercek pencerede gorunuyor.**
+
+Sondaj GOZE degil PIKSELE bakiyor: ekrani ipucu kapaliyken yakalar,
+ipucunu gosterir, tekrar yakalar ve pencerenin dikdortgeninde DEGISEN
+pikselleri sayar. Saydamsa yalnizca kutunun yeri degisir.
+
+| Ne olculdu | Sonuc |
+|---|---|
+| **SAYDAMLIK** | **CALISIYOR** -- pencerenin yalnizca %30-39'u boyaniyor, gerisi bir onceki kareyle BAYT BAYT ayni |
+| `always_on_top` | CALISIYOR (WS_EX_TOPMOST kondu) |
+| `frameless` | CALISIYOR gorunuyor: WS_THICKFRAME kalkti, WS_CAPTION uslupta kaliyor ama CIZILMIYOR (ustteki serit boyanmiyor) |
+| **`skip_task_bar`** | **ISLEMIYOR** -- ne WS_EX_TOOLWINDOW var ne sahip, yani gorev cubugunda dugme CIKIYOR |
+| **`movable = False`** | **GIZLEMEYI BOZUYOR** -- ipucu bir daha kapanmiyor |
+| **on isitma** | pencereyi ACIKCA gizlemiyordu: `flet.exe` kendi bos penceresini aciyor |
+| olcu tahmini (`CHAR_PX`) | KIRPILMA YOK; tahmin ~%15 COMERT (saydamlik yuttugu icin gorunmuyor) |
+| acilis suresi | isitilmis **0.15 sn**, isitilmamis **0.62 sn** (makine sicakken; soguk acilis 1-3.5 sn) |
+
+**Uc hata da SESSIZDI:** program calisiyor, hata vermiyor, log'a bir sey
+dusmuyor -- yalnizca pencere yanlis davraniyor. Ucu de duzeltildi:
+
+1. **`movable = False` KALDIRILDI.** Kaybedilen bir sey yok: pencere
+   cercevesiz, suruklenecek baslik cubugu zaten yok. Bayrak bayrak
+   bolerek bulundu (sekiz ayri pencere acildi, teker teker denendi).
+2. **Gorev cubugu isi WIN32'YE DUSTU** -- `win32/window.py`
+   `set_tool_window()`. Qt surumu bunu `Qt.ToolTip` bayragiyla bedavaya
+   yapiyordu. ZAMANLAMA onemli: Windows bu bayragi ancak pencere
+   GIZLIYKEN gorev cubuguna yansitiyor, o yuzden her gosterimden ONCE
+   deneniyor (ipucular arasinda pencere zaten gizli). `find_window`a
+   `visible_only=False` eklendi -- isitilan pencere gizli oldugu icin
+   eski hali onu bulamiyordu.
+3. **ON ISITMA PENCEREYI GIZLIYOR** (`fui/engine.py` `_hide_for_warm`).
+   Adim 15'te "gostermemek icin hicbir sey yapma" yetiyor sanilmisti;
+   yetmiyor -- `ft.run()` calisir calismaz ekranda varsayilan olculu bos
+   bir pencere var. Ustelik `_build`de yazilanlar (baslik, cercevesizlik)
+   bir `update()` gelmeden istemciye HIC gitmiyordu, yani isitilan
+   pencerenin basligi bile yoktu ve tutamagi bulunamiyordu. Gizleme
+   MOTORA kondu: isitilan her panelin ayni ihtiyaci var.
+
+Ikisinin de REGRESYON TESTI var (`test_movable_AYARLANMIYOR`,
+`test_gorev_cubugundan_gizleme_BIR_KEZ`): sessiz hatalar sessizce geri
+gelmesin.
+
+### BAGLANMADI -- neden ve sirasi
+
+`app.py`de `Tip()` -> `TipPanel()` tek satir, ama bu panel oteki on
+ikiden farkli: KIRK cagirani var ve biri HATA BILDIRIMI. Yanlis
+calisirsa program sessizlesmez, HATALAR GORUNMEZ olur.
+
+Olcum yapildi ve pencerenin davranisi artik biliniyor; kalan tek sey
+GOZLE bakilmasi gereken sey: **metnin okunakliligi.** Sondaj pikselin
+degistigini gorur, YAZININ dogru dizildigini goremez -- kalin/soluk
+ayrimi, emoji, rozet hizasi ve satir araligi goz isi.
+
+Bakilacaklar **Nasil denenir** > ipucu dugmelerinde.
+
+## SIRADAKI ADIM (adim 17): ipucunu BAGLA, sonra rozet
+
+**1. Ipucuna GOZLE bak** (`uv run python -m probes.flet`, bes ipucu
+dugmesi). Olculemeyen tek sey metnin okunakliligi.
+
+**2. `app.py`de UC SATIR:**
+
+    self.tip = TipPanel()        # satir ~190, `Tip()` yerine
+    self.tip.warm()              # acilista -- ISITILMADAN kullanilmamali
+    self.tip.shutdown()          # `on_exit` icinde
+
+    -> ISITMA ISTEGE BAGLI DEGIL. Isitilmayan panelde ILK ipucu 1-3.5
+       saniye sonra gorunur (suresi 900-2500 ms, yani hic gorunmez) VE
+       ilk ipucu gorev cubugunda cikar (bkz. olcum). `warm()` cagrilmali.
+
+**3. Sonra `incognito_badge.py` (188).** Ipucuyla ayni kalibi
+kullanacak -- cercevesiz + saydam + hep ustte + gorev cubugundan gizli.
+Farki `QPainter` cizimi: rozet elle cizilmis bir sekil, Flet'te
+`Container`/`Text` ile yeniden kurulacak. Ipucunun cozdukleri (saydamlik,
+`set_tool_window`, `place`) HAZIR, yani bu adim kucuk olmali.
+
+**4. Sonra `array_filter.py` (313) ve `quick_panel.py` (562)** -- ikisi
+de odagi ALMAK zorunda, `win32/window.py` `force_focus()` kullanacaklar
+(adim 15, olculdu ama HENUZ HIC KULLANILMADI).
 
 **Karar hala verilmedi (bilerek):** `menu.py` (zaten Win32),
 `tray.py` (Flet'te tepsi yok), `snip.py` (tam ekran saydam bindirme) ve
-adim 10'da kalan `mem_slots.py`. Bunlar odak sorunundan bagimsiz, ayri
-kararlar.
+adim 10'da kalan `mem_slots.py`.
 
 ---
 
@@ -1136,6 +1354,12 @@ sayilmaz.
       yalnizca "acaba yeni Flet surumunde degisti mi" sorusu icin
       duruyor. Icindeki `force_focus` adim 15'te kalici yere TASINDI
       (`win32/window.py`); sondaj artik onu cagiriyor, kopya kalmadi.
+- [ ] **`probes/tip.py`** -- adim 16'nin olcumu (saydamlik, pencere
+      bayraklari, acilis suresi). Isi bitti; yalnizca "acaba yeni Flet
+      surumunde degisti mi" sorusu icin duruyor. Ozellikle
+      `skip_task_bar` bir gun duzelirse `fui/tip.py`deki Win32
+      yamasi (`_hide_from_taskbar`) gereksizlesir -- once bu sondaj
+      kosulmali.
 - [ ] **`probes/flet.py`** -- "hangi panel Flet'te" sorusunun cevabi
       oldugu surece ise yariyor. Her sey Flet'e gecince anlamsizlasir;
       icindeki sahte veriler `probes/gui.py` gibi bir sondaja tasinabilir.
@@ -1233,10 +1457,13 @@ sayilmaz.
       bu bedel PANEL BASINA bir kez odeniyor. Tek kabuga gecilirse bir kez.
 - [ ] **Slot kutusu imlecin ekraninda acilmiyor.** Qt surumu
       `ui/place.py` ile calisilan monitorun ortasina aciyordu; Flet
-      penceresi kendi varsayilan yerine geliyor. Cozum fiziksel/mantiksal
-      piksel cevrimi istiyor (bu makine %135 olcekli, iki monitor) --
-      `win32/screen.py` `monitors()` hazir, `page.window.left/top` var.
-      Cok monitorlu kullanimda rahatsiz ederse oncelige alinmali.
+      penceresi kendi varsayilan yerine geliyor.
+      **ARTIK UCUZ (adim 16):** fiziksel/mantiksal piksel cevrimi YAZILDI
+      ve olculdu -- `win32/screen.py` `dpi_scale_at()` + `work_area_at()`,
+      kullanim ornegi `fui/tip.py` `place()`. Bu makinenin UC monitorunde
+      de olcek 1.104; plandaki eski "%135, iki monitor" notu YANLISTI.
+      On bir panelin hepsinde ayni kayip var ve hepsi ayni kalipla
+      cozulur.
 - [ ] **Log penceresinde cift tiklama.** Qt'de satiri panoya
       kopyaliyordu; Flet `Container`inda cift dokunma olayi yok. Ayni is
       "Satiri kopyala" dugmesinde -- once satira tiklanip secilmesi

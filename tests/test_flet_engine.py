@@ -135,9 +135,20 @@ def yeni_motor() -> SahteMotor:
 def test_on_isitma_PENCEREYI_GOSTERMIYOR():
     motor = yeni_motor()
     motor.warm()
-    motor.show_on_build(lambda: None)  # `_build`in son satiri
+    gosterim = lambda: None  # noqa: E731 -- `_build`in son satiri
+    motor.show_on_build(gosterim)
     assert motor.baslatildi == 1
-    assert motor.gosterildi == []
+    assert gosterim not in motor.gosterildi
+
+
+def test_on_isitma_PENCEREYI_GIZLIYOR():
+    """Hicbir sey yapmamak YETMIYOR: Flet istemcisi pencereyi kendisi
+    aciyor, yani isitilan panel ekranda bos bir kutu birakiyordu.
+    OLCULDU (probes/tip.py) ve gizleme motora kondu."""
+    motor = yeni_motor()
+    motor.warm()
+    motor.show_on_build(lambda: None)
+    assert motor.gosterildi == [motor._hide_for_warm]
 
 
 def test_normal_acilis_PENCEREYI_GOSTERIYOR():
@@ -164,6 +175,7 @@ def test_isitilmis_panel_SONRA_normal_aciliyor():
     yoluna giriyor -- kacan bir sey yok."""
     motor = yeni_motor()
     motor.warm()
-    motor.show_on_build(lambda: None)
-    motor.call(lambda: None)  # panelin `show_*` yolu
-    assert len(motor.gosterildi) == 1
+    motor.show_on_build(lambda: None)  # gizleme kuyruga girer
+    gosterim = lambda: None  # noqa: E731 -- panelin `show_*` yolu
+    motor.call(gosterim)
+    assert gosterim in motor.gosterildi

@@ -82,6 +82,8 @@ user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BO
 user32.AttachThreadInput.restype = wintypes.BOOL
 user32.BringWindowToTop.argtypes = [wintypes.HWND]
 user32.BringWindowToTop.restype = wintypes.BOOL
+user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+user32.SetWindowLongW.restype = ctypes.c_long
 
 SW_RESTORE = 9
 SW_MINIMIZE = 6
@@ -276,12 +278,18 @@ def force_focus(hwnd: int, tries: int = 3, settle: float = FOCUS_SETTLE) -> bool
     return False
 
 
-def find_window(cls: str = "", title: str = "") -> int:
-    """Sinifi TAM, basligi PARCA eslesen ilk gorunur pencere; yoksa 0.
+def find_window(cls: str = "", title: str = "", visible_only: bool = True) -> int:
+    """Sinifi TAM, basligi PARCA eslesen ilk pencere; yoksa 0.
 
     AHK'nin `SetTitleMatchMode(2)` davranisi: baslik icerik olarak aranir,
     cunku baslik uygulamaya gore degisiyor ("Adsiz - Not Defteri" bir
     kaydetmeden sonra baska turlu yaziliyor).
+
+    `visible_only=False` GIZLI pencereleri de tariyor. Gerekcesi on
+    isitma: isitilan Flet paneli ayakta ama GIZLI, ve gorev cubugundan
+    saklanmasi (`set_tool_window`) tam o sirada yapilmali -- Windows
+    WS_EX_TOOLWINDOW degisimini yalnizca pencere GIZLIYKEN gorev
+    cubuguna yansitiyor.
     """
     if not cls and not title:
         return 0
@@ -290,7 +298,7 @@ def find_window(cls: str = "", title: str = "") -> int:
     @_ENUM_PROC
     def _visit(hwnd, _lparam):
         nonlocal found
-        if not user32.IsWindowVisible(hwnd):
+        if visible_only and not user32.IsWindowVisible(hwnd):
             return True
         if cls and window_class(hwnd) != cls:
             return True
@@ -301,6 +309,29 @@ def find_window(cls: str = "", title: str = "") -> int:
 
     user32.EnumWindows(_visit, 0)
     return found
+
+
+def set_tool_window(hwnd: int, on: bool = True) -> bool:
+    """Pencereyi gorev cubugundan (ve Alt+Tab'dan) gizle.
+
+    NEDEN ELLE. Flet'in `window.skip_task_bar` ayari OLCULDU
+    (`probes/tip.py`) ve ISLEMIYOR: pencerede ne WS_EX_TOOLWINDOW var ne
+    de bir sahip, yani gorev cubugu kuralina gore dugme CIKIYOR. Ipucu
+    gibi bir pencere icin bu yanlis -- Qt surumu `Qt.ToolTip` bayragiyla
+    ayni isi bedavaya yapiyordu.
+
+    ZAMANLAMA ONEMLI: Windows bu bayragin degisimini yalnizca pencere
+    GIZLIYKEN gorev cubuguna yansitiyor. Gorunur bir pencerede cagrilirsa
+    uslup degisir ama dugme durmaya devam eder.
+    """
+    if not is_window(hwnd):
+        return False
+    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    updated = style | WS_EX_TOOLWINDOW if on else style & ~WS_EX_TOOLWINDOW
+    if updated == style:
+        return True
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, updated)
+    return bool(user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == on
 
 
 @dataclass(frozen=True, slots=True)

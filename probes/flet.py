@@ -64,6 +64,7 @@ from keypilot.fui.qr import QrPanel
 from keypilot.fui.repository import RepositoryPanel
 from keypilot.fui.settings import SettingsPanel
 from keypilot.fui.slot_edit import SlotEditPanel
+from keypilot.fui.tip import TipPanel
 from keypilot.imgstore import ClipImageStore
 from keypilot.repository import Repository
 from keypilot.settings import SETTINGS
@@ -354,6 +355,13 @@ class Probe(QWidget):
         self.images.closed.connect(lambda: self._note("images", "closed"))
         self._added = 0
 
+        # Ipucu: ILK ASAMA 3 paneli. Cercevesiz, hep ustte, imlecin
+        # yaninda ve ODAK CALMAMASI gereken pencere. Sondaj onu ON ISITMA
+        # ile aciyor (adim 15'in ilk musterisi) -- yani asagidaki
+        # dugmelerin ILKI de aninda gorunmeli.
+        self.tip = TipPanel()
+        self.tip.warm()
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -400,6 +408,45 @@ class Probe(QWidget):
                 lambda: self.profiles.open_new("Chrome_WidgetWin_1"),
                 "profil",
             ),
+            # Ipucu -- dort bicim: duz metin, HTML, resimli ve menu.
+            # HEPSINDE bakilacak ortak seyler: kutu IMLECIN yaninda mi,
+            # cercevesi gitti mi, gorev cubugunda gorunuyor mu (gorunmemeli),
+            # ve YAZDIGIN yerden ODAK GITTI MI (gitmemeli -- adim 14).
+            (
+                "Ipucu -- duz metin (2 sn)",
+                lambda: self.tip.show_text("kaydedildi ✓", 2000),
+                "tip",
+            ),
+            (
+                "Ipucu -- HTML (kalin + soluk + satir sonu)",
+                lambda: self.tip.show_html(
+                    "✅ <b>KeyPilot</b> &nbsp;·&nbsp; is<br>"
+                    "<span style='color:#8b949e;'>version</span> 1.2.3<br>"
+                    "<span style='color:#8b949e;'>build</span> sondaj",
+                    4000,
+                ),
+                "tip",
+            ),
+            (
+                "Ipucu -- KUCUK RESIMLI (pano gorseli)",
+                self._tip_image,
+                "tip",
+            ),
+            (
+                "Ipucu -- MENU (pano gecmisi kalibi)",
+                lambda: self.tip.show_menu(
+                    "📋 Pano gecmisi (3)",
+                    (
+                        ("1", "ilk kayit"),
+                        ("2", "ikinci kayit <span style='color:#8b949e;'>x4</span>"),
+                        ("3", "cok daha uzun bir pano kaydi, satir tasmasin"),
+                    ),
+                    footer="",
+                    ms=4000,
+                ),
+                "tip",
+            ),
+            ("Ipucu -- KAPAT", self.tip.hide, "tip"),
             ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
             ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
             (
@@ -463,6 +510,24 @@ class Probe(QWidget):
             )
             # Her yedincisi YUTULDU: kirmizi satir da gorunsun.
             self.monitor.add(event, swallowed=self._feed % 7 == 0)
+
+    def _tip_image(self) -> None:
+        """Resimli ipucu -- `clip_ctl.on_other`in kalibi: gorsel kaydedildi
+        haberi + 64x64 kucuk resim (BELLEKTEN, gecici dosya yok)."""
+        from PySide6.QtGui import QImage
+
+        from keypilot.imgstore import THUMB_SIZE
+
+        raw = self.image_store.read_thumb(0)
+        thumb = (
+            QImage(raw, THUMB_SIZE, THUMB_SIZE, QImage.Format.Format_ARGB32).copy()
+            if raw
+            else None
+        )
+        self.tip.show_html(
+            "🖼️ <b>gorsel</b><br>640x480", 3000, thumb
+        )
+        self._note("tip", f"resimli ipucu (thumb {'var' if thumb else 'YOK'})")
 
     def _add_image(self) -> None:
         """Sahte bir "gorsel kopyalandi" olayi -- gercekte `clip_ctl.on_other`.
@@ -546,6 +611,7 @@ class Probe(QWidget):
         self.profiles.shutdown()
         self.settings.shutdown()
         self.images.shutdown()
+        self.tip.shutdown()
         self.image_store.close()
         super().closeEvent(event)
 
