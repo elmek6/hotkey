@@ -59,12 +59,12 @@ def test_kayit_dosyaya_yazilir(ctl, files_dir):
     ctl.feed(key(65, down=False))
     ctl.stop(1, "deneme")
     assert macro.read(macro.slot_path(1)) == ("deneme", ctl.recorder.events)
-    assert "2 olay" in ctl.view.status.text()
+    assert "2 olay" in ctl.view.status
 
 
 def test_esc_kaydi_bitirip_yazar(ctl, files_dir):
     """Kaydedici kendini durdurunca denetleyici diske yazmali."""
-    ctl.view.name.setText("esc")
+    ctl.view.name = "esc"
     ctl.start_record(1, macro.KEY)
     ctl.feed(key(65))
     ctl.feed(key(macro.VK_ESCAPE))
@@ -92,7 +92,7 @@ def test_kayit_yokken_besleme_bedava(ctl):
 
 def test_bos_slot_oynatilmaz(ctl, files_dir):
     ctl.play(2)
-    assert "bos" in ctl.view.status.text().lower()
+    assert "bos" in ctl.view.status.lower()
 
 
 def test_oynatma_bitince_durum_tazelenir(ctl, files_dir, qapp, monkeypatch):
@@ -105,7 +105,7 @@ def test_oynatma_bitince_durum_tazelenir(ctl, files_dir, qapp, monkeypatch):
     ctl._thread.join(timeout=2)
     qapp.processEvents()
     assert [e["vk"] for e in oynatilan] == [65]
-    assert "Bitti" in ctl.view.status.text()
+    assert "Bitti" in ctl.view.status
 
 
 def test_esc_oynatmayi_keser(ctl, files_dir, monkeypatch):
@@ -120,7 +120,7 @@ def test_esc_oynatmayi_keser(ctl, files_dir, monkeypatch):
     assert ctl._stop.is_set()
 
 
-def test_eylem_kaydi(ctl):
+def test_eylem_kaydi(ctl, monkeypatch):
     kayitli: dict = {}
 
     class Runner:
@@ -129,8 +129,12 @@ def test_eylem_kaydi(ctl):
 
     ctl.register(Runner())
     assert "macro.recorder" in kayitli
+    # Panel Flet'te: `open` gercekte bir Flet thread'i (ve `flet.exe`)
+    # baslatiyor. Testin sordugu sey pencerenin ACILDIGI, o yuzden motor
+    # susturuluyor ve ana thread'deki gorunurluk bayragina bakiliyor.
+    monkeypatch.setattr(ctl.view._engine, "start", lambda: None)
     kayitli["macro.recorder"](None)
-    assert ctl.view.isVisible()
+    assert ctl.view.visible
 
 
 def test_dispatcher_yolundan_gelen_fare_kaydedilir(ctl):

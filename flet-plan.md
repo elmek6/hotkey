@@ -2,16 +2,18 @@
 
 > **DURUM** (bu dosya her adimda guncelleniyor)
 >
-> Branch `flet2`. Tasinan: **6 panel** + bir ortaklastirma
+> Branch `flet2`. Tasinan: **7 panel** + bir ortaklastirma
 > (`ask_qt`, `f56ff95`) -- kisayol haritasi (`7cbca8c`),
 > duraklatma kutusu (`8775927`), slot duzenleme (`609573b`), log
 > penceresi (`45f525e`), QR penceresi (`eff1be8`), olay izleyici
-> (e4b4606). Kalan 15 pencere hala PySide6'da ve program iki motorla
-> CALISIYOR.
+> (e4b4606), makro kayit ekrani (adim 7). Kalan 14 pencere hala
+> PySide6'da ve program iki motorla CALISIYOR.
 >
 > **ASAMA 1 BITTI.** Alti panelin de GERCEK PROGRAMDA calistigi
 > kullanici tarafindan dogrulandi (log penceresinin kapanmama hatasi ve
-> olay izleyici dahil). Sirada Asama 2 -- durum yazan formlar.
+> olay izleyici dahil). **ASAMA 2 basladi:** adim 7 (makro kayit
+> ekrani) yazildi, testler geciyor -- GERCEK PROGRAMDA DOGRULANMAYI
+> BEKLIYOR (bkz. **Nasil denenir** -> makro kayit ekrani).
 >
 > Yeni panel yazacak olana: once **Mimari** bolumunu, sonra **SIRADAKI
 > ADIM** bolumunu oku. Kodda ornek: `keypilot/fui/key_map.py` (salt
@@ -19,8 +21,9 @@
 > `keypilot/fui/slot_edit.py` (kullanicidan METIN alan, yasayan panel),
 > `keypilot/fui/log_view.py` (iki sekme, zamanlayici, Qt'ye is yaptirma,
 > cizim sinirlama), `keypilot/fui/qr.py` (calisma aninda dogan/olen
-> denetimler, resim) ve `keypilot/fui/monitor.py` (CANLI akan liste --
-> artimli cizim).
+> denetimler, resim), `keypilot/fui/monitor.py` (CANLI akan liste --
+> artimli cizim) ve `keypilot/fui/macro.py` (DISARIDAN gelen durumu
+> yazan ilk panel).
 >
 > Denemek icin: `uv run python -m probes.flet` (bkz. **Nasil denenir**).
 
@@ -255,7 +258,7 @@ indiriyor.
 
 | # | Panel | Satir | Not |
 |---|---|---|---|
-| 7 | `macro_view.py` | 213 | Kayit ekrani. |
+| 7 | `macro_view.py` | 213 | Kayit ekrani. **BITTI** -> `fui/macro.py` |
 | 8 | `ocr_view.py` | 229 | `WindowStaysOnTopHint`. Sonuc paneli. |
 | 9 | `repository_view.py` | 404 | Kod parcasi deposu. |
 | 10 | `mem_slots.py` | 454 | `WindowStaysOnTopHint`. |
@@ -295,14 +298,18 @@ var, `probes/gui.py` gibi). Gercek KeyPilot'u BASLATMAZ: tuslari
 devralmaz, tepsiye yerlesmez, calisan KeyPilot'u kapatmaz. Sadece
 tasinan pencereleri sahte veriyle acar.
 
-On bir dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
+On iki dugmesi var: kisayol haritasi, duraklatma kutusu, duraklatma +
 kritik hata metni, uc slot durumu (dolu slot, bos slot, sifre slotu), log
 penceresi, olay izleyici ve uc QR girisi (duz metin, link, hazir wifi
 dizgisi). Log ve QR pencereleri GERCEK dosyalari okuyor
 (`Files/log.txt`, `slots.json`) -- sahte veri yok; "Log temizle"
 gercekten siliyor, QR'in grup secimi gercekten ayara yaziliyor. Olay
 izleyici SAHTE bir akisla besleniyor: saniyede ~40 olay, yani hizli yazan
-birinin iki kati (tuslara dokunulmuyor). Pencerede bakilacak iki sey:
+birinin iki kati (tuslara dokunulmuyor). Makro ekrani GERCEK slot
+dosyalarini (`Files/rec*.jsonl`) okuyor ve ad kutusu gercekten diske
+yaziyor; kayit/oynatma YAPILMIYOR -- onlari `macro_ctl.py` yapiyor,
+sondaj yalnizca gelen sinyali dokume yazip durumu elle geri besliyor
+(oynatma iki saniye sonra "Bitti" oluyor). Pencerede bakilacak iki sey:
 
 * **Alt satirdaki sayac** -- her saniye artmali. DURURSA program tarafi
   Flet yuzunden takilmis demektir, yani mimari kirik.
@@ -464,20 +471,50 @@ Bakilacaklar:
 10. **Esc / X** kapatir; tekrar acinca aninda gelmeli ve icerik YENI
     panodakine gore kurulmali.
 
+**Makro kayit ekrani:**
+
+* `´` tusu -> menude makro kaydediciyi acan secenek.
+
+Pencere 520x400 acilmali: ustte slot listesi + kayit turu, altinda ad
+kutusu, uc dugme (Kaydet / Durdur / Oynat), iki onay kutusu, durum
+satiri ve altta "Not defterinde ac" + "Kapat". Bakilacaklar:
+
+1. **Slot listesi dolu mu?** `rec1.jsonl  -  ad` bicimi; slot
+   degistirince **ad kutusu** o slotun adiyla degismeli.
+2. **Ad kutusu diske yaziyor mu?** Bir ad yaz, baska bir yere tikla
+   (odak kaybi) ya da Enter'a bas; pencereyi kapatip acinca ad DURMALI.
+   Dosyasi olmayan slotta ad tutulmaz -- Qt surumunde de oyleydi.
+3. **Kaydet.** Basinca dugme "⏺️ Kayitta" olmali, durum satirinda
+   `Kayitta -- rec1.jsonl (Esc: durdur)` yazmali; slot ve tur kutulari
+   ile Oynat dugmesi KAPANMALI. Birkac tusa bas.
+4. **Durdur** (ya da ayni dugmeye tekrar basmak, ya da **Esc**). Durum
+   satirinda `N olay -> rec1.jsonl` yazmali ve dosya gercekten
+   olusmali ("Not defterinde ac" ile bak).
+5. **Oynat.** Kaydedilen tuslar gonderilmeli; oynarken Kaydet/Oynat
+   kapali, durum `Oynatiliyor -- ...`. Bitince `Bitti -- N olay`.
+   Ortada **Esc** oynatmayi kesmeli.
+6. **Iki onay kutusu.** Ayarin KENDISI degisiyor: isaretleyip ayar
+   ekranindan bak, ayni degeri gostermeli.
+7. **Bos slot oynatilmaz:** `Kayit bos: recN.jsonl` yazmali.
+8. **Esc / X / Kapat** pencereyi gizler ve suren kaydi DURDURUR (Qt
+   surumu de oyleydi). Tekrar acinca aninda gelmeli.
+
 ---
 
-## SIRADAKI ADIM (adim 7): makro kayit ekrani -- ASAMA 2'NIN BASI
+## SIRADAKI ADIM (adim 8): OCR sonuc paneli
 
-Dosya: `keypilot/ui/macro_view.py` (213 satir) -> `keypilot/fui/macro.py`
+Dosya: `keypilot/ui/ocr_view.py` (229 satir) -> `keypilot/fui/ocr.py`
 
-**Neden bu:** Asama 2'nin en kucugu. Asama 1'de ogrenilen her sey burada
-hazir: `ask_qt` (motorda), gecikmeli cizim, yasayan panel, gorunurluk
-bayragi. Yeni olan tek sey panelin DURUM YAZMASI -- kayit basliyor,
-duruyor, makro diske gidiyor.
+**Neden bu:** Asama 2'nin sirasindaki bir sonraki panel ve adim 7 ile
+ayni kalibi kullaniyor (disaridan durum yaziliyor: tarama basladi,
+metin geldi). Yeni olan tek sey `WindowStaysOnTopHint` -- Flet'te
+`page.window.always_on_top`; calisip calismadigi OLCULMELI, adim 5'te
+`prevent_close`da oldugu gibi.
 
-**Once bakilacak yer:** `keypilot/macro_ctl.py`. Panelin dugmeleri
-oradaki denetleyiciyi cagiriyor; hangi cagrilarin Qt tarafinda kosmasi
-gerektigi (`ask_qt`) oradan cikacak.
+**Once bakilacak yer:** paneli acan kod (`app.py` icinde `ocr_view`) --
+metnin hangi thread'den geldigi oradan cikacak. OCR isi uzun surer;
+adim 7'nin dersi burada da gecerli: DISK VE UZUN IS `ask_qt` ile Qt
+tarafinda.
 
 **Adim 5'in dersini unutma:** bir sonraki adimin tahmini, bir onceki
 adimin ogrettikleriyle yeniden bakilmadan uygulanmamali.
@@ -501,7 +538,7 @@ sayilmaz.
       sessizce curuyorlar -- taniyan yok, test eden yok:
       `ui/key_map_view.py` (`owner_label` disinda), `ui/pause.py`,
       `ui/slot_edit.py`, `ui/log_view.py`, `ui/qr_view.py`,
-      `ui/monitor.py`.
+      `ui/monitor.py`, `ui/macro_view.py`.
 - [ ] `keypilot/theme.py` -- QPalette/stylesheet uzerine kurulu, Flet'e
       verecek bir seyi yok. Yerine `keypilot/fui/theme.py`.
 - [ ] `keypilot/fui/__pycache__/` ve `keypilot/fui/panels/__pycache__/` --
@@ -626,6 +663,15 @@ sayilmaz.
       (bkz. **PENCERE OLCUSU kurali**); daha da daraltmak okunakliktan
       goturur. Tema/olcu isi adim 13'te (`settings_dialog.py`) topluca
       ele alinabilir.
+- [ ] **Makro ekraninda "Hazir" zamanlayicisi dustu.** Qt'de 200 ms'lik
+      bir `QTimer` bosta durum yazisini "Hazir"a cekiyordu; simdi durum
+      yalnizca DEGISTIGINDE yaziliyor. Gorunen fark yok (bosta zaten
+      "Hazir" yaziyor), kazanc saniyede bes bedava cizimin gitmesi.
+
+- [ ] **Makro ekrani imlecin ekranina ORTALANMIYOR.** Qt `place.py`
+      kullaniyordu; Flet penceresi kendi varsayilan yerinde aciliyor --
+      oteki alti panelle ayni kayip, ayni sebep.
+
 - [ ] **Olay izleyicide HUCRE kopyalama.** Qt'de sag tik menusunde
       "Hucreyi kopyala" vardi; Flet'te baglam menusu yok. Menudeki oteki
       iki secenek (satir, tumu) zaten dugme olarak duruyordu.

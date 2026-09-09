@@ -25,7 +25,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from keypilot import macro
 from keypilot.core.mouse import MouseSeen
-from keypilot.ui.macro_view import MacroView
+from keypilot.fui.macro import MacroPanel
 from keypilot.win32.hook import KeyEvent, MouseEvent
 
 log = logging.getLogger("keypilot.macro")
@@ -42,7 +42,7 @@ class MacroController(QObject):
         self._slot = 1
         #: Kaydedilmemis kayit var mi (kaydedici kendini durdurmus olabilir)
         self._pending = False
-        self.view = MacroView()
+        self.view = MacroPanel()
         self.view.record_requested.connect(self.start_record)
         self.view.stop_requested.connect(self.stop)
         self.view.play_requested.connect(self.play)
@@ -125,7 +125,7 @@ class MacroController(QObject):
             self.recorder.feed_key(event)
             if not self.recorder.recording:
                 # Esc ya da sinir: kaydedici kendini durdurdu, yaziya dok.
-                self.stop(self._slot, self.view.name.text())
+                self.stop(self._slot, self.view.name)
         elif isinstance(event, MouseSeen):
             # `seen` kuyruguna fare olayi CEVRILMIS gelir (izleyici icin);
             # kaydedici ham olayi istiyor, o da `raw` alaninda geliyor.

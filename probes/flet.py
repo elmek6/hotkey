@@ -17,6 +17,7 @@ Calistir:  uv run python -m probes.flet
            uv run python -m probes.flet log       (yalniz log penceresi)
            uv run python -m probes.flet qr        (yalniz QR penceresi)
            uv run python -m probes.flet monitor   (yalniz olay izleyici)
+           uv run python -m probes.flet macro     (yalniz makro kayit ekrani)
 
 Cikis: konsolda Ctrl+C ya da bu sondajin kendi penceresini kapat.
 Paneller kapatilinca GIZLENIYOR (gercekte de oyle) -- `flet.exe` ayakta
@@ -42,6 +43,7 @@ from PySide6.QtWidgets import (
 from keypilot.core.mouse import MouseSeen
 from keypilot.fui.key_map import KeyMapPanel
 from keypilot.fui.log_view import LogPanel
+from keypilot.fui.macro import MacroPanel
 from keypilot.fui.monitor import MonitorPanel
 from keypilot.fui.pause import PausePanel
 from keypilot.fui.qr import QrPanel
@@ -137,6 +139,19 @@ class Probe(QWidget):
         self.monitor.closed.connect(lambda: self._note("monitor", "closed"))
         self._feed = 0
 
+        # GERCEK rec*.jsonl slotlarini okuyor: slot listesi ve ad dolu
+        # gelsin. Ad kutusu diske YAZIYOR (gercekte de oyle). Kayit ve
+        # oynatma YOK -- onlari `macro_ctl.py` yapiyor; sondaj yalnizca
+        # sinyali yaziyor ve durumu elle geri besliyor.
+        self.macro = MacroPanel()
+        self.macro.record_requested.connect(
+            lambda slot, kind: self._on_record(slot, kind)
+        )
+        self.macro.stop_requested.connect(
+            lambda slot, name: self._on_stop(slot, name)
+        )
+        self.macro.play_requested.connect(lambda slot: self._on_play(slot))
+
         buttons = [
             ("Kisayol haritasi (keys.map)", lambda: self.key_map.show_rows(ROWS), "keymap"),
             ("Duraklatma kutusu", lambda: self.pause.show_paused(), "pause"),
@@ -167,6 +182,7 @@ class Probe(QWidget):
             # Uc giris: duz metin, link ve hazir bir wifi dizgisi --
             # ucu de baska bir sablon tahmin ettiriyor.
             ("Olay izleyici (sahte akis)", self.monitor.show_monitor, "monitor"),
+            ("Makro kayit ekrani", self.macro.open, "macro"),
             ("QR -- duz metin", lambda: self.qr.show_text("merhaba dunya"), "qr"),
             ("QR -- link", lambda: self.qr.show_text("https://flet.dev"), "qr"),
             (
@@ -231,6 +247,28 @@ class Probe(QWidget):
             # Her yedincisi YUTULDU: kirmizi satir da gorunsun.
             self.monitor.add(event, swallowed=self._feed % 7 == 0)
 
+    # ---- makro: `macro_ctl.py`nin yerine gecen sahte denetleyici ----
+    #
+    # Gercekte durumu denetleyici yaziyor (`set_state`); sondajda ayni
+    # cagrilar burada, ayni thread'de (ANA THREAD) yapiliyor.
+
+    def _on_record(self, slot: int, kind: str) -> None:
+        self._note("macro", f"record slot={slot} tur={kind}")
+        self.macro.set_state(True, False, f"Kayitta -- rec{slot}.jsonl (Esc: durdur)")
+
+    def _on_stop(self, slot: int, name: str) -> None:
+        self._note("macro", f"stop slot={slot} ad={name!r}")
+        self.macro.set_state(False, False, f"12 olay -> rec{slot}.jsonl")
+
+    def _on_play(self, slot: int) -> None:
+        self._note("macro", f"play slot={slot}")
+        self.macro.set_state(False, True, f"Oynatiliyor -- rec{slot}.jsonl")
+        # Oynatma gercekte ayri thread'de kosup sinyalle donuyor; sondajda
+        # tek atimlik bir zamanlayici ayni gecikmeyi taklit ediyor.
+        QTimer.singleShot(
+            2000, lambda: self.macro.set_state(False, False, "Bitti -- 12 olay")
+        )
+
     def _show_log(self) -> None:
         # app.py `show_errors` ile ayni sira: once sayaclar, sonra pencere.
         self.log.set_stats(STATS)
@@ -258,6 +296,7 @@ class Probe(QWidget):
         self.log.shutdown()
         self.qr.shutdown()
         self.monitor.shutdown()
+        self.macro.shutdown()
         super().closeEvent(event)
 
 

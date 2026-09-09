@@ -1966,6 +1966,7 @@ class KeyPilot:
             self.log_view,
             self._qr_view,
             self.monitor,
+            self.macro.view,
         ):
             if panel is not None:
                 panel.shutdown()
