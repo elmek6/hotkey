@@ -147,8 +147,8 @@ class _OcrBridge(QObject):
     """OCR ayri thread'de kosuyor (bloklayici, bkz. win32/ocr.py); sonuc
     Qt sinyaliyle ana thread'e doner -- baska thread'den arayuze dokunulmaz."""
 
-    finished = Signal(str, object)  # mod ("ocr" / "ocr_adv"), ocr.Result
-    failed = Signal(str)
+    finished = Signal(str, object)  # mod ("ocr" / "ocr_adv" / "ocr_preview"), ocr.Result
+    failed = Signal(str, str)
 
 
 def _child_env() -> dict[str, str]:
@@ -261,6 +261,7 @@ class KeyPilot:
         self.snip.hide_others = self._hide_over_snip
         self.snip.done.connect(self._on_snip_done)
         self.snip.rect_changed.connect(self._on_snip_rect_changed)
+        self.snip.ocr_preview_requested.connect(self._on_snip_ocr_preview)
         self.snip.closed.connect(self._on_snip_closed)
         self.ocr_view = OcrView()
         self.ocr_view.copy_text.connect(self.clip.copy_to_history)
@@ -758,6 +759,13 @@ class KeyPilot:
         """OCR+ acikken alan yeniden ayarlandi: taze kirpimla tekrar oku."""
         self._start_ocr("ocr_adv", image)
 
+    def _on_snip_ocr_preview(self, image: QImage) -> None:
+        """Basit OCR dugmesi hover ipucu: panoya dokunmadan sessizce oku."""
+        if not ocr.available():
+            self.snip.set_ocr_preview("OCR paketi kurulu degil (winrt)")
+            return
+        self._run_ocr("ocr_preview", image, ocr.DEFAULT_SCALE, True, "")
+
     def paint_capture(self, image: QImage) -> None:
         """Secimi gecici bir PNG'ye yazip Paint'te acar.
 
@@ -831,9 +839,12 @@ class KeyPilot:
             self._ocr_bridge.finished.emit(mode, result)
         except Exception as exc:  # motor yok / dil paketi eksik
             log.exception("OCR basarisiz")
-            self._ocr_bridge.failed.emit(str(exc))
+            self._ocr_bridge.failed.emit(mode, str(exc))
 
     def _on_ocr_done(self, mode: str, result) -> None:
+        if mode == "ocr_preview":
+            self.snip.set_ocr_preview(shorten(result.text, 500) if result.lines else "")
+            return
         if mode == "ocr":
             # Basit OCR: metin dogrudan panoya (ve oradan gecmise) gider.
             if not result.lines:
@@ -844,7 +855,10 @@ class KeyPilot:
         # OCR+: kelime kutulari panele gider, dizilim orada secilir.
         self.ocr_view.show_result(result.words, result.lines, result.ms)
 
-    def _on_ocr_failed(self, message: str) -> None:
+    def _on_ocr_failed(self, mode: str, message: str) -> None:
+        if mode == "ocr_preview":
+            self.snip.set_ocr_preview(f"OCR hatasi: {shorten(message, 80)}")
+            return
         self.tip.show_html(f"⚠️ <b>OCR hatasi</b><br>{html.escape(shorten(message, 80))}", 2500)
 
     # ---- hep ustte (AHK: menuAlwaysOnTop) ----

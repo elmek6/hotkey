@@ -40,7 +40,7 @@ import ctypes
 from ctypes import wintypes
 from enum import IntEnum
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import (
     QComboBox,
@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QTabWidget,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -158,6 +159,8 @@ class SnipOverlay(QWidget):
     done = Signal(str, QImage)
     #: OCR+ oturumu acikken alan degisti -- yeni kirpim
     rect_changed = Signal(QImage)
+    #: Basit OCR dugmesine gelince secili alani sessizce oku.
+    ocr_preview_requested = Signal(QImage)
     closed = Signal()
 
     def __init__(self) -> None:
@@ -188,6 +191,10 @@ class SnipOverlay(QWidget):
         self._loaded_name = ""
         self._shot: QPixmap | None = None
         self._rect = QRect()  # secim, widget koordinati
+        self._ocr_button: QPushButton | None = None
+        self._ocr_preview_busy = False
+        self._ocr_preview_rect = QRect()
+        self._ocr_preview_text = ""
         self._grip = Grip.NONE  # su an suruklenen tutamac
         self._anchor = QPoint()  # surukleme baslangici
         self._rect_at_press = QRect()
@@ -266,6 +273,10 @@ class SnipOverlay(QWidget):
             button = QPushButton(label, self._bar)
             button.setCursor(Qt.CursorShape.ArrowCursor)
             button.clicked.connect(lambda _c=False, a=action: self._finish(a))
+            if action == "ocr":
+                self._ocr_button = button
+                button.setToolTip("Basit OCR: uzerine gelince secili alan okunur")
+                button.installEventFilter(self)
             layout.addWidget(button)
 
         cancel = QPushButton("\u2715", self._bar)
@@ -767,6 +778,17 @@ class SnipOverlay(QWidget):
 
     # ---- disari ----
 
+    def set_ocr_preview(self, text: str) -> None:
+        """Hover OCR sonucunu dugmenin ipucuna koyar."""
+        self._ocr_preview_busy = False
+        self._ocr_preview_text = text.strip()
+        body = self._ocr_preview_text or "metin bulunamadi"
+        tooltip = "Basit OCR okudu:\n" + body
+        if self._ocr_button is not None:
+            self._ocr_button.setToolTip(tooltip)
+            if self._ocr_button.underMouse():
+                QToolTip.showText(QCursor.pos(), tooltip, self._ocr_button)
+
     def start(
         self,
         key_vk: int = 0,
@@ -784,6 +806,7 @@ class SnipOverlay(QWidget):
         """
         self._session = False
         self._rect = QRect()
+        self._reset_ocr_preview()
         self._grip = Grip.NONE
         self._picking = False
         self._panel.hide()
@@ -924,6 +947,7 @@ class SnipOverlay(QWidget):
             self.update()
             return
         self._rect = rect
+        self._reset_ocr_preview()
         self._place_bar()
         self._update_mask()
         self._sync_toolbox()  # cift yon: cerceve -> kutular
@@ -1039,6 +1063,31 @@ class SnipOverlay(QWidget):
         image.setDevicePixelRatio(1.0)  # kaydedilen dosya gercek piksel
         return image
 
+    def _reset_ocr_preview(self) -> None:
+        self._ocr_preview_busy = False
+        self._ocr_preview_rect = QRect()
+        self._ocr_preview_text = ""
+        if self._ocr_button is not None:
+            self._ocr_button.setToolTip("Basit OCR: uzerine gelince secili alan okunur")
+
+    def _request_ocr_preview(self) -> None:
+        if self._ocr_preview_busy:
+            return
+        box = self._screen_rect()
+        if self._ocr_preview_text and box == self._ocr_preview_rect:
+            if self._ocr_button is not None:
+                QToolTip.showText(QCursor.pos(), self._ocr_button.toolTip(), self._ocr_button)
+            return
+        image = self._crop_screen(box)
+        if image is None:
+            return
+        self._ocr_preview_busy = True
+        self._ocr_preview_rect = QRect(box)
+        if self._ocr_button is not None:
+            self._ocr_button.setToolTip("Basit OCR okunuyor...")
+            QToolTip.showText(QCursor.pos(), self._ocr_button.toolTip(), self._ocr_button)
+        self.ocr_preview_requested.emit(image)
+
     def _recapture(self, then) -> None:
         """Cerceveyi gizle, bir kare bekle, ekrani yeniden cek, geri goster.
 
@@ -1083,6 +1132,11 @@ class SnipOverlay(QWidget):
             return
         self.close()
         self.done.emit(action, image)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._ocr_button and event.type() == QEvent.Type.Enter:
+            self._request_ocr_preview()
+        return super().eventFilter(watched, event)
 
     def _grip_at(self, pos: QPoint) -> Grip:
         rect = self._rect.normalized()
