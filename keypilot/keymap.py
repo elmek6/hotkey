@@ -129,7 +129,6 @@ VECTOR_STEP_PX = setting(
 )
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
-KEY_F18 = 0x81
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
@@ -707,16 +706,13 @@ def build_gestures() -> HotVectors:
     tracker = HotVectors(step_px=float(VECTOR_STEP_PX.get()), lock_px=float(VECTOR_LOCK_PX.get()))
     # Ayar degisince yeni deger ANINDA gecerli olsun: tracker tek ornek,
     # yeniden kurulmuyor (AHK'de de subscribe ile sabitler guncelleniyordu).
-    VECTOR_STEP_PX.subscribe(lambda value, _old: setattr(tracker, "step_px", float(value)))
-    VECTOR_LOCK_PX.subscribe(lambda value, _old: setattr(tracker, "lock_px", float(value)))
+    VECTOR_STEP_PX.subscribe(lambda value, _old: setattr(tracker, "step_px", float(str(value))))
+    VECTOR_LOCK_PX.subscribe(lambda value, _old: setattr(tracker, "lock_px", float(str(value))))
     tracker.lock_mode = str(VECTOR_LOCK_MODE.get())
     VECTOR_LOCK_MODE.subscribe(lambda value, _old: setattr(tracker, "lock_mode", str(value)))
-    tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "yakinlastir")
-    tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
-    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "ses +")
-    tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "ses -")
-    tracker.register(KEY_F18, Direction.UP, "send_key:#NumpadAdd", "yakinlastir")
-    tracker.register(KEY_F18, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
-    tracker.register(KEY_F18, Direction.RIGHT, "send_key:Volume_Up", "ses +")
-    tracker.register(KEY_F18, Direction.LEFT, "send_key:Volume_Down", "ses -")
+    tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "Zoom+")
+    tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "Zoom-")
+    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "Vol +")
+    tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "Vol -")
+
     return tracker

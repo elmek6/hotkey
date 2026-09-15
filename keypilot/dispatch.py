@@ -52,8 +52,7 @@ def _overlay_direction(direction) -> str:
 
 def _overlay_labels(labels: dict[str, str]) -> str:
     return ";".join(
-        f"{key}={value.replace(';', ',').replace('|', '/')}"
-        for key, value in labels.items()
+        f"{key}={value.replace(';', ',').replace('|', '/')}" for key, value in labels.items()
     )
 
 
@@ -601,11 +600,12 @@ class Dispatcher:
             if status is None or status.axis is None:
                 continue
             direction = _overlay_direction(status.locked_direction or status.direction)
+            phase = "" if direction else self._gesture_phase.get(prefix, "")
             self._put(
                 Run(
                     "gesture.overlay",
                     key=prefix,
-                    desc=f"update|{self._gesture_phase.get(prefix, '')}|{direction}|{status.steps}|",
+                    desc=f"update|{phase}|{direction}|{status.steps}|",
                 )
             )
 
