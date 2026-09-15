@@ -49,6 +49,7 @@ from keypilot.settings import SETTINGS
 from keypilot.slots_ctl import SlotController
 from keypilot.store import SlotStore, slot_display
 from keypilot.ui.array_filter import ArrayFilter
+from keypilot.ui.gesture_overlay import GestureOverlay
 from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.key_map_view import KeyMapView
 from keypilot.ui.log_view import LogView
@@ -188,6 +189,7 @@ class KeyPilot:
         # de yansir ama acilista bir kez dogru kurmak daha ucuz.
         theme.install()
         self.tip = Tip()
+        self.gesture_overlay = GestureOverlay()
         self.monitor = EventMonitor()
         #: Log penceresi -- hata rozeti ve birikmis kritik hata buraya aciyor.
         self.log_view = LogView()
@@ -377,15 +379,9 @@ class KeyPilot:
         self.runner.register("button_down", press_button)
         self.runner.register("click3_then", lambda keys: self.click_then(keys, times=3))
         # AHK memory_slots.ahk. Argumani olanlar slot numarasi aliyor.
-        self.runner.register(
-            "memslots.paste_slot", lambda n: self.mem_slots.paste_slot(int(n))
-        )
-        self.runner.register(
-            "memslots.paste_hist", lambda n: self.mem_slots.paste_history(int(n))
-        )
-        self.runner.register(
-            "memslots.save_slot", lambda n: self.mem_slots.save_slot(int(n))
-        )
+        self.runner.register("memslots.paste_slot", lambda n: self.mem_slots.paste_slot(int(n)))
+        self.runner.register("memslots.paste_hist", lambda n: self.mem_slots.paste_history(int(n)))
+        self.runner.register("memslots.save_slot", lambda n: self.mem_slots.save_slot(int(n)))
         # AHK smartPaste(middlePressed): orta tus / Insert ile gelen cagri
         # yapistirdiktan sonra siradaki kayda gecer, tus kombosu gecmez.
         self.runner.register(
@@ -557,7 +553,6 @@ class KeyPilot:
         dev.DEV_MODE.subscribe(lambda _value, _old: self._apply_watchdog())
         dev.HOOK_WATCHDOG_MS.subscribe(lambda _value, _old: self._apply_watchdog())
 
-
     # ---- pano (ana thread) ----
 
     def show_filter_items(self, items: tuple, title: str) -> None:
@@ -640,8 +635,7 @@ class KeyPilot:
         # bilmiyor ama kullanici acisindan onlar da "dolu tuslar".
         for vk, definition in self.dispatcher.machine.definitions.items():
             detail = ", ".join(
-                f"{press.name.lower()}: {action}"
-                for press, action in definition.main.items()
+                f"{press.name.lower()}: {action}" for press, action in definition.main.items()
             )
             combos = " ".join(f"+{combo.key_text}" for combo in definition.combos)
             rows.append(("keypilot", key_name(vk), combos, detail, False))
@@ -649,9 +643,7 @@ class KeyPilot:
             self._key_map_view = KeyMapView()
             # `ui_open` acik kalirsa hook susar ve pencere kapandiktan
             # sonra HICBIR kisayol calismaz; kapanis sinyali sart.
-            self._key_map_view.closed.connect(
-                lambda: setattr(self.dispatcher, "ui_open", False)
-            )
+            self._key_map_view.closed.connect(lambda: setattr(self.dispatcher, "ui_open", False))
         self.dispatcher.ui_open = True
         self._key_map_view.show_rows(tuple(rows))
 
@@ -943,7 +935,7 @@ class KeyPilot:
         return f"{label} - {shortcut.description}" if shortcut.description else label
 
     def _profile_label(self, profile) -> str:
-        """"Profiller" alt menusundeki etiket."""
+        """ "Profiller" alt menusundeki etiket."""
         hint = profile.class_name or profile.title
         name = profile.name or "(adsiz)"
         return f"{name} [{shorten(hint, 24)}]" if hint else name
@@ -998,9 +990,7 @@ class KeyPilot:
         # Eslesen profil varsa yalnizca o secili aciliyor -- madde bunu
         # etiketinde soyluyor.
         if active is not None:
-            rows.append(
-                (f"Profil duzenle ({active.name})", f"shorts.manage:{active.name}")
-            )
+            rows.append((f"Profil duzenle ({active.name})", f"shorts.manage:{active.name}"))
         else:
             rows.append(("Profil duzenle", "shorts.manage"))
 
@@ -1042,9 +1032,7 @@ class KeyPilot:
         for owner, spec, action, desc in self.shorts.bindings():
             clash = table.claim(owner, spec, action, desc)
             if clash is not None:
-                log.warning(
-                    "profil kisayolu atlandi: %s zaten %s tarafinda", spec, clash.owner
-                )
+                log.warning("profil kisayolu atlandi: %s zaten %s tarafinda", spec, clash.owner)
 
     @command("shorts.play")
     def play_shortcut(self, argument: str) -> None:
@@ -1101,9 +1089,7 @@ class KeyPilot:
         path = self.shorts.path
         if not path.exists():
             paths.ensure_files_dir()
-            path.write_bytes(
-                b'{"projectName": "ProfileManager", "profiles": []}\n'
-            )
+            path.write_bytes(b'{"projectName": "ProfileManager", "profiles": []}\n')
         subprocess.Popen(["notepad.exe", str(path)])  # noqa: S603,S607
         self.tip.show_html(
             "\U0001f4dd <b>profiles.json</b><br>"
@@ -1526,8 +1512,7 @@ class KeyPilot:
             else "geri yukleme KAPALI, izler kaldi"
         )
         self.tip.show_html(
-            f"\U0001f441️ <b>incognito kapali</b><br>"
-            f"<span style='color:#8b949e;'>{detay}</span>",
+            f"\U0001f441️ <b>incognito kapali</b><br><span style='color:#8b949e;'>{detay}</span>",
             2000,
         )
 
@@ -1650,6 +1635,9 @@ class KeyPilot:
 
     def _apply(self, action) -> None:
         if isinstance(action, Run):
+            if action.action == "gesture.overlay":
+                self._apply_gesture_overlay(action)
+                return
             self.runner.run(action.action)
         elif isinstance(action, Beep):
             beep(action.freq, action.ms)
@@ -1657,6 +1645,17 @@ class KeyPilot:
             self.tip.show_menu(action.title, action.items)
         elif isinstance(action, CloseMenu):
             self.tip.hide()
+
+    def _apply_gesture_overlay(self, action: Run) -> None:
+        parts = action.desc.split("|")
+        if not parts or parts[0] == "hide":
+            self.gesture_overlay.clear_state()
+            return
+        phase = parts[1] if len(parts) > 1 else ""
+        direction = parts[2] if len(parts) > 2 else ""
+        steps = parts[3] if len(parts) > 3 and parts[3] else ""
+        values = {direction: f"+{steps}"} if direction and steps else None
+        self.gesture_overlay.update_state(phase, direction, values)
 
     # ---- yasam dongusu ----
 
@@ -1734,8 +1733,7 @@ class KeyPilot:
         layout = self.dispatcher.turkish.layout
         note = "uzun basim (c s i g)" if layout == 1 else "dogrudan remap"
         self.tip.show_html(
-            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br>"
-            f"<span style='color:#8b949e;'>{note}</span>",
+            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br><span style='color:#8b949e;'>{note}</span>",
             1200,
         )
 
@@ -1964,11 +1962,7 @@ class KeyPilot:
         # birakiliyor ki ekranda sahipsiz asili pencere kalmasin.
         if self._release_pins_on_exit:
             self.pins.clear_all()
-        saved = (
-            self.clip.save()
-            if self.save_on_exit
-            else False
-        )
+        saved = self.clip.save() if self.save_on_exit else False
         # SAYI DISKTEN: `clip.history` bellek listesi ve tavani 50
         # (ClipHistory.MAX_ITEMS), yani bu satir her kapanista "50 pano
         # kaydi" yaziyordu -- dosyada 2500 kayit varken. Anlamli olan,
@@ -1976,9 +1970,7 @@ class KeyPilot:
         logs.lifecycle(
             "KeyPilot kapaniyor (sebep: %s; pano: %s)",
             reason,
-            f"{self.clip.saved_count} kayit diske yazildi"
-            if saved
-            else "diske YAZILMADI",
+            f"{self.clip.saved_count} kayit diske yazildi" if saved else "diske YAZILMADI",
         )
         self._shutdown()
 
@@ -2059,9 +2051,7 @@ class KeyPilot:
         dev_flag = dev.argv_flags()
         direct = [executable, script, RESTART_FLAG, *dev_flag]
         via_supervisor = os.path.exists(supervisor) and os.path.exists(wscript)
-        command = (
-            [wscript, supervisor, RESTART_FLAG, *dev_flag] if via_supervisor else direct
-        )
+        command = [wscript, supervisor, RESTART_FLAG, *dev_flag] if via_supervisor else direct
         try:
             child = self._spawn(command)
         except OSError as exc:
@@ -2087,9 +2077,7 @@ class KeyPilot:
                 try:
                     self._spawn(direct)
                 except OSError as exc:
-                    QMessageBox.critical(
-                        None, "KeyPilot", f"Yeniden baslatilamadi: {exc}"
-                    )
+                    QMessageBox.critical(None, "KeyPilot", f"Yeniden baslatilamadi: {exc}")
                     self.app.quit()
                     return
         logs.lifecycle("yeniden baslatiliyor (gozetmensiz: cocugu kendimiz actik)")
@@ -2163,6 +2151,7 @@ class KeyPilot:
         self.pause_dialog.close()
         self.machine.reset()
         self.hook.stop()
+        self.gesture_overlay.close()
         self.tip.hide()
         self.monitor.close()
         self.log_view.close()

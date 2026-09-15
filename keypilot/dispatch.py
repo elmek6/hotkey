@@ -40,6 +40,16 @@ VK_ESCAPE = 0x1B
 
 VK_LBUTTON = 0x01
 
+
+def _overlay_direction(direction) -> str:
+    return {
+        "UP": "U",
+        "DOWN": "D",
+        "LEFT": "L",
+        "RIGHT": "R",
+    }.get(direction.name if direction is not None else "", "")
+
+
 # ARIZALI FARE FILTRESI (AHK: AutoHotkey.ahk `A_TimeSincePriorHotkey < 70`).
 # Yipranmis mikro anahtar tek basimi iki basim olarak gonderir; ikinci basim
 # ilkinden bu suren once gelirse insan eli degildir, yutuluyor. Gercek cift
@@ -131,6 +141,8 @@ class Dispatcher:
         self.drag_px = 6
         self._prefix_at: tuple[int, int] | None = None
         self._tip_t = 0.0
+        self._gesture_phase: dict[int, str] = {}
+        self._gesture_started: dict[int, float] = {}
         # Yutup beklettigimiz fare onegi surukleme oldugu anlasilinca gercek
         # basimi enjekte ediliyor; bu kume onlari tutuyor ki birakma olayi
         # da uygulamaya gecsin.
@@ -196,11 +208,7 @@ class Dispatcher:
         # TURKCE ASAMASI kaskaddan ve kisayol tablosundan ONCE, ama yalniz
         # makine BOSTA ve hicbir onek basili degilken: `F15 & c` gibi bir
         # kombo Turkce harfe yem olmasin. Kapaliyken tek bayrak kontrolu.
-        if (
-            self.turkish.enabled
-            and not self.prefixes.held
-            and self.machine.phase == Phase.IDLE
-        ):
+        if self.turkish.enabled and not self.prefixes.held and self.machine.phase == Phase.IDLE:
             char = self.turkish_keys.get(event.vk)
             if char and not send.hard_modifier_down():
                 upper = send.caps_on() != send.shift_down()
@@ -218,6 +226,35 @@ class Dispatcher:
         if event.down and event.vk == VK_ESCAPE and self._menu_open():
             self._put(Run("menu.close"))
             return True
+
+        # F18 hem kaskad tusu hem gesture oneki: yon kilitlenirse kaskadi
+        # iptal ederiz, titreme halinde eski kaskad basim turu korunur.
+        if (
+            event.down
+            and self.gestures.has(event.vk)
+            and not self.prefixes.is_prefix(event.vk)
+            and event.vk not in self.gestures.active
+        ):
+            self.gestures.start(event.vk)
+            self._gesture_phase[event.vk] = ""
+            self._gesture_started[event.vk] = event.t
+            self._put(Run("gesture.overlay", key=event.vk, desc="show|||"))
+            self._freeze_at = send.cursor_pos()
+            self._gesture_at = self._freeze_at
+
+        special_gesture_up = (
+            not event.down
+            and event.vk in self.gestures.active
+            and not self.prefixes.is_prefix(event.vk)
+        )
+        if special_gesture_up:
+            fired = self.gestures.stop(event.vk)
+            self._end_gesture()
+            if fired:
+                self.machine.reset()
+                with contextlib.suppress(queue.Full):
+                    self.seen.put_nowait((event, True))
+                return True
 
         # Onek basiliyken kisayol tablosu kaskaddan ONCE denenir: `F13 & F15`
         # yazilabilsin diye. F15 ayni zamanda kaskad tusu; once makineye
@@ -310,9 +347,7 @@ class Dispatcher:
         with contextlib.suppress(queue.Full):
             self.seen.put_nowait(
                 (
-                    MouseSeen(
-                        vk=vk, down=down, t=event.t, x=event.x, y=event.y, raw=event
-                    ),
+                    MouseSeen(vk=vk, down=down, t=event.t, x=event.x, y=event.y, raw=event),
                     swallow,
                 )
             )
@@ -327,6 +362,23 @@ class Dispatcher:
         """
         self._reconcile(now)
         fired: list[tuple[int, str]] = []
+        for prefix in self.gestures.active:
+            started = self.prefixes.held_since(prefix) or self._gesture_started.get(prefix)
+            definition = self.prefixes.definition(prefix)
+            if started is None:
+                continue
+            elapsed_ms = (now - started) * 1000.0
+            hold_ms = definition.hold_ms if definition is not None else 350.0
+            cascade = self.machine.definitions.get(prefix)
+            second_ms = (
+                cascade.long_ms
+                if cascade is not None and cascade.long_ms is not None
+                else hold_ms * 2
+            )
+            phase = "S" if elapsed_ms >= second_ms else "P"
+            if phase != self._gesture_phase.get(prefix):
+                self._gesture_phase[prefix] = phase
+                self._put(Run("gesture.overlay", key=prefix, desc=f"phase|{phase}|||"))
         # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
         for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
             if now >= deadline:
@@ -453,7 +505,10 @@ class Dispatcher:
         self._freeze_at = None
         self._gesture_at = None
         self._tip_t = 0.0
+        self._gesture_phase.clear()
+        self._gesture_started.clear()
         self._put(Run("tip.hide"))
+        self._put(Run("gesture.overlay", desc="hide"))
         self._prefix_at = None
         self._pending_tap.clear()
         self._passed_through.clear()
@@ -493,6 +548,8 @@ class Dispatcher:
                 # birakilinca ne menu acilir ne tus geri gonderilir.
                 if self.gestures.fired(prefix):
                     self.prefixes.combo_used(prefix)
+                    if self.machine.active_key == prefix:
+                        self.machine.reset()
             for gesture in events:
                 for _ in range(gesture.steps):
                     self._put(Run(gesture.action, key=gesture.prefix, desc=gesture.desc))
@@ -515,7 +572,10 @@ class Dispatcher:
         self._freeze_at = None
         self._gesture_at = None
         self._tip_t = 0.0
+        self._gesture_phase.clear()
+        self._gesture_started.clear()
         self._put(Run("tip.hide"))
+        self._put(Run("gesture.overlay", desc="hide"))
 
     def _gesture_tip(self, t: float) -> None:
         """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
@@ -532,7 +592,14 @@ class Dispatcher:
             # bir an gorunup kayboluyor ve okunamiyordu.
             if status is None or status.axis is None:
                 continue
-            self._put(Run(f"tip:{status.text}", key=prefix))
+            direction = _overlay_direction(status.direction)
+            self._put(
+                Run(
+                    "gesture.overlay",
+                    key=prefix,
+                    desc=f"update|{self._gesture_phase.get(prefix, '')}|{direction}|{status.steps}",
+                )
+            )
 
     def _drag_check(self, event: MouseEvent) -> None:
         """Onek basiliyken fare suruldu mu? Iki ayri is yapar.
@@ -645,6 +712,9 @@ class Dispatcher:
             # sebebi buydu.
             if self.gestures.has(vk) and vk not in self.gestures.active:
                 self.gestures.start(vk)
+                self._gesture_phase[vk] = ""
+                self._gesture_started[vk] = t
+                self._put(Run("gesture.overlay", key=vk, desc="show|||"))
                 self._freeze_at = send.cursor_pos()
                 self._gesture_at = self._freeze_at
             elif vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
@@ -730,7 +800,9 @@ class Dispatcher:
                 # AHK `KeyWait(key, "D T0.1")`: ikinci basim gelir mi diye
                 # beklenir. Gelmezse `tick` bu eylemi calistirir.
                 self._pending_tap[vk] = (
-                    binding.action, binding.desc, t + definition.double_ms / 1000.0
+                    binding.action,
+                    binding.desc,
+                    t + definition.double_ms / 1000.0,
                 )
                 return was_ours, []
             return was_ours, [Run(binding.action, key=vk, desc=binding.desc)]

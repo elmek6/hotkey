@@ -129,6 +129,7 @@ VECTOR_STEP_PX = setting(
 )
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
+KEY_F18 = 0x81
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
@@ -254,6 +255,7 @@ SPECIAL_KEYS_MENU = (
     ("Hepsini sec + kopyala", "send_keys:^a ^c"),
     ("Bicimsiz yapistir", "send_key:^+v"),
 )
+
 
 def screen_menu() -> tuple:
     """F14 menusundeki "Area" alt menusu -- monitorun TAMAMINI secer.
@@ -494,9 +496,7 @@ def build_hotkeys() -> HotkeyTable:
     # dikdortgen buyur, birakilinca secim biter (ui/snip.py). Argumansiz
     # birakilirsa secim sol fare tusuna kalirdi -- F14 ile secmek isterken
     # bir de fareye basmak gerekiyordu.
-    table.prefix(
-        "F14", drag_action="select.start:F14@{x},{y}", desc="surukle: ekran alani sec"
-    )
+    table.prefix("F14", drag_action="select.start:F14@{x},{y}", desc="surukle: ekran alani sec")
 
     # --- F13 & F15..F20: slots.json'daki slotlardan yapistir. AHK
     # handleF14'un slot kombolari (F14 secim tusu olunca F13'e tasindi).
@@ -569,9 +569,7 @@ def build_hotkeys() -> HotkeyTable:
         # menusu degil: ayni liste iki ayri pencerede yasiyordu ve panelin
         # arama kutusu, uc satira sarilan ogesi burada da isine yariyor.
         # Sekme "Slot", cunku `^ & 1..0` base slotlari yapistiriyor.
-        table.prefix(
-            "Caret", hold_action="menu.quick:Slot", desc="basili tut: hizli panel (Slot)"
-        )
+        table.prefix("Caret", hold_action="menu.quick:Slot", desc="basili tut: hizli panel (Slot)")
         # AHK cascadeCaret: rakamlar BASE grubun (defaultGroup == "") slotlarini
         # yapistirir. 0 -> 10. slot, yani sifre slotu: yapistirma `private`
         # gidiyor (AHK ignoreNextClip) -- pano gecmisine hic yazilmiyor.
@@ -659,7 +657,6 @@ def build_hotkeys() -> HotkeyTable:
     return table
 
 
-
 def scroll_lock_menu(layout: int, enabled: bool = False) -> tuple:
     """ScrollLock BASILI TUTULUNCA acilan menu.
 
@@ -707,9 +704,7 @@ def build_gestures() -> HotVectors:
     (core/hot_vectors.py `_lock`): hafif capraz hareket yanlis eksene
     dusmez. Esikler ayar ekranindan (AHK: hotVector.* ayarlari).
     """
-    tracker = HotVectors(
-        step_px=float(VECTOR_STEP_PX.get()), lock_px=float(VECTOR_LOCK_PX.get())
-    )
+    tracker = HotVectors(step_px=float(VECTOR_STEP_PX.get()), lock_px=float(VECTOR_LOCK_PX.get()))
     # Ayar degisince yeni deger ANINDA gecerli olsun: tracker tek ornek,
     # yeniden kurulmuyor (AHK'de de subscribe ile sabitler guncelleniyordu).
     VECTOR_STEP_PX.subscribe(lambda value, _old: setattr(tracker, "step_px", float(value)))
@@ -720,4 +715,8 @@ def build_gestures() -> HotVectors:
     tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
     tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "ses +")
     tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "ses -")
+    tracker.register(KEY_F18, Direction.UP, "send_key:#NumpadAdd", "yakinlastir")
+    tracker.register(KEY_F18, Direction.DOWN, "send_key:#NumpadSub", "uzaklastir")
+    tracker.register(KEY_F18, Direction.RIGHT, "send_key:Volume_Up", "ses +")
+    tracker.register(KEY_F18, Direction.LEFT, "send_key:Volume_Down", "ses -")
     return tracker
