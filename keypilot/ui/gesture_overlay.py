@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -20,6 +20,7 @@ class GestureOverlay(QWidget):
     DIM = QColor(139, 148, 158, 220)
     HIGHLIGHT = QColor(31, 111, 235, 220)
     HIGHLIGHT_BORDER = QColor(88, 166, 255, 255)
+    ACTIVE_SECONDS = 5
 
     def __init__(self) -> None:
         super().__init__(None)
@@ -34,27 +35,49 @@ class GestureOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._phase = ""
         self._direction = ""
-        self._values: dict[str, str] = {}
+        self._labels: dict[str, str] = {}
+        self._counts: dict[str, str] = {}
+        self._expired = False
+        self._timeout = QTimer(self)
+        self._timeout.setSingleShot(True)
+        self._timeout.timeout.connect(self._expire)
 
     def update_state(
         self,
         phase: str = "",
         direction: str = "",
-        values: dict[str, str] | None = None,
+        labels: dict[str, str] | None = None,
+        counts: dict[str, str] | None = None,
     ) -> None:
+        if self._expired:
+            return
         self._phase = phase
         self._direction = direction
-        if values is not None:
-            self._values = values
+        if labels is not None:
+            self._labels = labels
+        if counts is not None:
+            self._counts = counts
         self._place()
         self.show()
         self.raise_()
         self.update()
 
+    def begin(self, phase: str, labels: dict[str, str]) -> None:
+        self._expired = False
+        self._timeout.start(self.ACTIVE_SECONDS * 1000)
+        self.update_state(phase, "", labels, {})
+
     def clear_state(self) -> None:
         self._phase = ""
         self._direction = ""
-        self._values.clear()
+        self._labels.clear()
+        self._counts.clear()
+        self._expired = False
+        self._timeout.stop()
+        self.hide()
+
+    def _expire(self) -> None:
+        self._expired = True
         self.hide()
 
     def _place(self) -> None:
@@ -68,14 +91,6 @@ class GestureOverlay(QWidget):
         x = max(area.left() + 4, min(x, area.right() - self.WIDTH - 4))
         y = max(area.top() + 4, min(y, area.bottom() - self.HEIGHT - 4))
         self.move(x, y)
-
-    def _cell(self, column: int, row: int) -> tuple[int, int, int, int]:
-        return (
-            column * self.CELL_W,
-            row * self.CELL_H,
-            self.CELL_W,
-            self.CELL_H,
-        )
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
@@ -94,23 +109,27 @@ class GestureOverlay(QWidget):
         }
         for name, rect in cells.items():
             x, y, width, height = rect
-            active = name in {self._phase, self._direction}
+            active = name == (self._direction or self._phase)
             painter.setBrush(self.HIGHLIGHT if active else QColor(0, 0, 0, 22))
             painter.setPen(QPen(self.HIGHLIGHT_BORDER if active else self.BORDER, 2))
             painter.drawRect(x, y, width, height)
             painter.setPen(self.TEXT if active else self.DIM)
+            label = self._labels.get(name) or name
             if name in "ULRD":
-                value = self._values.get(name, "")
                 font = QFont("Segoe UI")
-                font.setPointSize(10 if value else 14)
+                font.setPointSize(10 if label != name else 14)
                 painter.setFont(font)
-                painter.drawText(x, y + 20, width, 18, Qt.AlignmentFlag.AlignCenter, name)
-                if value:
-                    painter.setFont(QFont("Segoe UI", 10))
-                    painter.drawText(x, y + 35, width, 16, Qt.AlignmentFlag.AlignCenter, value)
+                painter.drawText(x, y + 20, width, 18, Qt.AlignmentFlag.AlignCenter, label)
+                count = self._counts.get(name, "")
+                if count:
+                    painter.setFont(QFont("Segoe UI", 9))
+                    painter.drawText(x, y + 37, width, 14, Qt.AlignmentFlag.AlignCenter, count)
+                elif label != name and name in self._labels:
+                    painter.setFont(QFont("Segoe UI", 9))
+                    painter.drawText(x, y + 37, width, 14, Qt.AlignmentFlag.AlignCenter, name)
             else:
                 font = QFont("Segoe UI")
                 font.setPointSize(14)
                 painter.setFont(font)
-                painter.drawText(x, y, width, height, Qt.AlignmentFlag.AlignCenter, name)
+                painter.drawText(x, y, width, height, Qt.AlignmentFlag.AlignCenter, self._labels.get(name) or name)
         painter.end()

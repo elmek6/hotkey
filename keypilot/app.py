@@ -1654,8 +1654,18 @@ class KeyPilot:
         phase = parts[1] if len(parts) > 1 else ""
         direction = parts[2] if len(parts) > 2 else ""
         steps = parts[3] if len(parts) > 3 and parts[3] else ""
-        values = {direction: f"+{steps}"} if direction and steps else None
-        self.gesture_overlay.update_state(phase, direction, values)
+        encoded_labels = parts[4] if len(parts) > 4 else ""
+        labels = {
+            key: value
+            for item in encoded_labels.split(";")
+            if "=" in item
+            for key, value in (item.split("=", 1),)
+        }
+        counts = {direction: f"+{steps}"} if direction and steps else None
+        if parts[0] == "show":
+            self.gesture_overlay.begin(phase or "P", labels)
+        else:
+            self.gesture_overlay.update_state(phase, direction, labels or None, counts)
 
     # ---- yasam dongusu ----
 

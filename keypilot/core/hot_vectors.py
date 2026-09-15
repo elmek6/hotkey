@@ -120,6 +120,8 @@ class Status:
     desc: str = ""
     #: Kilitli eksen. Eksen kilitli ama henuz adim uretilmemis olabilir.
     axis: Axis | None = None
+    #: Yon gesture basladiginda bilinir; ilk adim yoksa `direction` yine None kalir.
+    locked_direction: Direction | None = None
 
     @property
     def text(self) -> str:
@@ -330,7 +332,6 @@ class HotVectors:
                 state.locked_dir = Direction.DOWN if state.dy > 0 else Direction.UP
             else:
                 state.locked_dir = Direction.RIGHT if state.dx > 0 else Direction.LEFT
-            state.direction = state.locked_dir
         state.fired = True
         # Dik eksendeki birikim silinir: kilitten sonra islevi yok ve
         # status() icinde yanlis mesafe gosterirdi.
@@ -354,13 +355,29 @@ class HotVectors:
             return Status(None, max(abs(state.dx), abs(state.dy)), 0, "")
         pending = abs(state.dy if state.axis is Axis.VERTICAL else state.dx)
         definition = self.defs.get((prefix, state.direction)) if state.direction else None
+        locked_direction = state.direction
+        if locked_direction is None:
+            moved = state.dy if state.axis is Axis.VERTICAL else state.dx
+            if state.axis is Axis.VERTICAL:
+                locked_direction = Direction.DOWN if moved > 0 else Direction.UP
+            else:
+                locked_direction = Direction.RIGHT if moved > 0 else Direction.LEFT
         return Status(
             state.direction,
             state.total + pending,
             state.steps,
             definition.desc if definition else "",
             axis=state.axis,
+            locked_direction=locked_direction,
         )
+
+    def labels(self, prefix: int) -> dict[str, str]:
+        """Yon kodlarini kullaniciya gosterilecek etiketlerle eslestirir."""
+        return {
+            direction.name[0]: definition.desc
+            for (registered_prefix, direction), definition in self.defs.items()
+            if registered_prefix == prefix and definition.desc
+        }
 
     def stop(self, prefix: int) -> bool:
         """Onek birakildi. Jest BASLADIYSA True -- cagiran o zaman ne menu

@@ -50,6 +50,13 @@ def _overlay_direction(direction) -> str:
     }.get(direction.name if direction is not None else "", "")
 
 
+def _overlay_labels(labels: dict[str, str]) -> str:
+    return ";".join(
+        f"{key}={value.replace(';', ',').replace('|', '/')}"
+        for key, value in labels.items()
+    )
+
+
 # ARIZALI FARE FILTRESI (AHK: AutoHotkey.ahk `A_TimeSincePriorHotkey < 70`).
 # Yipranmis mikro anahtar tek basimi iki basim olarak gonderir; ikinci basim
 # ilkinden bu suren once gelirse insan eli degildir, yutuluyor. Gercek cift
@@ -238,7 +245,8 @@ class Dispatcher:
             self.gestures.start(event.vk)
             self._gesture_phase[event.vk] = ""
             self._gesture_started[event.vk] = event.t
-            self._put(Run("gesture.overlay", key=event.vk, desc="show|||"))
+            labels = _overlay_labels(self.gestures.labels(event.vk))
+            self._put(Run("gesture.overlay", key=event.vk, desc=f"show|P|||{labels}"))
             self._freeze_at = send.cursor_pos()
             self._gesture_at = self._freeze_at
 
@@ -592,12 +600,12 @@ class Dispatcher:
             # bir an gorunup kayboluyor ve okunamiyordu.
             if status is None or status.axis is None:
                 continue
-            direction = _overlay_direction(status.direction)
+            direction = _overlay_direction(status.locked_direction or status.direction)
             self._put(
                 Run(
                     "gesture.overlay",
                     key=prefix,
-                    desc=f"update|{self._gesture_phase.get(prefix, '')}|{direction}|{status.steps}",
+                    desc=f"update|{self._gesture_phase.get(prefix, '')}|{direction}|{status.steps}|",
                 )
             )
 
@@ -714,7 +722,8 @@ class Dispatcher:
                 self.gestures.start(vk)
                 self._gesture_phase[vk] = ""
                 self._gesture_started[vk] = t
-                self._put(Run("gesture.overlay", key=vk, desc="show|||"))
+                labels = _overlay_labels(self.gestures.labels(vk))
+                self._put(Run("gesture.overlay", key=vk, desc=f"show|P|||{labels}"))
                 self._freeze_at = send.cursor_pos()
                 self._gesture_at = self._freeze_at
             elif vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
