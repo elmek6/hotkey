@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 
 def _ctrl_c(widget) -> None:
@@ -70,4 +70,15 @@ def test_secim_yokken_kopyalama_calismaz(qapp):
     snip.done.connect(lambda action, _image: done.append(action))
     _ctrl_c(snip)
     assert done == []
+    snip.close()
+
+
+def test_ocr_hover_paneli_solda_metin_sagda_diller(qapp):
+    snip = _open_bar(qapp)
+    assert snip._ocr_expand is not None
+    assert snip._ocr_preview_label is not None
+    snip._show_ocr_expand()
+    assert snip._ocr_expand.isVisible()
+    labels = [child.text() for child in snip._ocr_expand.findChildren(QPushButton)]
+    assert "En" in labels and "Tr" in labels and "De" in labels
     snip.close()

@@ -106,6 +106,12 @@ def test_yon_kipinde_geri_hareket_adim_uretmez():
     assert t.move(0, 100) == []
 
 
+def test_etiket_aciklama_yoksa_yon_adini_kullanir():
+    t = HotVectors()
+    t.register(F13, Direction.UP, "ses+")
+    assert t.labels(F13) == {"U": "yukari"}
+
+
 def test_tanimsiz_yon_kilitlemez():
     """Yalniz yukari tanimliysa saga surmek jesti baslatmamali."""
     t = HotVectors(step_px=60.0)

@@ -51,10 +51,12 @@ class GestureOverlay(QWidget):
         self._timeout.timeout.connect(self._expire)
 
         self._tiles: dict[str, QLabel] = {}
+        self._grid = QGridLayout(self)
+        self._s_span = False
         self._create_tiles()
 
     def _create_tiles(self) -> None:
-        layout = QGridLayout(self)
+        layout = self._grid
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setHorizontalSpacing(6)
         layout.setVerticalSpacing(6)
@@ -78,6 +80,21 @@ class GestureOverlay(QWidget):
         layout.addWidget(self._tiles["S"], 2, 1)
         layout.addWidget(self._tiles["R"], 1, 2, 2, 1)
         layout.addWidget(self._tiles["D"], 3, 1)
+
+    def _place_center(self, s_only: bool) -> None:
+        """S ikinci asamada P+S hucrelerini kaplar."""
+        if s_only == self._s_span:
+            return
+        self._s_span = s_only
+        p_tile = self._tiles["P"]
+        s_tile = self._tiles["S"]
+        self._grid.removeWidget(p_tile)
+        self._grid.removeWidget(s_tile)
+        if s_only:
+            self._grid.addWidget(s_tile, 1, 1, 2, 1)
+        else:
+            self._grid.addWidget(p_tile, 1, 1)
+            self._grid.addWidget(s_tile, 2, 1)
 
     def _create_tile(self) -> QLabel:
         tile = QLabel()
@@ -123,6 +140,7 @@ class GestureOverlay(QWidget):
         self._labels.clear()
         self._counts.clear()
         self._expired = False
+        self._place_center(False)
         self._timeout.stop()
         self.hide()
 
@@ -131,27 +149,31 @@ class GestureOverlay(QWidget):
         self.hide()
 
     def _refresh(self) -> None:
-        active = self._direction or self._phase
-
+        locked = self._direction in "UDLR" and bool(self._direction)
         allowed_axes = None
         if self._direction in ("U", "D"):
             allowed_axes = {"U", "D"}
         elif self._direction in ("L", "R"):
             allowed_axes = {"L", "R"}
 
+        s_only = not locked and self._phase == "S"
+        self._place_center(s_only)
+
         for name, tile in self._tiles.items():
             if name in "ULRD":
                 visible = name in self._labels and (
                     allowed_axes is None or name in allowed_axes
                 )
+                is_active = visible and name == self._direction
             elif name == "P":
-                visible = not self._direction and self._phase != "S"
+                visible = not locked and self._phase != "S"
+                is_active = visible and self._phase == "P"
             else:
-                visible = not self._direction and self._phase == "S"
+                visible = not locked
+                is_active = visible and self._phase == "S"
             tile.setVisible(visible)
             if not visible:
                 continue
-            is_active = name == active
 
             label = self._labels.get(name) or name
             value = self._counts.get(name, "")
@@ -168,7 +190,7 @@ class GestureOverlay(QWidget):
                 )
             else:
                 text = label
-                font = QFont("Segoe UI", 14)
+                font = QFont("Segoe UI", 22 if s_only and name == "S" else 14)
 
             tile.setText(text)
             tile.setFont(font)

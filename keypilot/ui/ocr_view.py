@@ -12,11 +12,8 @@ Denetimler:
     olcek        OCR oncesi buyutme (kucuk fontlar icin)
     kolon esigi  kolon ayraci sayilacak en kucuk bos dikey serit
 
-AHK'deki DIL ve GRI TON kutulari burada YOK. AHK'nin OCR sarmalayicisi
-ikisini de acikca istiyordu; Windows.Media.Ocr'in kendi API'si istemiyor:
-dili `try_create_from_user_profile_languages` kullanicinin Windows dil
-listesinden secer, gri tonlama da bizim tarafta sabit uygulanan bir on
-isleme. Kullaniciya soruldugunda dogru cevabi olmayan iki kutuydu.
+Dil dugmeleri (En / Tr / De) ustte; paket yoksa motor sessizce Ingilizceye
+doner. Gri tonlama arayuzde yok -- on isleme olarak sabit uygulanir.
 
 Hangi degisiklik neyi tetikler (AHK'deki maliyet ayrimi):
 
@@ -55,6 +52,7 @@ from keypilot.core.ocr_layout import (
     layout,
     separator_from_text,
 )
+from keypilot.win32.ocr import OCR_LANGUAGES
 
 #: AHK: GUTTERS -- kolon esigi icin hazir secenekler (duzenlenebilir kutu).
 GUTTERS = ("Otomatik", "20px", "40px", "80px", "150px")
@@ -73,6 +71,8 @@ class OcrView(QWidget):
     copy_text = Signal(str)
     #: olcek degisti: yeniden OCR gerekiyor (yeni olcek)
     reocr_requested = Signal(int)
+    #: dil dugmesi: yeniden OCR, ayni kirpim
+    language_requested = Signal(str)
     #: "Yenile" -- ekran TEKRAR CEKILIP ayni alan yeniden okunsun. Olcek
     #: degisiminden farki bu: orada elimizdeki kirpim yeniden okunuyor,
     #: burada altta duran sayfa degismis olabilecegi icin taze kare gerek.
@@ -130,6 +130,20 @@ class OcrView(QWidget):
         self._gutter.setToolTip("Kolon ayraci sayilacak en kucuk bos dikey serit")
         self._gutter.currentTextChanged.connect(self._relayout)
 
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel("Dil"))
+        self._lang_buttons: dict[str, QPushButton] = {}
+        for label, language in OCR_LANGUAGES:
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.clicked.connect(
+                lambda _checked=False, lang=language: self._on_language(lang)
+            )
+            self._lang_buttons[language] = button
+            lang_row.addWidget(button)
+        lang_row.addStretch(1)
+
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         for column, (label, widget) in enumerate(
@@ -161,6 +175,7 @@ class OcrView(QWidget):
         bottom.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom)
 
         root = QVBoxLayout(self)
+        root.addLayout(lang_row)
         root.addLayout(grid)
         root.addWidget(self._edit, 1)
         root.addLayout(bottom)
@@ -185,6 +200,16 @@ class OcrView(QWidget):
         return int(self._scale.currentData() or 2)
 
     # ---- ic akis ----
+
+    def select_language(self, language: str) -> None:
+        """Secili dil dugmesini isaretler; bos = hicbiri."""
+        for tag, button in self._lang_buttons.items():
+            button.setChecked(tag == language)
+
+    def _on_language(self, language: str) -> None:
+        self.select_language(language)
+        self.busy()
+        self.language_requested.emit(language)
 
     def _on_reocr_setting(self) -> None:
         """Olcek degisti: yeniden OCR gerekiyor."""

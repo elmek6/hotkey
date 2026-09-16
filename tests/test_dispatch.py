@@ -8,7 +8,7 @@ callback'inin icinde calisan kod.
 import queue
 
 from keypilot.core.cascade import CascadeMachine
-from keypilot.core.hot_vectors import HotVectors
+from keypilot.core.hot_vectors import Direction, HotVectors
 from keypilot.core.hotkey import HotkeyTable
 from keypilot.core.keynames import VK_WHEEL_UP, register_name
 from keypilot.dispatch import Dispatcher
@@ -682,6 +682,119 @@ def test_nobetci_thread_olunce_olu_der(monkeypatch):
     box = _hook(monkeypatch, idle_ms=600_000.0, alive=False)
     box.last_event = 10.0
     assert box.looks_dead(10.0) is True
+
+
+def _overlay_descs(box) -> list[str]:
+    return [
+        item.desc
+        for item in _drain(box.actions)
+        if getattr(item, "action", None) == "gesture.overlay"
+    ]
+
+
+def make_f13_gesture_dispatcher() -> Dispatcher:
+    gestures = HotVectors()
+    gestures.register(F13, Direction.UP, "send_key:#NumpadAdd", "Zoom+")
+    gestures.register(F13, Direction.LEFT, "send_key:Volume_Down", "Vol -")
+    table = (
+        HotkeyTable()
+        .add("F13", "menu.f13", "kisa: menu")
+        .add("F13 & F14", "magnifier.toggle", "buyutec")
+        .prefix("F13", hold_action="menu.clip", hold_ms=350)
+    )
+    return Dispatcher(
+        machine=CascadeMachine(),
+        hotkeys=table,
+        gestures=gestures,
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+
+
+def test_f13_basinca_overlay_acilir_p_hemen_yanmaz(monkeypatch):
+    from keypilot import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
+    box = make_f13_gesture_dispatcher()
+    feed(box, F13, True, 0.0)
+    descs = _overlay_descs(box)
+    assert descs
+    assert descs[0].startswith("show|")
+    assert descs[0].split("|")[1] == ""  # P henuz highlight degil
+    box.tick(0.1)
+    assert _overlay_descs(box) == []  # short esigi gecmedi
+    box.tick(0.4)
+    assert any(desc.startswith("phase|P|") for desc in _overlay_descs(box))
+
+
+def test_f13_f14_kombo_overlay_kapanir(monkeypatch):
+    """F13+F14 buyutec kombosu jest menusunu kapatmali."""
+    from keypilot import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
+    box = make_f13_gesture_dispatcher()
+    feed(box, F13, True, 0.0)
+    _drain(box.actions)
+    combo = feed(box, F14, True, 0.05)
+    assert actions(combo) == ["magnifier.toggle"]
+    assert any(desc == "hide" for desc in _overlay_descs(box))
+    assert not box.gestures.watching
+
+
+def test_ikinci_asamada_s_gelir_jest_baslayinca_faz_kesilir(monkeypatch):
+    from keypilot import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
+    monkeypatch.setattr(dispatch_module.send, "set_cursor_pos", lambda *_a: None)
+    box = make_f13_gesture_dispatcher()
+    box.freeze_cursor = False
+    feed(box, F13, True, 0.0)
+    _drain(box.actions)
+    box.tick(0.8)
+    assert any(desc.startswith("phase|S|") for desc in _overlay_descs(box))
+    box._freeze_at = (100, 100)
+    box._gesture_at = (100, 100)
+
+    class _Move:
+        message = 0x0200  # WM_MOUSEMOVE
+        x, y, t = 100, 40, 0.81
+        ours = injected = False
+        data = 0
+
+    box.mouse_filter(_Move())
+    assert box.gestures.fired(F13)
+    _drain(box.actions)
+    box.tick(1.2)
+    assert _overlay_descs(box) == []
+
+
+def test_f18_jest_overlay_acilir(monkeypatch):
+    """F18 kaskad tusu: sola Delete jesti overlay acmali."""
+    from keypilot.core.builder import KeyBuilder, PressType
+    from keypilot import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
+    F18 = 0x81
+    f18 = (
+        KeyBuilder("F18", short=350, long=800)
+        .main_key(PressType.SHORT, "send_key:!Left")
+        .show_menu(False)
+        .build()
+    )
+    gestures = HotVectors()
+    gestures.register(F18, Direction.LEFT, "send_key:Delete", "Del")
+    box = Dispatcher(
+        machine=CascadeMachine({f18.key: f18}),
+        hotkeys=HotkeyTable(),
+        gestures=gestures,
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+    box.key_filter(_Key(F18, True, 0.0))
+    descs = _overlay_descs(box)
+    assert any(desc.startswith("show|") and "L=Del" in desc for desc in descs)
 
 
 def test_nobetci_GetLastInputInfo_basarisizsa_alarm_vermez(monkeypatch):

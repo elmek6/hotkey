@@ -17,8 +17,12 @@ def test_kisayol_tablosu_kurulur():
 
 
 def test_kaskadlar_ve_jestler_kurulur():
+    from keypilot.core.hot_vectors import Direction
+
     assert keymap.build_cascades()
-    assert keymap.build_gestures().defs
+    gestures = keymap.build_gestures()
+    assert gestures.defs
+    assert (keymap.KEY_F18, Direction.LEFT) in gestures.defs
     assert keymap.memslots_defs()
 
 

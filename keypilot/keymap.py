@@ -129,6 +129,7 @@ VECTOR_STEP_PX = setting(
 )
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
+KEY_F18 = 0x81
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
@@ -714,5 +715,7 @@ def build_gestures() -> HotVectors:
     tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "Zoom-")
     tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "Vol +")
     tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "Vol -")
+    # F18 kaskad tusu; sola jest Delete. Overlay kaskad basiminda da acilir.
+    tracker.register(KEY_F18, Direction.LEFT, "send_key:Delete", "Del")
 
     return tracker

@@ -43,6 +43,14 @@ except ImportError as exc:  # paket kurulmamis: menu ogesi uyari verir
 
 DEFAULT_SCALE = 2
 MAX_SCALE = 4
+#: Secim cubugu / OCR+ dil dugmeleri. Windows'ta paket yoksa sessizce
+#: Ingilizceye (sonra kullanici profiline) dusulur.
+OCR_LANGUAGES = (
+    ("En", "en-US"),
+    ("Tr", "tr-TR"),
+    ("De", "de-DE"),
+)
+FALLBACK_LANGUAGE = "en-US"
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,14 +181,15 @@ async def _recognize(
 
 
 def _engine(language: str):
-    """Istenen dilin motoru; dil bos ya da yoksa kullanici profilinden."""
-    if language:
-        from winrt.windows.globalization import Language
+    """Istenen dilin motoru; dil bos ya da yoksa Ingilizce / profil."""
+    from winrt.windows.globalization import Language
 
-        engine = OcrEngine.try_create_from_language(Language(language))
+    for tag in (language, FALLBACK_LANGUAGE):
+        if not tag:
+            continue
+        engine = OcrEngine.try_create_from_language(Language(tag))
         if engine is not None:
             return engine
-        raise RuntimeError(f"OCR dili kurulu degil: {language}")
     engine = OcrEngine.try_create_from_user_profile_languages()
     if engine is None:
         raise RuntimeError("OCR motoru yok: Windows'ta OCR'li dil paketi kurulu degil")

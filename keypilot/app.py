@@ -268,6 +268,7 @@ class KeyPilot:
         self.ocr_view = OcrView()
         self.ocr_view.copy_text.connect(self.clip.copy_to_history)
         self.ocr_view.reocr_requested.connect(self._on_reocr)
+        self.ocr_view.language_requested.connect(self._on_ocr_language)
         # "Yenile": secim cercevesi ekranda duruyor, ayni alan TAZE kareden
         # kirpilip yeniden okunur (snip.rect_changed -> _on_snip_rect_changed).
         self.ocr_view.refresh_requested.connect(self.snip.refresh)
@@ -746,7 +747,7 @@ class KeyPilot:
         elif action == "paint":
             self.paint_capture(image)
         elif action == "ocr" or action.startswith("ocr:"):
-            language = action.partition(":")[2]
+            language = action.partition(":")[2] or self._ocr_language
             self._start_ocr("ocr", image, language)
         elif action == "ocr_adv":
             self._start_ocr(action, image, self._ocr_language)
@@ -760,7 +761,7 @@ class KeyPilot:
         if not ocr.available():
             self.snip.set_ocr_preview("OCR paketi kurulu degil (winrt)")
             return
-        self._run_ocr("ocr_preview", image, ocr.DEFAULT_SCALE, True, "")
+        self._run_ocr("ocr_preview", image, ocr.DEFAULT_SCALE, True, self._ocr_language)
 
     def paint_capture(self, image: QImage) -> None:
         """Secimi gecici bir PNG'ye yazip Paint'te acar.
@@ -803,6 +804,7 @@ class KeyPilot:
             return
         self._ocr_image = image
         self._ocr_language = language
+        self.ocr_view.select_language(language)
         if mode == "ocr_adv":
             self.ocr_view.busy()
             scale = self.ocr_view.scale
@@ -816,6 +818,12 @@ class KeyPilot:
         yeniden okunur (AHK: cache'li bitmap uzerinden)."""
         if self._ocr_image is not None:
             self._run_ocr("ocr_adv", self._ocr_image, scale, True, self._ocr_language)
+
+    def _on_ocr_language(self, language: str) -> None:
+        """OCR+ dil dugmesi: ayni kirpimi secilen dilde tekrar oku."""
+        self._ocr_language = language
+        if self._ocr_image is not None:
+            self._run_ocr("ocr_adv", self._ocr_image, self.ocr_view.scale, True, language)
 
     def _run_ocr(
         self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
@@ -1642,7 +1650,7 @@ class KeyPilot:
         }
         counts = {direction: f"+{steps}"} if direction and steps else None
         if parts[0] == "show":
-            self.gesture_overlay.begin(phase or "P", labels)
+            self.gesture_overlay.begin(phase, labels)
         else:
             self.gesture_overlay.update_state(phase, direction, labels or None, counts)
 

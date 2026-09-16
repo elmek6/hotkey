@@ -241,13 +241,7 @@ class Dispatcher:
             and not self.prefixes.is_prefix(event.vk)
             and event.vk not in self.gestures.active
         ):
-            self.gestures.start(event.vk)
-            self._gesture_phase[event.vk] = ""
-            self._gesture_started[event.vk] = event.t
-            labels = _overlay_labels(self.gestures.labels(event.vk))
-            self._put(Run("gesture.overlay", key=event.vk, desc=f"show|P|||{labels}"))
-            self._freeze_at = send.cursor_pos()
-            self._gesture_at = self._freeze_at
+            self._begin_gesture(event.vk, event.t)
 
         special_gesture_up = (
             not event.down
@@ -374,6 +368,8 @@ class Dispatcher:
             definition = self.prefixes.definition(prefix)
             if started is None:
                 continue
+            if self.gestures.fired(prefix):
+                continue
             elapsed_ms = (now - started) * 1000.0
             hold_ms = definition.hold_ms if definition is not None else 350.0
             cascade = self.machine.definitions.get(prefix)
@@ -382,7 +378,12 @@ class Dispatcher:
                 if cascade is not None and cascade.long_ms is not None
                 else hold_ms * 2
             )
-            phase = "S" if elapsed_ms >= second_ms else "P"
+            if elapsed_ms >= second_ms:
+                phase = "S"
+            elif elapsed_ms >= hold_ms:
+                phase = "P"
+            else:
+                phase = ""
             if phase != self._gesture_phase.get(prefix):
                 self._gesture_phase[prefix] = phase
                 self._put(Run("gesture.overlay", key=prefix, desc=f"phase|{phase}|||"))
@@ -527,6 +528,28 @@ class Dispatcher:
     def _put(self, action) -> None:
         with contextlib.suppress(queue.Full):
             self.actions.put_nowait(action)
+
+    def _begin_gesture(self, vk: int, t: float) -> None:
+        """Jest izlemeyi ve overlay'i baslatir (onek ya da kaskad tusu)."""
+        if vk in self.gestures.active:
+            return
+        self.gestures.start(vk)
+        self._gesture_phase[vk] = ""
+        self._gesture_started[vk] = t
+        labels = _overlay_labels(self.gestures.labels(vk))
+        self._put(Run("gesture.overlay", key=vk, desc=f"show||||{labels}"))
+        self._freeze_at = send.cursor_pos()
+        self._gesture_at = self._freeze_at
+
+    def _cancel_gesture(self, vk: int) -> None:
+        """Kombo / surukleme jesti iptal eder -- overlay kapanir."""
+        if vk not in self.gestures.active:
+            return
+        self.gestures.stop(vk)
+        self._gesture_phase.pop(vk, None)
+        self._gesture_started.pop(vk, None)
+        if not self.gestures.watching:
+            self._end_gesture()
 
     def _has_drag(self, vk: int) -> bool:
         definition = self.prefixes.definition(vk)
@@ -719,13 +742,7 @@ class Dispatcher:
             # yatay kilitli / jest bekliyor..." donup hicbir adim uretmemesinin
             # sebebi buydu.
             if self.gestures.has(vk) and vk not in self.gestures.active:
-                self.gestures.start(vk)
-                self._gesture_phase[vk] = ""
-                self._gesture_started[vk] = t
-                labels = _overlay_labels(self.gestures.labels(vk))
-                self._put(Run("gesture.overlay", key=vk, desc=f"show|P|||{labels}"))
-                self._freeze_at = send.cursor_pos()
-                self._gesture_at = self._freeze_at
+                self._begin_gesture(vk, t)
             elif vk in send.MOUSE_VK_NAMES or self._has_drag(vk):
                 # Surukleme olcumunun baslangic noktasi: fare onegi icin
                 # "surukleme mi tekerlek mi", F14 icin "secim mi menu mu".
@@ -740,6 +757,7 @@ class Dispatcher:
             return False, []
         if prefix is not None:
             self.prefixes.combo_used(prefix)
+            self._cancel_gesture(prefix)
         # Tek basina `~` ile yazilan tus (orta tus, Insert): eylem calisir,
         # tus uygulamaya AYNEN gider. Kombodaki `~` bundan ayri: orada
         # yutulmayan sey ONEK, kombo tusu yine yutulur.
