@@ -10,7 +10,9 @@ class GestureOverlay(QWidget):
 
     WIDTH = 282
     HEIGHT = 188
-    ACTIVE_SECONDS = 5
+    #: Overlay kac saniye sonra kendiliginden kaybolsun. 0 = tus birakilana
+    #: kadar (dispatch `_end_gesture` / hide ile kapanir).
+    ACTIVE_SECONDS = 0
 
     BG = "rgba(18, 24, 32, 235)"
     NORMAL_BG = "rgba(32, 40, 50, 210)"
@@ -131,7 +133,9 @@ class GestureOverlay(QWidget):
         labels: dict[str, str],
     ) -> None:
         self._expired = False
-        self._timeout.start(self.ACTIVE_SECONDS * 1000)
+        self._timeout.stop()
+        if self.ACTIVE_SECONDS > 0:
+            self._timeout.start(int(self.ACTIVE_SECONDS * 1000))
         self.update_state(phase, "", labels, {})
 
     def clear_state(self) -> None:

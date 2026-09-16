@@ -199,6 +199,8 @@ class HotVectors:
     #: (`hotVector.lockMode`): hangisinin dogru his verdigi kullanima bagli.
     lock_mode: str = LOCK_AXIS
     _active: dict[int, _Active] = field(default_factory=dict, init=False)
+    #: Ortadaki P/S kutularinin etiketleri (onek -> {"P": "...", "S": "..."}).
+    _center: dict[int, dict[str, str]] = field(default_factory=dict, init=False)
 
     # ---- tanim ----
 
@@ -371,13 +373,25 @@ class HotVectors:
             locked_direction=locked_direction,
         )
 
+    def center(self, prefix: int, p: str = "", s: str = "") -> HotVectors:
+        """Overlay'deki P/S kutularinin yazisi (ornegin P=Back, S=Home)."""
+        labels: dict[str, str] = {}
+        if p:
+            labels["P"] = p
+        if s:
+            labels["S"] = s
+        self._center[prefix] = labels
+        return self
+
     def labels(self, prefix: int) -> dict[str, str]:
-        """Yon kodlarini kullaniciya gosterilecek etiketlerle eslestirir."""
-        return {
+        """Yon + merkez (P/S) etiketlerini kullaniciya gosterilecek bicimde verir."""
+        out = {
             direction.name[0]: definition.desc or direction.label
             for (registered_prefix, direction), definition in self.defs.items()
             if registered_prefix == prefix
         }
+        out.update(self._center.get(prefix, {}))
+        return out
 
     def stop(self, prefix: int) -> bool:
         """Onek birakildi. Jest BASLADIYSA True -- cagiran o zaman ne menu

@@ -40,3 +40,13 @@ def test_jest_baslayinca_s_soener_karsi_eksen_gizlenir(qapp):
     assert not overlay._tiles["U"].isVisible()
     assert not overlay._tiles["D"].isVisible()
     overlay.close()
+
+
+def test_sifir_sure_tus_birakilana_kadar_kalir(qapp):
+    """ACTIVE_SECONDS=0: zamanlayici baslamaz, hide gelene kadar acik kalir."""
+    overlay = GestureOverlay()
+    assert GestureOverlay.ACTIVE_SECONDS == 0
+    overlay.begin("", {"L": "Del"})
+    assert overlay.isVisible()
+    assert not overlay._timeout.isActive()
+    overlay.close()

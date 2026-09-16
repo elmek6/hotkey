@@ -129,6 +129,7 @@ VECTOR_STEP_PX = setting(
 )
 
 KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
+KEY_F17 = 0x80
 KEY_F18 = 0x81
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
@@ -711,11 +712,17 @@ def build_gestures() -> HotVectors:
     VECTOR_LOCK_PX.subscribe(lambda value, _old: setattr(tracker, "lock_px", float(str(value))))
     tracker.lock_mode = str(VECTOR_LOCK_MODE.get())
     VECTOR_LOCK_MODE.subscribe(lambda value, _old: setattr(tracker, "lock_mode", str(value)))
+    # F13 jest menusunu gizlemek icin asagidaki dort satiri sil / yorumla.
     tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "Zoom+")
     tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "Zoom-")
     tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "Vol +")
     tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "Vol -")
-    # F18 kaskad tusu; sola jest Delete. Overlay kaskad basiminda da acilir.
+    # F17: sola Undo, saga Backspace. P/S = kaskad orta/uzun (Delete / End).
+    tracker.register(KEY_F17, Direction.LEFT, "send_key:^z", "Undo")
+    tracker.register(KEY_F17, Direction.RIGHT, "send_key:Backspace", "Back")
+    tracker.center(KEY_F17, "Del", "End")
+    # F18: sola Delete. P/S = kaskad orta/uzun (Backspace / Home).
     tracker.register(KEY_F18, Direction.LEFT, "send_key:Delete", "Del")
+    tracker.center(KEY_F18, "Back", "Home")
 
     return tracker

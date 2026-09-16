@@ -112,6 +112,13 @@ def test_etiket_aciklama_yoksa_yon_adini_kullanir():
     assert t.labels(F13) == {"U": "yukari"}
 
 
+def test_merkez_etiketleri_p_s():
+    t = HotVectors()
+    t.register(F13, Direction.LEFT, "send_key:Delete", "Del")
+    t.center(F13, "Back", "Home")
+    assert t.labels(F13) == {"L": "Del", "P": "Back", "S": "Home"}
+
+
 def test_tanimsiz_yon_kilitlemez():
     """Yalniz yukari tanimliysa saga surmek jesti baslatmamali."""
     t = HotVectors(step_px=60.0)
