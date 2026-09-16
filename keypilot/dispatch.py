@@ -386,7 +386,8 @@ class Dispatcher:
                 phase = ""
             if phase != self._gesture_phase.get(prefix):
                 self._gesture_phase[prefix] = phase
-                self._put(Run("gesture.overlay", key=prefix, desc=f"phase|{phase}|||"))
+                if self.gestures.visible(prefix):
+                    self._put(Run("gesture.overlay", key=prefix, desc=f"phase|{phase}|||"))
         # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
         for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
             if now >= deadline:
@@ -536,8 +537,9 @@ class Dispatcher:
         self.gestures.start(vk)
         self._gesture_phase[vk] = ""
         self._gesture_started[vk] = t
-        labels = _overlay_labels(self.gestures.labels(vk))
-        self._put(Run("gesture.overlay", key=vk, desc=f"show||||{labels}"))
+        if self.gestures.visible(vk):
+            labels = _overlay_labels(self.gestures.labels(vk))
+            self._put(Run("gesture.overlay", key=vk, desc=f"show||||{labels}"))
         self._freeze_at = send.cursor_pos()
         self._gesture_at = self._freeze_at
 
@@ -624,6 +626,8 @@ class Dispatcher:
                 continue
             direction = _overlay_direction(status.locked_direction or status.direction)
             phase = "" if direction else self._gesture_phase.get(prefix, "")
+            if not self.gestures.visible(prefix):
+                continue
             self._put(
                 Run(
                     "gesture.overlay",

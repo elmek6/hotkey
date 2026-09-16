@@ -7,7 +7,7 @@ referanslari konuyordu:
         .mainKey((dt) => ...)
         .setExitOnPressType(1)
         .combo("1", "Slot 1", () => loadSave(1))
-        .build()
+    10|        .build()
 
 Burada eylemler fonksiyon degil **eylem kimligi** (string). Sebep: tanim
 boylece JSON'a yazilabiliyor, ayar dosyasindan okunabiliyor ve testte
@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+from keypilot.core.hot_vectors import Direction
 from keypilot.core.keynames import key_name, vk_from_name
 
 
@@ -79,18 +80,38 @@ class Combo:
 
 
 @dataclass(frozen=True, slots=True)
+class GestureSpec:
+    """Fare jesti: yon + overlay etiketi + eylem + her N adimda bir."""
+
+    direction: Direction
+    label: str
+    action: str
+    every: int = 1
+
+
+@dataclass(frozen=True, slots=True)
 class CascadeDef:
-    """Tek bir kaskad tusunun tam tanimi."""
+    """Tek bir kaskad tusunun tam tanimi.
+
+    `run_cascade=False`: yalniz jest/etiket kaynagi (ornegin F13). Basim
+    turu HotkeyTable / PrefixTracker'da kalir; CascadeMachine'e girmez.
+    """
 
     key: int
     main: dict[PressType, str] = field(default_factory=dict)
+    main_labels: dict[PressType, str] = field(default_factory=dict)
     combos: tuple[Combo, ...] = ()
+    gestures: tuple[GestureSpec, ...] = ()
     short_ms: float = 350.0
     long_ms: float | None = None
     exit_on_press_type: int = -1
     menu_timeout_ms: float = 30000.0
     show_menu: bool = True
     swallow: bool = True
+    gesture_visible: bool = False
+    #: Overlay P/S icin gestureVisible(True, "Back", "Home") override.
+    gesture_center: tuple[str, str] | None = None
+    run_cascade: bool = True
     name: str = ""
 
     def combo_for(self, vk: int) -> Combo | None:
@@ -108,6 +129,24 @@ class CascadeDef:
         """AHK builder.tips -- menude gosterilecek 'tus: aciklama' listesi."""
         return tuple((c.key_text, c.desc) for c in self.combos)
 
+    @property
+    def overlay_center(self) -> dict[str, str]:
+        """P/S etiketleri: gesture_center override, yoksa MEDIUM/LONG main_labels."""
+        if self.gesture_center is not None:
+            p_label, s_label = self.gesture_center
+            out: dict[str, str] = {}
+            if p_label:
+                out["P"] = p_label
+            if s_label:
+                out["S"] = s_label
+            return out
+        out = {}
+        if PressType.MEDIUM in self.main_labels:
+            out["P"] = self.main_labels[PressType.MEDIUM]
+        if PressType.LONG in self.main_labels:
+            out["S"] = self.main_labels[PressType.LONG]
+        return out
+
 
 class KeyBuilder:
     """AHK KeyBuilder'in akici arayuzu, ayni metot adlariyla."""
@@ -117,24 +156,57 @@ class KeyBuilder:
         self._short = short
         self._long = long
         self._main: dict[PressType, str] = {}
+        self._main_labels: dict[PressType, str] = {}
         self._combos: list[Combo] = []
+        self._gestures: list[GestureSpec] = []
         self._exit_on: int = -1
         self._timeout = 30000.0
         self._show_menu = True
         self._swallow = True
+        self._gesture_visible = False
+        self._gesture_center: tuple[str, str] | None = None
+        self._run_cascade = True
         self._name = ""
 
     def set_press_type(self, short: float = 350.0, long: float | None = None) -> KeyBuilder:
         self._short, self._long = short, long
         return self
 
-    def main_key(self, press: PressType | int, action: str) -> KeyBuilder:
-        self._main[PressType(press)] = action
+    def main_key(self, press: PressType | int, action: str, label: str = "") -> KeyBuilder:
+        """`main_key(press, action)` veya `main_key(press, action, "Back")`."""
+        kind = PressType(press)
+        self._main[kind] = action
+        if label:
+            self._main_labels[kind] = label
         return self
 
     def combo(self, key: int | str, desc: str, action: str) -> KeyBuilder:
         self._combos.append(Combo(key=_resolve(key), desc=desc, action=action))
         return self
+
+    def gesture(
+        self,
+        direction: Direction,
+        label: str,
+        action: str,
+        *,
+        every: int = 1,
+    ) -> KeyBuilder:
+        """Fare jesti. `every=5` = her 5 adimda bir tetikle."""
+        self._gestures.append(
+            GestureSpec(direction, label, action, every=max(1, int(every)))
+        )
+        return self
+
+    def gestureVisible(self, on: bool = False, p: str = "", s: str = "") -> KeyBuilder:
+        """Overlay acilsin mi (varsayilan kapali); istege bagli P/S override."""
+        self._gesture_visible = bool(on)
+        if p or s:
+            self._gesture_center = (p, s)
+        return self
+
+    def gesture_visible(self, on: bool = True, p: str = "", s: str = "") -> KeyBuilder:
+        return self.gestureVisible(on, p, s)
 
     def set_exit_on_press_type(self, press: int) -> KeyBuilder:
         self._exit_on = int(press)
@@ -152,6 +224,11 @@ class KeyBuilder:
         self._swallow = on
         return self
 
+    def run_cascade(self, on: bool = True) -> KeyBuilder:
+        """False: CascadeMachine'e girme (F13: jest-only KeyBuilder)."""
+        self._run_cascade = on
+        return self
+
     def named(self, name: str) -> KeyBuilder:
         self._name = name
         return self
@@ -160,13 +237,18 @@ class KeyBuilder:
         return CascadeDef(
             key=self._key,
             main=dict(self._main),
+            main_labels=dict(self._main_labels),
             combos=tuple(self._combos),
+            gestures=tuple(self._gestures),
             short_ms=self._short,
             long_ms=self._long,
             exit_on_press_type=self._exit_on,
             menu_timeout_ms=self._timeout,
             show_menu=self._show_menu,
             swallow=self._swallow,
+            gesture_visible=self._gesture_visible,
+            gesture_center=self._gesture_center,
+            run_cascade=self._run_cascade,
             name=self._name,
         )
 

@@ -19,14 +19,16 @@ def test_kisayol_tablosu_kurulur():
 def test_kaskadlar_ve_jestler_kurulur():
     from keypilot.core.hot_vectors import Direction
 
-    assert keymap.build_cascades()
+    cascades = keymap.build_cascades()
+    assert cascades
+    assert 0x7C in cascades and cascades[0x7C].run_cascade is False
     gestures = keymap.build_gestures()
     assert gestures.defs
-    assert (keymap.KEY_F17, Direction.LEFT) in gestures.defs
-    assert (keymap.KEY_F17, Direction.RIGHT) in gestures.defs
-    assert (keymap.KEY_F18, Direction.LEFT) in gestures.defs
-    assert gestures.labels(keymap.KEY_F18)["P"] == "Back"
-    assert gestures.labels(keymap.KEY_F18)["S"] == "Home"
+    assert (keymap.KEY_F13, Direction.UP) in gestures.defs
+    assert (0x80, Direction.LEFT) in gestures.defs  # F17
+    assert (0x81, Direction.LEFT) in gestures.defs  # F18
+    assert gestures.labels(0x81)["P"] == "Back"
+    assert gestures.labels(0x81)["S"] == "Home"
     assert keymap.memslots_defs()
 
 

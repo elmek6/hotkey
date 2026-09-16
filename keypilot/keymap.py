@@ -128,9 +128,7 @@ VECTOR_STEP_PX = setting(
     validate=between(1, 400, "px"),
 )
 
-KEY_F13 = 0x7C  # jest tanimlari icin; keynames tablosuyla ayni deger
-KEY_F17 = 0x80
-KEY_F18 = 0x81
+KEY_F13 = 0x7C  # jest tanimlari / testler icin; keynames tablosuyla ayni deger
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
@@ -357,16 +355,24 @@ EXIT_ACTIONS: tuple[str, ...] = ()
 
 
 def build_cascades() -> dict[int, CascadeDef]:
-    """F15..F20 -- AHK key_handler_mouse.ahk'deki handleF15..handleF20.
+    """F13 jest + F15..F20 kaskad -- AHK handleF* KeyBuilder zinciri.
 
-    Bunlar kisayol degil KASKAD: kisa/orta/uzun basim ayri eylem, ustune
-    basili tutulurken baska tusa basilinca kombo. Tam olarak
-    CascadeMachine'in isi, o yuzden HotkeyTable'a degil oraya giriyorlar.
+    F13: jest tanimi burada (tek yer). Basim/hold/cift HotkeyTable prefix'te
+    kalir; `run_cascade=False` ile CascadeMachine'e girmez (F13 & F15 akoru
+    bozulmasin). F14 jesti sonraki adimda.
 
-    Port edilmemis eylemler `--` ile isaretli ve calismiyor; menude de oyle
-    gorunurler ki neyin hazir olmadigi belli olsun.
+    F15..F20: kisa/orta/uzun + kombo -- CascadeMachine.
     """
     defs: list[CascadeDef] = [
+        # handleF13 jestleri -- tek kayit yeri.
+        KeyBuilder("F13", short=350)
+        .gesture(Direction.UP, "Zoom+", "send_key:#NumpadAdd")
+        .gesture(Direction.DOWN, "Zoom-", "send_key:#NumpadSub")
+        .gesture(Direction.RIGHT, "Vol +", "send_key:Volume_Up")
+        .gesture(Direction.LEFT, "Vol -", "send_key:Volume_Down")
+        .gestureVisible(True)
+        .run_cascade(False)
+        .build(),
         # handleF15: kisa ^y (yinele), orta Escape
         KeyBuilder("F15", short=350)
         .main_key(PressType.SHORT, "send_key:^y")
@@ -381,24 +387,28 @@ def build_cascades() -> dict[int, CascadeDef]:
         .show_menu(False)
         .named("F16")
         .build(),
-        # handleF17: kisa Alt+Sag, orta Delete, uzun End
+        # handleF17: kisa Alt+Sag, orta Delete, uzun End + yatay jest
         KeyBuilder("F17", short=350, long=800)
         .main_key(PressType.SHORT, "send_key:!Right")
-        .main_key(PressType.MEDIUM, "send_key:Delete")
-        .main_key(PressType.LONG, "send_key:End")
-        # AHK: .combo("F18", "panic", Magnifier.reset + WinMinimize)
+        .main_key(PressType.MEDIUM, "send_key:Delete", "Del")
+        .main_key(PressType.LONG, "send_key:End", "End")
         .combo("F18", "panic (buyutec %100 + kucult)", "magnifier.panic")
+        .gesture(Direction.LEFT, "Undo", "send_key:^z")
+        .gesture(Direction.RIGHT, "Back", "send_key:Backspace")
+        .gestureVisible(True)
         .show_menu(False)
         .named("F17")
         .build(),
-        # handleF18: kisa Alt+Sol, orta Backspace, uzun Home
+        # handleF18: kisa Alt+Sol, orta Backspace, uzun Home + jest
         KeyBuilder("F18", short=350, long=800)
         .main_key(PressType.SHORT, "send_key:!Left")
-        .main_key(PressType.MEDIUM, "send_key:Backspace")
-        .main_key(PressType.LONG, "send_key:Home")
+        .main_key(PressType.MEDIUM, "send_key:Backspace", "Back")
+        .main_key(PressType.LONG, "send_key:Home", "Home")
         .combo("F17", "panic (buyutec %100 + kucult)", "magnifier.panic")
         .combo("LButton", "VSCode/Cursor: satiri sil", "send_key:^+k")
         .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
+        .gesture(Direction.LEFT, "Del", "send_key:Delete")
+        .gestureVisible(True)
         .show_menu(False)
         .named("F18")
         .build(),
@@ -693,36 +703,28 @@ def scroll_lock_menu(layout: int, enabled: bool = False) -> tuple:
 
 
 def build_gestures() -> HotVectors:
-    """AHK: hot_vectors.ahk -- HotVectors.Register(bDir.upDown, callback).
-
-    F13 basili tutulup fare bir yone surulunce her `step_px` piksel bir
-    adim uretir; adim sayisi eylemin kac kez calisacagidir (ses kac kademe
-    artacak). Yon KILITLENDIGI anda (lock_px) jest baslamis sayilir: F13
-    birakilinca ne menu acilir ne baska kombo beklenir.
-
-    Dikey eksen Windows buyutecinin yakinlastirmasi, yatay eksen ses.
-    Eksen bir kez kilitlendikten sonra dik yondeki hareket OKUNMAZ
-    (core/hot_vectors.py `_lock`): hafif capraz hareket yanlis eksene
-    dusmez. Esikler ayar ekranindan (AHK: hotVector.* ayarlari).
-    """
+    """CascadeDef.gesture satirlarindan HotVectors kurar (tek kaynak)."""
     tracker = HotVectors(step_px=float(VECTOR_STEP_PX.get()), lock_px=float(VECTOR_LOCK_PX.get()))
-    # Ayar degisince yeni deger ANINDA gecerli olsun: tracker tek ornek,
-    # yeniden kurulmuyor (AHK'de de subscribe ile sabitler guncelleniyordu).
     VECTOR_STEP_PX.subscribe(lambda value, _old: setattr(tracker, "step_px", float(str(value))))
     VECTOR_LOCK_PX.subscribe(lambda value, _old: setattr(tracker, "lock_px", float(str(value))))
     tracker.lock_mode = str(VECTOR_LOCK_MODE.get())
     VECTOR_LOCK_MODE.subscribe(lambda value, _old: setattr(tracker, "lock_mode", str(value)))
-    # F13 jest menusunu gizlemek icin asagidaki dort satiri sil / yorumla.
-    tracker.register(KEY_F13, Direction.UP, "send_key:#NumpadAdd", "Zoom+")
-    tracker.register(KEY_F13, Direction.DOWN, "send_key:#NumpadSub", "Zoom-")
-    tracker.register(KEY_F13, Direction.RIGHT, "send_key:Volume_Up", "Vol +")
-    tracker.register(KEY_F13, Direction.LEFT, "send_key:Volume_Down", "Vol -")
-    # F17: sola Undo, saga Backspace. P/S = kaskad orta/uzun (Delete / End).
-    tracker.register(KEY_F17, Direction.LEFT, "send_key:^z", "Undo")
-    tracker.register(KEY_F17, Direction.RIGHT, "send_key:Backspace", "Back")
-    tracker.center(KEY_F17, "Del", "End")
-    # F18: sola Delete. P/S = kaskad orta/uzun (Backspace / Home).
-    tracker.register(KEY_F18, Direction.LEFT, "send_key:Delete", "Del")
-    tracker.center(KEY_F18, "Back", "Home")
-
+    for definition in build_cascades().values():
+        _harvest_gestures(tracker, definition)
     return tracker
+
+
+def _harvest_gestures(tracker: HotVectors, definition: CascadeDef) -> None:
+    """CascadeDef jest + P/S + visible bilgisini HotVectors'a yazar."""
+    for spec in definition.gestures:
+        tracker.register(
+            definition.key,
+            spec.direction,
+            spec.action,
+            spec.label,
+            every=spec.every,
+        )
+    center = definition.overlay_center
+    if center:
+        tracker.center(definition.key, center.get("P", ""), center.get("S", ""))
+    tracker.set_visible(definition.key, definition.gesture_visible)

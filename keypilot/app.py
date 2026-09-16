@@ -200,7 +200,11 @@ class KeyPilot:
 
         # Taban tanimlar ayri duruyor: hafiza slotlari acikken F1..F10
         # bunlarin USTUNE ekleniyor, kapaninca tabana geri donuluyor.
-        self._base_defs = dict(keymap.build_cascades())
+        self._base_defs = {
+            key: definition
+            for key, definition in keymap.build_cascades().items()
+            if definition.run_cascade
+        }
         self.machine = CascadeMachine(dict(self._base_defs))
 
         # Pano: durum + gecmis + gorseller tek denetleyicide (clip_ctl.py).

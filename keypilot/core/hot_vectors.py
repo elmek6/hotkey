@@ -108,6 +108,8 @@ class VectorDef:
     direction: Direction
     action: str
     desc: str = ""
+    #: Her N adimda bir tetikle (1 = her adim).
+    every: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,14 +203,41 @@ class HotVectors:
     _active: dict[int, _Active] = field(default_factory=dict, init=False)
     #: Ortadaki P/S kutularinin etiketleri (onek -> {"P": "...", "S": "..."}).
     _center: dict[int, dict[str, str]] = field(default_factory=dict, init=False)
+    #: Overlay acilsin mi (KeyBuilder.gestureVisible).
+    _visible: dict[int, bool] = field(default_factory=dict, init=False)
 
     # ---- tanim ----
 
     def register(
-        self, prefix: int, direction: Direction, action: str, desc: str = ""
+        self,
+        prefix: int,
+        direction: Direction,
+        action: str,
+        desc: str = "",
+        *,
+        every: int = 1,
     ) -> HotVectors:
-        self.defs[(prefix, direction)] = VectorDef(prefix, direction, action, desc)
+        self.defs[(prefix, direction)] = VectorDef(
+            prefix, direction, action, desc, every=max(1, int(every))
+        )
         return self
+
+    def center(self, prefix: int, p: str = "", s: str = "") -> HotVectors:
+        """Overlay'deki P/S kutularinin yazisi (ornegin P=Back, S=Home)."""
+        labels: dict[str, str] = {}
+        if p:
+            labels["P"] = p
+        if s:
+            labels["S"] = s
+        self._center[prefix] = labels
+        return self
+
+    def set_visible(self, prefix: int, on: bool = True) -> HotVectors:
+        self._visible[prefix] = bool(on)
+        return self
+
+    def visible(self, prefix: int) -> bool:
+        return self._visible.get(prefix, True)
 
     def has(self, prefix: int) -> bool:
         """Bu onek tusunun tanimli jesti var mi -- callback'in hizli elemesi."""
@@ -297,18 +326,24 @@ class HotVectors:
             state.total += steps * self.step_px
             # Sayac YON BASINA: saga gidip sonra sola donunce "RT +3" degil
             # "LT +1" gorunmeli -- sayi o yonde kac kademe uygulandigidir.
-            state.steps = steps if direction is not state.direction else state.steps + steps
+            prev_steps = 0 if direction is not state.direction else state.steps
+            state.steps = prev_steps + steps
             state.direction = direction
 
             definition = self.defs.get((prefix, direction))
             if definition is None:
                 continue  # eksen kayitli ama bu yon degil: sayilir, tetiklemez
 
+            every = max(1, definition.every)
+            fire = (state.steps // every) - (prev_steps // every)
+            if fire <= 0:
+                continue
+
             events.append(
                 VectorEvent(
                     prefix=prefix,
                     direction=direction,
-                    steps=steps,
+                    steps=fire,
                     action=definition.action,
                     desc=definition.desc,
                 )
@@ -372,16 +407,6 @@ class HotVectors:
             axis=state.axis,
             locked_direction=locked_direction,
         )
-
-    def center(self, prefix: int, p: str = "", s: str = "") -> HotVectors:
-        """Overlay'deki P/S kutularinin yazisi (ornegin P=Back, S=Home)."""
-        labels: dict[str, str] = {}
-        if p:
-            labels["P"] = p
-        if s:
-            labels["S"] = s
-        self._center[prefix] = labels
-        return self
 
     def labels(self, prefix: int) -> dict[str, str]:
         """Yon + merkez (P/S) etiketlerini kullaniciya gosterilecek bicimde verir."""
