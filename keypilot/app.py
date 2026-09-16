@@ -276,6 +276,7 @@ class KeyPilot:
         #: OCR+ oturumundaki son kirpim -- ayar degisince ekran YENIDEN
         #: CEKILMEDEN bunun uzerinden tekrar okunur (AHK: cache'li bitmap).
         self._ocr_image: QImage | None = None
+        self._ocr_language = ""
         self._ocr_bridge = _OcrBridge()
         self._ocr_bridge.finished.connect(self._on_ocr_done)
         self._ocr_bridge.failed.connect(self._on_ocr_failed)
@@ -744,12 +745,15 @@ class KeyPilot:
             self.clip.show_images()
         elif action == "paint":
             self.paint_capture(image)
-        elif action in ("ocr", "ocr_adv"):
-            self._start_ocr(action, image)
+        elif action == "ocr" or action.startswith("ocr:"):
+            language = action.partition(":")[2]
+            self._start_ocr("ocr", image, language)
+        elif action == "ocr_adv":
+            self._start_ocr(action, image, self._ocr_language)
 
     def _on_snip_rect_changed(self, image: QImage) -> None:
         """OCR+ acikken alan yeniden ayarlandi: taze kirpimla tekrar oku."""
-        self._start_ocr("ocr_adv", image)
+        self._start_ocr("ocr_adv", image, self._ocr_language)
 
     def _on_snip_ocr_preview(self, image: QImage) -> None:
         """Basit OCR dugmesi hover ipucu: panoya dokunmadan sessizce oku."""
@@ -793,24 +797,25 @@ class KeyPilot:
         else:
             self.tip.show_html("⚠️ <b>goruntu kaydedilemedi</b>", 1800)
 
-    def _start_ocr(self, mode: str, image: QImage) -> None:
+    def _start_ocr(self, mode: str, image: QImage, language: str = "") -> None:
         if not ocr.available():
             self.tip.show_html("⚠️ <b>OCR paketi kurulu degil</b> (winrt)", 2000)
             return
         self._ocr_image = image
+        self._ocr_language = language
         if mode == "ocr_adv":
             self.ocr_view.busy()
             scale = self.ocr_view.scale
         else:
             self.tip.show_html("\U0001f524 <b>okunuyor...</b>", 800)
             scale = ocr.DEFAULT_SCALE
-        self._run_ocr(mode, image, scale, True, "")
+        self._run_ocr(mode, image, scale, True, language)
 
     def _on_reocr(self, scale: int) -> None:
         """Panelde olcek degisti: ekran TEKRAR CEKILMEZ, elimizdeki kirpim
         yeniden okunur (AHK: cache'li bitmap uzerinden)."""
         if self._ocr_image is not None:
-            self._run_ocr("ocr_adv", self._ocr_image, scale, True, "")
+            self._run_ocr("ocr_adv", self._ocr_image, scale, True, self._ocr_language)
 
     def _run_ocr(
         self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
@@ -1052,32 +1057,6 @@ class KeyPilot:
                 self.runner.run(f"send_key:{stroke}")
             else:
                 send.type_text(stroke)
-
-    @command("repository.edit")
-    def edit_repository(self, _argument: str = "") -> None:
-        """Kod parcasi deposunu Notepad ile acar.
-
-        Dosya yoksa ORNEK bir kayit yaziliyor: bos Notepad "hangi alanlar
-        vardi" sorusunu birakiyordu (edit_shortcuts ile ayni gerekce).
-        """
-        path = self.repository.path
-        if not path.exists():
-            paths.ensure_files_dir()
-            self.repository.add(
-                repository.Item(
-                    title="ornek",
-                    category="",
-                    text="Govdeye ne yazarsan yaz -- kayit ayraci === satiridir.",
-                    tags=["ornek"],
-                )
-            )
-            self.repository.save()
-        subprocess.Popen(["notepad.exe", str(path)])  # noqa: S603,S607
-        self.tip.show_html(
-            "📝 <b>repository.md</b><br>"
-            "<span style='color:#8b949e;'>kaydettikten sonra yeniden baslat</span>",
-            2500,
-        )
 
     @command("shorts.edit")
     def edit_shortcuts(self, _argument: str = "") -> None:

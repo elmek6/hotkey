@@ -147,6 +147,12 @@ ACTIONS = (
     ("\U0001f9e0 OCR+", "ocr_adv"),
 )
 
+OCR_LANGUAGES = (
+    ("En", "en-US"),
+    ("Tr", "tr-TR"),
+    ("De", "de-DE"),
+)
+
 #: Secildikten sonra secim cercevesinin acik kalacagi eylemler.
 KEEP_OPEN = frozenset({"ocr_adv"})
 
@@ -192,6 +198,11 @@ class SnipOverlay(QWidget):
         self._shot: QPixmap | None = None
         self._rect = QRect()  # secim, widget koordinati
         self._ocr_button: QPushButton | None = None
+        self._ocr_language_panel: QWidget | None = None
+        self._ocr_language_hide = QTimer(self)
+        self._ocr_language_hide.setSingleShot(True)
+        self._ocr_language_hide.setInterval(250)
+        self._ocr_language_hide.timeout.connect(self._hide_ocr_languages)
         self._ocr_preview_busy = False
         self._ocr_preview_rect = QRect()
         self._ocr_preview_text = ""
@@ -278,6 +289,24 @@ class SnipOverlay(QWidget):
                 button.setToolTip("Basit OCR: uzerine gelince secili alan okunur")
                 button.installEventFilter(self)
             layout.addWidget(button)
+
+        self._ocr_language_panel = QWidget(self._panel)
+        language_layout = QHBoxLayout(self._ocr_language_panel)
+        language_layout.setContentsMargins(6, 0, 6, 4)
+        language_layout.setSpacing(4)
+        language_layout.addStretch(1)
+        language_layout.addWidget(QLabel("OCR dili", self._ocr_language_panel))
+        for label, language in OCR_LANGUAGES:
+            button = QPushButton(label, self._ocr_language_panel)
+            button.setToolTip(f"{label} OCR")
+            button.clicked.connect(
+                lambda _checked=False, lang=language: self._finish(f"ocr:{lang}")
+            )
+            language_layout.addWidget(button)
+        language_layout.addStretch(1)
+        self._ocr_language_panel.installEventFilter(self)
+        self._ocr_language_panel.hide()
+        outer.addWidget(self._ocr_language_panel)
 
         cancel = QPushButton("\u2715", self._bar)
         cancel.setCursor(Qt.CursorShape.ArrowCursor)
@@ -1069,6 +1098,19 @@ class SnipOverlay(QWidget):
         self._ocr_preview_text = ""
         if self._ocr_button is not None:
             self._ocr_button.setToolTip("Basit OCR: uzerine gelince secili alan okunur")
+        self._hide_ocr_languages()
+
+    def _show_ocr_languages(self) -> None:
+        self._ocr_language_hide.stop()
+        if self._ocr_language_panel is not None:
+            self._ocr_language_panel.show()
+
+    def _hide_ocr_languages(self) -> None:
+        if self._ocr_language_panel is not None:
+            self._ocr_language_panel.hide()
+
+    def _delay_hide_ocr_languages(self) -> None:
+        self._ocr_language_hide.start()
 
     def _request_ocr_preview(self) -> None:
         if self._ocr_preview_busy:
@@ -1135,7 +1177,15 @@ class SnipOverlay(QWidget):
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self._ocr_button and event.type() == QEvent.Type.Enter:
+            self._show_ocr_languages()
             self._request_ocr_preview()
+        elif watched is self._ocr_button and event.type() == QEvent.Type.Leave:
+            self._delay_hide_ocr_languages()
+        elif watched is self._ocr_language_panel:
+            if event.type() == QEvent.Type.Enter:
+                self._show_ocr_languages()
+            elif event.type() == QEvent.Type.Leave:
+                self._delay_hide_ocr_languages()
         return super().eventFilter(watched, event)
 
     def _grip_at(self, pos: QPoint) -> Grip:

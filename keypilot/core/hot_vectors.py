@@ -374,9 +374,9 @@ class HotVectors:
     def labels(self, prefix: int) -> dict[str, str]:
         """Yon kodlarini kullaniciya gosterilecek etiketlerle eslestirir."""
         return {
-            direction.name[0]: definition.desc
+            direction.name[0]: definition.desc or direction.label
             for (registered_prefix, direction), definition in self.defs.items()
-            if registered_prefix == prefix and definition.desc
+            if registered_prefix == prefix
         }
 
     def stop(self, prefix: int) -> bool:

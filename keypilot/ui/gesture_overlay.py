@@ -133,7 +133,24 @@ class GestureOverlay(QWidget):
     def _refresh(self) -> None:
         active = self._direction or self._phase
 
+        allowed_axes = None
+        if self._direction in ("U", "D"):
+            allowed_axes = {"U", "D"}
+        elif self._direction in ("L", "R"):
+            allowed_axes = {"L", "R"}
+
         for name, tile in self._tiles.items():
+            if name in "ULRD":
+                visible = name in self._labels and (
+                    allowed_axes is None or name in allowed_axes
+                )
+            elif name == "P":
+                visible = not self._direction and self._phase != "S"
+            else:
+                visible = not self._direction and self._phase == "S"
+            tile.setVisible(visible)
+            if not visible:
+                continue
             is_active = name == active
 
             label = self._labels.get(name) or name

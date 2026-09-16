@@ -328,7 +328,7 @@ SYS_COMMANDS_MENU = (
     ("0: Exit script", "app.exit"),
     # repository.ahk'nin veri yarisi port edildi (keypilot/repository.py);
     # yonetici GUI'si degil -- duzenleme dosyanin kendisinden.
-    ("r. Repository (repository.md)", "repository.edit"),
+    ("r. Repository (repository.md)", "repository.open"),
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
     ("i: Incognito", "incognito.open"),
     ("a: TrayTip test", "notify:Mesaj icerigi"),

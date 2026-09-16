@@ -180,6 +180,7 @@ def _engine(language: str):
         engine = OcrEngine.try_create_from_language(Language(language))
         if engine is not None:
             return engine
+        raise RuntimeError(f"OCR dili kurulu degil: {language}")
     engine = OcrEngine.try_create_from_user_profile_languages()
     if engine is None:
         raise RuntimeError("OCR motoru yok: Windows'ta OCR'li dil paketi kurulu degil")
