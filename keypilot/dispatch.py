@@ -346,16 +346,20 @@ class Dispatcher:
                 return True
 
         # Gercek basimini gecirdigimiz onek (surukleme): birakmasi da gecsin.
+        # Dikkat: bu yol `_hotkey_up`'i ATLAR -- sanal Ctrl/Shift burada
+        # da birakilmali, yoksa modifier takili kalir.
         if not down and vk in self._passed_through:
             self._passed_through.discard(vk)
             self._prefix_at = None
+            for action in self._release_mouse_mods(vk):
+                self._put(action)
             self.prefixes.key_up(vk, event.t)
             self.tracker.key_up(vk, event.t)
             return False
 
         # Sag/orta basiliyken sol tik: dugmeyi Ctrl/Shift gibi kullan.
-        # Sol tik YUTULUP yeniden enjekte edilir ki modifier once gelsin
-        # (kuyruk 8 ms; gercek sol tik modifier'dan once uygulamaya giderdi).
+        # Bu bir OTURUM (dongu): ilk sol tikta modifier iner, fare dugmesi
+        # birakilana kadar basili kalir; her sol tik ayni oturuma eklenir.
         if self.button_as_modifier and vk == VK_LBUTTON:
             handled = self._mouse_modifier_click(down, event.t)
             if handled is not None:
@@ -369,6 +373,28 @@ class Dispatcher:
                         )
                     )
                 return True
+
+        # Modifier oturumundaki sag/orta birakma: menuyu/orta tiki YUT,
+        # Ctrl/Shift'i birak. (Normal `_dispatch` yolu da yapardi; burada
+        # erken netlestiriyoruz ki passed_through / drag ile cakismasin.)
+        if (
+            self.button_as_modifier
+            and not down
+            and vk in self._mouse_mods
+        ):
+            swallow, actions = self._dispatch(vk, down, event.t)
+            for action in actions:
+                self._put(action)
+            with contextlib.suppress(queue.Full):
+                self.seen.put_nowait(
+                    (
+                        MouseSeen(
+                            vk=vk, down=down, t=event.t, x=event.x, y=event.y, raw=event
+                        ),
+                        swallow,
+                    )
+                )
+            return swallow
 
         # keymap F19'daki `.combo("LButton", ...)` icin: fare dugmesi
         # kaskad makinesine de gidiyor, yoksa F19 basiliyken sol tik
@@ -394,8 +420,11 @@ class Dispatcher:
     def _mouse_modifier_click(self, down: bool, t: float) -> bool | None:
         """RButton/MButton basiliyken LButton -> Ctrl/Shift + sol tik.
 
-        `True` = yutuldu (isimiz bitti). `None` = bu yol ilgilenmedi, normal
-        akisa devam. Onek tuketilir: birakilinca sag/orta tik gitmez.
+        Tek atis degil: sag/orta BASILI KALDIGI surece oturum acik.
+        Her LButton down/up ayni sanal modifier altinda islenir; modifier
+        ancak fare dugmesi birakilinca kalkar.
+
+        `True` = yutuldu. `None` = bu yol ilgilenmedi.
         """
         if down:
             active = [
@@ -410,9 +439,13 @@ class Dispatcher:
                 if button not in self._mouse_mods:
                     self._mouse_mods[button] = mod
                     self._put(Run(f"mod_down:{key_name(mod)}", key=button))
-                # Tuket: birakilinca menu / orta tik / hold eylemi calismasin.
+                # Tuket: birakilinca menu / orta tik / hold calismasin;
+                # surukleme de gercek sag tik enjekte etmesin.
                 if self.prefixes.is_down(button):
                     self.prefixes.combo_used(button)
+                # Varsa onceki "surukleme enjeksiyonu" izini sil; yutma
+                # kaydi KALSIN ki birakma da yutulsun (was_ours).
+                self._passed_through.discard(button)
             self._mod_lb_held = True
             self.tracker.key_down(VK_LBUTTON, t)
             self._put(Run("button_down:LButton", key=VK_LBUTTON))
@@ -799,6 +832,13 @@ class Dispatcher:
                 # bir de biz basim enjekte edersek CIFT basim olur ve
                 # Paint'te cizgi cekmek gibi surukleme isleri bozulur.
                 # Sol tus hicbir kosulda tuketilmez.
+                continue
+            # Modifier oturumu (sag=Ctrl / orta=Shift): secim sirasinda
+            # fare kimildamasi SURUKLEME degil. Gercek sag tik enjekte
+            # edersek birakinca context menu acilir + mod_up atlanir.
+            if vk in self._mouse_mods:
+                continue
+            if self.button_as_modifier and vk in MOUSE_AS_MODIFIER:
                 continue
             self._passed_through.add(vk)
             self._hk_swallowed.discard(vk)

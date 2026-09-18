@@ -847,6 +847,39 @@ def test_sag_tus_basiliyken_sol_tik_ctrl_olur(monkeypatch):
     assert [a.action for a in _drain(box.actions)] == ["mod_up:LCtrl"]
 
 
+def test_secim_sirasinda_fare_oynasa_da_menu_acilmaz_ctrl_birakir(monkeypatch):
+    """Bug: secim sirasinda kimildama drag_check'i tetikliyor, birakinca
+    context menu + Ctrl takili kaliyordu."""
+    from keypilot import dispatch as dispatch_module
+    from keypilot.win32.hook import MouseEvent
+
+    monkeypatch.setattr(dispatch_module.send, "is_down", lambda _vk: False)
+    monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (0, 0))
+    box = _modifier_box()
+    box.drag_px = 6
+    assert box.mouse_filter(_rclick(0.0, down=True)) is True
+    _drain(box.actions)
+    assert box.mouse_filter(_lclick(0.05)) is True
+    assert "mod_down:LCtrl" in [a.action for a in _drain(box.actions)]
+    assert box.mouse_filter(_lclick(0.06, down=False)) is True
+    _drain(box.actions)
+
+    # Secim sirasinda fare oynar -- gercek RButton ENJEKTE EDILMEMELI.
+    move = MouseEvent(
+        message=0x0200, x=40, y=40, data=0,
+        injected=False, ours=False, time_ms=0, t=0.1,
+    )
+    assert box.mouse_filter(move) is False
+    assert [a.action for a in _drain(box.actions)] == []
+    assert 0x02 not in box._passed_through  # RButton
+
+    assert box.mouse_filter(_rclick(0.2, down=False)) is True
+    acts = [a.action for a in _drain(box.actions)]
+    assert acts == ["mod_up:LCtrl"]
+    assert "send_key:RButton" not in acts
+    assert "button_down:RButton" not in acts
+
+
 def test_orta_tus_basiliyken_sol_tik_shift_olur(monkeypatch):
     """MButton held + LButton -> Shift; orta tus tuketilir (hold/tik yok)."""
     from keypilot import dispatch as dispatch_module
