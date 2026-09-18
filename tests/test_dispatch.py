@@ -712,20 +712,21 @@ def make_f13_gesture_dispatcher() -> Dispatcher:
     )
 
 
-def test_f13_basinca_overlay_acilir_p_hemen_yanmaz(monkeypatch):
+def test_f13_basinca_overlay_acilmaz_short_sonra_acilir(monkeypatch):
+    """AHK: overlay short basim suresi gecmeden gelmez -- normal tik flash'i yok."""
     from keypilot import dispatch as dispatch_module
 
     monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
     box = make_f13_gesture_dispatcher()
     feed(box, F13, True, 0.0)
+    assert _overlay_descs(box) == []  # hemen show YOK
+    box.tick(0.1)
+    assert _overlay_descs(box) == []  # short esigi (350ms) gecmedi
+    box.tick(0.4)
     descs = _overlay_descs(box)
     assert descs
     assert descs[0].startswith("show|")
-    assert descs[0].split("|")[1] == ""  # P henuz highlight degil
-    box.tick(0.1)
-    assert _overlay_descs(box) == []  # short esigi gecmedi
-    box.tick(0.4)
-    assert any(desc.startswith("phase|P|") for desc in _overlay_descs(box))
+    assert descs[0].split("|")[1] == "P"
 
 
 def test_f13_f14_kombo_overlay_kapanir(monkeypatch):
@@ -735,8 +736,9 @@ def test_f13_f14_kombo_overlay_kapanir(monkeypatch):
     monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
     box = make_f13_gesture_dispatcher()
     feed(box, F13, True, 0.0)
+    box.tick(0.4)  # overlay acilsin
     _drain(box.actions)
-    combo = feed(box, F14, True, 0.05)
+    combo = feed(box, F14, True, 0.45)
     assert actions(combo) == ["magnifier.toggle"]
     assert any(desc == "hide" for desc in _overlay_descs(box))
     assert not box.gestures.watching
@@ -752,7 +754,7 @@ def test_ikinci_asamada_s_gelir_jest_baslayinca_faz_kesilir(monkeypatch):
     feed(box, F13, True, 0.0)
     _drain(box.actions)
     box.tick(0.8)
-    assert any(desc.startswith("phase|S|") for desc in _overlay_descs(box))
+    assert any(desc.startswith("show|") and "|S|" in desc for desc in _overlay_descs(box))
     box._freeze_at = (100, 100)
     box._gesture_at = (100, 100)
 
@@ -769,8 +771,8 @@ def test_ikinci_asamada_s_gelir_jest_baslayinca_faz_kesilir(monkeypatch):
     assert _overlay_descs(box) == []
 
 
-def test_f18_jest_overlay_acilir(monkeypatch):
-    """F18 kaskad tusu: sola Delete jesti overlay acmali."""
+def test_f18_jest_overlay_short_sonra_acilir(monkeypatch):
+    """F18 kaskad tusu: overlay short esiginden sonra acilir."""
     from keypilot.core.builder import KeyBuilder, PressType
     from keypilot import dispatch as dispatch_module
 
@@ -793,8 +795,73 @@ def test_f18_jest_overlay_acilir(monkeypatch):
         menu_open=lambda: False,
     )
     box.key_filter(_Key(F18, True, 0.0))
+    assert _overlay_descs(box) == []
+    box.tick(0.4)
     descs = _overlay_descs(box)
     assert any(desc.startswith("show|") and "L=Del" in desc for desc in descs)
+
+
+def _rclick(t: float, down: bool = True):
+    from keypilot.core.mouse import WM_RBUTTONDOWN, WM_RBUTTONUP
+    from keypilot.win32.hook import MouseEvent
+
+    return MouseEvent(
+        message=WM_RBUTTONDOWN if down else WM_RBUTTONUP, x=0, y=0, data=0,
+        injected=False, ours=False, time_ms=0, t=t,
+    )
+
+
+def _modifier_box() -> Dispatcher:
+    table = (
+        HotkeyTable()
+        .add("RButton & WheelUp", "send_key:Volume_Up", "ses +")
+        .prefix("~MButton", passthrough=True)
+    )
+    box = Dispatcher(
+        machine=CascadeMachine(),
+        hotkeys=table,
+        gestures=HotVectors(),
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+    box.button_as_modifier = True
+    return box
+
+
+def test_sag_tus_basiliyken_sol_tik_ctrl_olur(monkeypatch):
+    """RButton held + LButton -> mod_down:LCtrl + button_down:LButton; RButton tuketilir."""
+    from keypilot import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "is_down", lambda _vk: False)
+    box = _modifier_box()
+    assert box.mouse_filter(_rclick(0.0)) is True  # sag tus yutulur (onek)
+    _drain(box.actions)
+    assert box.mouse_filter(_lclick(0.1)) is True  # sol tik yutulup yeniden enjekte
+    acts = [a.action for a in _drain(box.actions)]
+    assert acts == ["mod_down:LCtrl", "button_down:LButton"]
+    assert box.mouse_filter(_lclick(0.2, down=False)) is True
+    assert [a.action for a in _drain(box.actions)] == ["button_up:LButton"]
+    # Sag birakilinca sag tik YOK (tuketildi), Ctrl birakilir.
+    assert box.mouse_filter(_rclick(0.3, down=False)) is True
+    assert [a.action for a in _drain(box.actions)] == ["mod_up:LCtrl"]
+
+
+def test_orta_tus_basiliyken_sol_tik_shift_olur(monkeypatch):
+    """MButton held + LButton -> Shift; orta tus tuketilir (hold/tik yok)."""
+    from keypilot import dispatch as dispatch_module
+
+    monkeypatch.setattr(dispatch_module.send, "is_down", lambda vk: vk == MBUTTON)
+    box = _modifier_box()
+    assert box.mouse_filter(_mclick(0.0)) is False  # ~ passthrough
+    _drain(box.actions)
+    assert box.mouse_filter(_lclick(0.1)) is True
+    acts = [a.action for a in _drain(box.actions)]
+    assert acts == ["mod_down:LShift", "button_down:LButton"]
+    assert box.mouse_filter(_lclick(0.15, down=False)) is True
+    _drain(box.actions)
+    assert box.mouse_filter(_mclick(0.2, down=False)) is False
+    assert [a.action for a in _drain(box.actions)] == ["mod_up:LShift"]
 
 
 def test_nobetci_GetLastInputInfo_basarisizsa_alarm_vermez(monkeypatch):

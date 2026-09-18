@@ -23,6 +23,8 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     ~LButton & F16   tilde: onek yutulmaz, sol tik yerine gider
     F19 & LButton    onek klavyede, kombo tusu FARE dugmesi
     RButton & Wheel  sag tus basiliyken tekerlek -> ses; sag tik yutulur
+    RButton+LButton  sag basiliyken sol tik -> Ctrl (coklu secim)
+    MButton+LButton  orta basiliyken sol tik -> Shift (aralik secimi)
     F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/hot_vectors.py)
     ~F13 & WheelUp   basili tutup tekerlek
     Pause            basili tut: duraklatma penceresi (AHK DialogPauseGui)
@@ -223,6 +225,20 @@ BOUNCE_MIDDLE = setting(
         "demek, yani arizali ikinci basim ya fazladan sekme aciyor ya da "
         "tarayici iki basimi tek tiklama saymayip HICBIR sey yapmiyor -- "
         "'tusa bastim, olmadi' halinin sebebi cogu zaman bu."
+    ),
+)
+
+BUTTON_AS_MODIFIER = setting(
+    "mouse.buttonAsModifier",
+    "Sag/orta tus: sol tikta Ctrl/Shift",
+    default=True,
+    category=Category.MOUSE,
+    tags="fare sag orta ctrl shift coklu secim modifier rbutton mbutton",
+    desc=(
+        "Sag tus basiliyken sol tik = Ctrl+tik (coklu secim). "
+        "Orta tus basiliyken sol tik = Shift+tik (aralik secimi). "
+        "Sag/orta tus bu basimda TUKETILIR: birakilinca baglam menusu / "
+        "orta tik gitmez. Tek basina sag/orta tik eskisi gibi calisir."
     ),
 )
 
@@ -551,6 +567,8 @@ def build_hotkeys() -> HotkeyTable:
     # sag tik gonderiliyor. Sira dispatch.py icinde. ---
     table.add("RButton & WheelUp", "send_key:Volume_Up", "ses +")
     table.add("RButton & WheelDown", "send_key:Volume_Down", "ses -")
+    # Sag tus onek: tekerlek + sol tikta Ctrl (buttonAsModifier). Onek
+    # kaydi Wheel satirlariyla zaten olusuyor; yine de acik olsun.
 
     # --- `´` (SC00D, VK 0xDD): AHK sysCommands(). Kaskad degil menu. ---
     backtick = send.vk_for_char("´") or 0xDD

@@ -138,6 +138,30 @@ def press_button(name: str) -> None:
         send.button_down(vk)
 
 
+def release_button(name: str) -> None:
+    """`button_up:LButton` -- enjekte edilen basimin eslesen birakmasi."""
+    vk = vk_from_name(name)
+    if vk is not None:
+        send.button_up(vk)
+
+
+def mod_down(name: str) -> None:
+    """`mod_down:LCtrl` -- sanal modifier basili tut."""
+    vk = vk_from_name(name)
+    if vk is not None:
+        send.key_down(vk)
+
+
+def mod_up(name: str) -> None:
+    """`mod_up:LCtrl` -- sanal modifier birak."""
+    vk = vk_from_name(name)
+    if vk is not None:
+        send.key_up(vk)
+        # held_modifiers: kendi biraktigimiz modifier'i "kullanici tutuyor"
+        # sanmasin (bkz. send.held_modifiers / STALE_MS).
+        send._injected_release[vk] = send.time.perf_counter()
+
+
 class _ErrorBridge(QObject):
     """Hata kaydini ana thread'e tasiyan kopru (level, text)."""
 
@@ -350,6 +374,10 @@ class KeyPilot:
         keymap.BOUNCE_MIDDLE.subscribe(
             lambda value, _old: setattr(self.dispatcher, "bounce_guard_middle", bool(value))
         )
+        self.dispatcher.button_as_modifier = bool(keymap.BUTTON_AS_MODIFIER.get())
+        keymap.BUTTON_AS_MODIFIER.subscribe(
+            lambda value, _old: setattr(self.dispatcher, "button_as_modifier", bool(value))
+        )
         # Sanal fare kombolari TABLODA duruyor (bkz. keymap.build_hotkeys):
         # ayar degisince tablo yeniden kurulmali. Abonelik burada, cunku
         # ayar tepsi menusunden de ayar EKRANINDAN da degisebiliyor -- iki
@@ -383,6 +411,10 @@ class KeyPilot:
         self.runner.register("menu.close", lambda _: self.menu.close())
         # Surukleme anlasilinca gecikmeli enjekte edilen gercek fare basimi.
         self.runner.register("button_down", press_button)
+        self.runner.register("button_up", release_button)
+        # Sag/orta tus -> Ctrl/Shift (mouse.buttonAsModifier).
+        self.runner.register("mod_down", mod_down)
+        self.runner.register("mod_up", mod_up)
         self.runner.register("click3_then", lambda keys: self.click_then(keys, times=3))
         # AHK memory_slots.ahk. Argumani olanlar slot numarasi aliyor.
         self.runner.register("memslots.paste_slot", lambda n: self.mem_slots.paste_slot(int(n)))

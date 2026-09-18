@@ -30,7 +30,7 @@ from keypilot.core.combo import ComboTracker
 from keypilot.core.hot_vectors import HotVectors
 from keypilot.core.hotkey import HotkeyTable
 from keypilot.core.keynames import MODIFIER_VKS, key_name
-from keypilot.core.mouse import VK_MBUTTON, WM_MOUSEMOVE, MouseSeen, mouse_key
+from keypilot.core.mouse import VK_MBUTTON, VK_RBUTTON, WM_MOUSEMOVE, MouseSeen, mouse_key
 from keypilot.core.prefix import Outcome, PrefixTracker
 from keypilot.core.turkish import TurkishLayout
 from keypilot.win32 import send
@@ -39,6 +39,15 @@ from keypilot.win32.hook import KeyEvent, MouseEvent
 VK_ESCAPE = 0x1B
 
 VK_LBUTTON = 0x01
+VK_LSHIFT = 0xA0
+VK_LCTRL = 0xA2
+
+#: Sag/orta tus basiliyken sol tik -> sanal modifier. Coklu secim icin:
+#: RButton = Ctrl, MButton = Shift. (readme "Fikirler")
+MOUSE_AS_MODIFIER: dict[int, int] = {
+    VK_RBUTTON: VK_LCTRL,
+    VK_MBUTTON: VK_LSHIFT,
+}
 
 
 def _overlay_direction(direction) -> str:
@@ -149,6 +158,17 @@ class Dispatcher:
         self._tip_t = 0.0
         self._gesture_phase: dict[int, str] = {}
         self._gesture_started: dict[int, float] = {}
+        #: Overlay'i gosterdigimiz jest onekleri -- short esiginden once
+        #: `show` gitmesin diye (AHK: normal tiklamada flash yok).
+        self._overlay_shown: set[int] = set()
+        #: Fare dugmesi -> enjekte ettigimiz sanal modifier (Ctrl/Shift).
+        #: Dugme birakilinca modifier da birakilir.
+        self._mouse_mods: dict[int, int] = {}
+        #: Sol tik'i sanal modifier altinda yutup yeniden enjekte ettik mi;
+        #: birakma olayi da bizden gelsin (gercek up uygulamaya gitmesin).
+        self._mod_lb_held = False
+        #: `mouse.buttonAsModifier` ayari -- app.py bagliyor.
+        self.button_as_modifier = True
         # Yutup beklettigimiz fare onegi surukleme oldugu anlasilinca gercek
         # basimi enjekte ediliyor; bu kume onlari tutuyor ki birakma olayi
         # da uygulamaya gecsin.
@@ -333,6 +353,23 @@ class Dispatcher:
             self.tracker.key_up(vk, event.t)
             return False
 
+        # Sag/orta basiliyken sol tik: dugmeyi Ctrl/Shift gibi kullan.
+        # Sol tik YUTULUP yeniden enjekte edilir ki modifier once gelsin
+        # (kuyruk 8 ms; gercek sol tik modifier'dan once uygulamaya giderdi).
+        if self.button_as_modifier and vk == VK_LBUTTON:
+            handled = self._mouse_modifier_click(down, event.t)
+            if handled is not None:
+                with contextlib.suppress(queue.Full):
+                    self.seen.put_nowait(
+                        (
+                            MouseSeen(
+                                vk=vk, down=down, t=event.t, x=event.x, y=event.y, raw=event
+                            ),
+                            True,
+                        )
+                    )
+                return True
+
         # keymap F19'daki `.combo("LButton", ...)` icin: fare dugmesi
         # kaskad makinesine de gidiyor, yoksa F19 basiliyken sol tik
         # gorunmezdi.
@@ -354,6 +391,47 @@ class Dispatcher:
             )
         return swallow
 
+    def _mouse_modifier_click(self, down: bool, t: float) -> bool | None:
+        """RButton/MButton basiliyken LButton -> Ctrl/Shift + sol tik.
+
+        `True` = yutuldu (isimiz bitti). `None` = bu yol ilgilenmedi, normal
+        akisa devam. Onek tuketilir: birakilinca sag/orta tik gitmez.
+        """
+        if down:
+            active = [
+                button
+                for button in MOUSE_AS_MODIFIER
+                if self.prefixes.is_down(button) or send.is_down(button)
+            ]
+            if not active:
+                return None
+            for button in active:
+                mod = MOUSE_AS_MODIFIER[button]
+                if button not in self._mouse_mods:
+                    self._mouse_mods[button] = mod
+                    self._put(Run(f"mod_down:{key_name(mod)}", key=button))
+                # Tuket: birakilinca menu / orta tik / hold eylemi calismasin.
+                if self.prefixes.is_down(button):
+                    self.prefixes.combo_used(button)
+            self._mod_lb_held = True
+            self.tracker.key_down(VK_LBUTTON, t)
+            self._put(Run("button_down:LButton", key=VK_LBUTTON))
+            return True
+
+        if not self._mod_lb_held:
+            return None
+        self._mod_lb_held = False
+        self.tracker.key_up(VK_LBUTTON, t)
+        self._put(Run("button_up:LButton", key=VK_LBUTTON))
+        return True
+
+    def _release_mouse_mods(self, button: int) -> list:
+        """Fare dugmesi birakilinca sanal Ctrl/Shift'i de birak."""
+        mod = self._mouse_mods.pop(button, None)
+        if mod is None:
+            return []
+        return [Run(f"mod_up:{key_name(mod)}", key=button)]
+
     def tick(self, now: float) -> list[tuple[int, str]]:
         """Bekletilen kisa basim eylemleri -- Qt zamanlayicisi cagirir.
 
@@ -373,6 +451,9 @@ class Dispatcher:
             elapsed_ms = (now - started) * 1000.0
             hold_ms = definition.hold_ms if definition is not None else 350.0
             cascade = self.machine.definitions.get(prefix)
+            # Kaskad short esigi: F17/F18'de prefix.hold_ms yok, CascadeDef.short_ms var.
+            if cascade is not None and cascade.short_ms is not None:
+                hold_ms = cascade.short_ms
             second_ms = (
                 cascade.long_ms
                 if cascade is not None and cascade.long_ms is not None
@@ -386,8 +467,9 @@ class Dispatcher:
                 phase = ""
             if phase != self._gesture_phase.get(prefix):
                 self._gesture_phase[prefix] = phase
-                if self.gestures.visible(prefix):
-                    self._put(Run("gesture.overlay", key=prefix, desc=f"phase|{phase}|||"))
+                # Bos faz: short henuz gecmedi -- overlay ACMA (AHK).
+                if phase:
+                    self._show_gesture_overlay(prefix, phase=phase)
         # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
         for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
             if now >= deadline:
@@ -475,6 +557,10 @@ class Dispatcher:
         self._hk_swallowed.discard(vk)
         self._passed_through.discard(vk)
         self._pending_tap.pop(vk, None)
+        for action in self._release_mouse_mods(vk):
+            self._put(action)
+        if vk == VK_LBUTTON:
+            self._mod_lb_held = False
         if self._watch_vk == vk:
             self._watch_down = False
         # Jest kapanisi YALNIZCA bu tus jest yapiyorduysa: `_end_gesture`
@@ -516,6 +602,11 @@ class Dispatcher:
         self._tip_t = 0.0
         self._gesture_phase.clear()
         self._gesture_started.clear()
+        self._overlay_shown.clear()
+        for button in list(self._mouse_mods):
+            for action in self._release_mouse_mods(button):
+                self._put(action)
+        self._mod_lb_held = False
         self._put(Run("tip.hide"))
         self._put(Run("gesture.overlay", desc="hide"))
         self._prefix_at = None
@@ -531,17 +622,48 @@ class Dispatcher:
             self.actions.put_nowait(action)
 
     def _begin_gesture(self, vk: int, t: float) -> None:
-        """Jest izlemeyi ve overlay'i baslatir (onek ya da kaskad tusu)."""
+        """Jest izlemeyi baslatir -- overlay short esiginden once ACILMAZ.
+
+        AHK'de de jest menusu / ipucu short basim suresi gecmeden gelmezdi;
+        normal F13 tiklamasinda flash rahatsiz ediciydi.
+        """
         if vk in self.gestures.active:
             return
         self.gestures.start(vk)
         self._gesture_phase[vk] = ""
         self._gesture_started[vk] = t
-        if self.gestures.visible(vk):
-            labels = _overlay_labels(self.gestures.labels(vk))
-            self._put(Run("gesture.overlay", key=vk, desc=f"show||||{labels}"))
         self._freeze_at = send.cursor_pos()
         self._gesture_at = self._freeze_at
+
+    def _show_gesture_overlay(
+        self,
+        vk: int,
+        *,
+        phase: str = "",
+        direction: str = "",
+        steps: str = "",
+    ) -> None:
+        """Overlay'i ilk kez `show` ile acar, sonra `update` gonderir."""
+        if not self.gestures.visible(vk):
+            return
+        if vk not in self._overlay_shown:
+            self._overlay_shown.add(vk)
+            labels = _overlay_labels(self.gestures.labels(vk))
+            self._put(
+                Run(
+                    "gesture.overlay",
+                    key=vk,
+                    desc=f"show|{phase}|{direction}|{steps}|{labels}",
+                )
+            )
+            return
+        self._put(
+            Run(
+                "gesture.overlay",
+                key=vk,
+                desc=f"update|{phase}|{direction}|{steps}|",
+            )
+        )
 
     def _cancel_gesture(self, vk: int) -> None:
         """Kombo / surukleme jesti iptal eder -- overlay kapanir."""
@@ -550,6 +672,7 @@ class Dispatcher:
         self.gestures.stop(vk)
         self._gesture_phase.pop(vk, None)
         self._gesture_started.pop(vk, None)
+        self._overlay_shown.discard(vk)
         if not self.gestures.watching:
             self._end_gesture()
 
@@ -606,6 +729,7 @@ class Dispatcher:
         self._tip_t = 0.0
         self._gesture_phase.clear()
         self._gesture_started.clear()
+        self._overlay_shown.clear()
         self._put(Run("tip.hide"))
         self._put(Run("gesture.overlay", desc="hide"))
 
@@ -626,14 +750,12 @@ class Dispatcher:
                 continue
             direction = _overlay_direction(status.locked_direction or status.direction)
             phase = "" if direction else self._gesture_phase.get(prefix, "")
-            if not self.gestures.visible(prefix):
-                continue
-            self._put(
-                Run(
-                    "gesture.overlay",
-                    key=prefix,
-                    desc=f"update|{phase}|{direction}|{status.steps}|",
-                )
+            # Yon kilitlendi: short beklemeden overlay ac (kullanici jest yapiyor).
+            self._show_gesture_overlay(
+                prefix,
+                phase=phase,
+                direction=direction,
+                steps=str(status.steps) if status.steps else "",
             )
 
     def _drag_check(self, event: MouseEvent) -> None:
@@ -799,8 +921,10 @@ class Dispatcher:
     def _hotkey_up(self, vk: int, t: float) -> tuple[bool, list]:
         was_ours = vk in self._hk_swallowed
         self._hk_swallowed.discard(vk)
+        # Sanal Ctrl/Shift: fare dugmesi birakilinca modifier da bitsin.
+        mod_actions = self._release_mouse_mods(vk)
         if not self.prefixes.is_prefix(vk):
-            return was_ours, []
+            return was_ours, mod_actions
 
         # Jest yapildiysa tusun isi bitti: ne menu, ne tap eylemi, ne de
         # tusun geri gonderilmesi. Istenen davranis buydu.
@@ -808,11 +932,11 @@ class Dispatcher:
             self.prefixes.key_up(vk, t)
             if not self.gestures.watching:
                 self._end_gesture()
-            return was_ours, []
+            return was_ours, mod_actions
 
         outcome = self.prefixes.key_up(vk, t)
         if outcome is Outcome.NOTHING:
-            return was_ours, []  # kombo ya da surukleme yapildi
+            return was_ours, mod_actions  # kombo ya da surukleme yapildi
 
         if not self.gestures.watching:
             self._end_gesture()
@@ -823,7 +947,9 @@ class Dispatcher:
         if outcome is Outcome.HOLD and definition is not None:
             # Basili tutma esigi gecildi: cift basim beklenmez (AHK'de de
             # cift basim kontrolu yalniz KISA basimda yapiliyor).
-            return was_ours, [Run(definition.hold_action, key=vk, desc=definition.desc)]
+            return was_ours, mod_actions + [
+                Run(definition.hold_action, key=vk, desc=definition.desc)
+            ]
 
         binding = self.hotkeys.match(vk)  # onegin kendi tanimi var mi
         if binding is not None:
@@ -835,9 +961,13 @@ class Dispatcher:
                     binding.desc,
                     t + definition.double_ms / 1000.0,
                 )
-                return was_ours, []
-            return was_ours, [Run(binding.action, key=vk, desc=binding.desc)]
+                return was_ours, mod_actions
+            return was_ours, mod_actions + [
+                Run(binding.action, key=vk, desc=binding.desc)
+            ]
         if was_ours:
             # Hicbir sey olmadi: yuttugumuz tusu geri ver, `^` yazilabilsin.
-            return was_ours, [Run(f"send_key:{key_name(vk)}", key=vk)]
-        return was_ours, []
+            return was_ours, mod_actions + [
+                Run(f"send_key:{key_name(vk)}", key=vk)
+            ]
+        return was_ours, mod_actions

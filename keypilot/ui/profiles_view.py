@@ -119,7 +119,7 @@ class ProfilesView(QWidget):
         self.action_name = QLineEdit()
         self.action_desc = QLineEdit()
         self.strokes_edit = QPlainTextEdit()
-        self.strokes_edit.setPlaceholderText("her satir bir tus dizisi:\n^+t\nmerhaba")
+        self.strokes_edit.setPlaceholderText("her satir bir tus dizisi:\n^+t\nmerhaba\n^ ctrl   ! alt   + shift   # win")
 
         # Kisayol: aksiyonu menuye girmeden calistiran tus. Kutuya
         # tiklayip tusa basiliyor (ui/key_capture.py) -- elle "Ctrl+Alt+T"
