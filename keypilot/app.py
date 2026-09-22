@@ -278,7 +278,7 @@ class KeyPilot:
         self._clip_mode_before = self.clip.state.mode
         self.mem_slots.paste_text.connect(self.clip.paste_text)
         self.mem_slots.copy_text.connect(self.clip.watcher.set_text)
-        self.mem_slots.grab_clip.connect(lambda: self.runner.run("send_key:^c"))
+        self.mem_slots.grab_clip.connect(lambda: self.runner.run(Cmd.send_key("^c")))
         self.mem_slots.tip.connect(lambda body: self.tip.show_html(body, 1500))
         self.mem_slots.fkeys_toggled.connect(self._on_memslot_fkeys)
         self.mem_slots.closed.connect(self._on_memslots_closed)
@@ -403,28 +403,30 @@ class KeyPilot:
         # metodun ustundeki `@command` ile veriliyor -- kimlik ile is ayni
         # yerde dursun (bkz. actions.command / ActionRunner.adopt).
         # tip: imlecin yaninda 2 sn gorunup kaybolur.  notify: kalici tepsi balonu.
-        self.runner.register("tip", lambda text: self.tip.show_text(text, 2000))
+        self.runner.register(Cmd.Run.TIP, lambda text: self.tip.show_text(text, 2000))
         # Jest bitince ipucu da gitsin: 2 sn'lik sure jestten sonra da ekranda
         # kaliyordu (dispatch._end_gesture).
         self.runner.register(Cmd.Tip.HIDE, lambda _: self.tip.hide())
-        self.runner.register("tip_html", lambda body: self.tip.show_html(body, 2000))
-        self.runner.register("notify", lambda text: self.tray.notify("KeyPilot", text))
+        self.runner.register(Cmd.Run.TIP_HTML, lambda body: self.tip.show_html(body, 2000))
+        self.runner.register(Cmd.Run.NOTIFY, lambda text: self.tray.notify("KeyPilot", text))
         self.runner.register(Cmd.Menu.CLOSE, lambda _: self.menu.close())
         # Surukleme anlasilinca gecikmeli enjekte edilen gercek fare basimi.
-        self.runner.register("button_down", press_button)
-        self.runner.register("button_up", release_button)
+        self.runner.register(Cmd.Run.BUTTON_DOWN, press_button)
+        self.runner.register(Cmd.Run.BUTTON_UP, release_button)
         # Sag/orta tus -> Ctrl/Shift (mouse.buttonAsModifier).
-        self.runner.register("mod_down", mod_down)
-        self.runner.register("mod_up", mod_up)
-        self.runner.register("click3_then", lambda keys: self.click_then(keys, times=3))
+        self.runner.register(Cmd.Run.MOD_DOWN, mod_down)
+        self.runner.register(Cmd.Run.MOD_UP, mod_up)
+        self.runner.register(Cmd.Run.CLICK3_THEN, lambda keys: self.click_then(keys, times=3))
         # AHK memory_slots.ahk. Argumani olanlar slot numarasi aliyor.
-        self.runner.register("memslots.paste_slot", lambda n: self.mem_slots.paste_slot(int(n)))
-        self.runner.register("memslots.paste_hist", lambda n: self.mem_slots.paste_history(int(n)))
-        self.runner.register("memslots.save_slot", lambda n: self.mem_slots.save_slot(int(n)))
+        self.runner.register(Cmd.Memslots.PASTE_SLOT, lambda n: self.mem_slots.paste_slot(int(n)))
+        self.runner.register(
+            Cmd.Memslots.PASTE_HIST, lambda n: self.mem_slots.paste_history(int(n))
+        )
+        self.runner.register(Cmd.Memslots.SAVE_SLOT, lambda n: self.mem_slots.save_slot(int(n)))
         # AHK smartPaste(middlePressed): orta tus / Insert ile gelen cagri
         # yapistirdiktan sonra siradaki kayda gecer, tus kombosu gecmez.
         self.runner.register(
-            "memslots.paste", lambda arg: self.mem_slots.smart_paste(arg == "middle")
+            Cmd.Memslots.PASTE, lambda arg: self.mem_slots.smart_paste(arg == "middle")
         )
         # Kural penceresi acilirken hook susmali (tus yakalanacak), kural
         # kisayolu da kayit defterine tutulmali: ikisi de app.py'nin isi,
@@ -434,8 +436,8 @@ class KeyPilot:
         self.snip.release_rules = self._release_area_rules
         # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
         # App.ScreenOcr.snipInteractive / snip("plain") idi).
-        self.runner.register("select.ocr", lambda _: self.show_snip_auto("ocr"))
-        self.runner.register("select.ocr_adv", lambda _: self.show_snip_auto("ocr_adv"))
+        self.runner.register(Cmd.Select.OCR, lambda _: self.show_snip_auto("ocr"))
+        self.runner.register(Cmd.Select.OCR_ADV, lambda _: self.show_snip_auto("ocr_adv"))
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
         self.runner.register(Cmd.Magnifier.TOGGLE, lambda _: self.magnifier.toggle())
         self.runner.register(Cmd.Magnifier.RESET, lambda _: self.magnifier.reset())
@@ -618,7 +620,7 @@ class KeyPilot:
         table.release(owner)
         if not spec:
             return ""
-        action = f"area.run:{area_name}#{index}"
+        action = Cmd.Area.RUN(f"{area_name}#{index}")
         clash = table.claim(owner, spec, action, f"alan kurali: {area_name}")
         if clash is not None:
             log.warning("kisayol catismasi: %s -> %s", spec, clash.owner)
@@ -632,7 +634,7 @@ class KeyPilot:
         for owner in {b.owner for b in table.bindings if b.owner.startswith(prefix)}:
             table.release(owner)
 
-    @command("area.run")
+    @command(Cmd.Area.RUN)
     def run_area_rule(self, argument: str) -> None:
         """`area.run:<alan>#<sira>` -- kuralin kisayoluna basildi.
 
@@ -688,7 +690,7 @@ class KeyPilot:
 
     # ---- F14 secim araci ----
 
-    @command("select.start")
+    @command(Cmd.Select.START)
     def show_snip(self, key: str = "") -> None:
         """F14: ekran donar, alan secilir, secim ustunde islem cubugu acilir.
 
@@ -721,7 +723,7 @@ class KeyPilot:
             return
         self.snip.start(vk, origin, self.dispatcher.watch_held)
 
-    @command("select.screen")
+    @command(Cmd.Select.SCREEN)
     def show_snip_screen(self, index: str = "0") -> None:
         """`select.screen:<sira>` -- o monitorun tamami secili acilir.
 
@@ -947,7 +949,7 @@ class KeyPilot:
         tops = topmost_windows()
         if hwnd and not any(top.hwnd == hwnd for top in tops):
             label = shorten(title or "(basliksiz)", 45)
-            items.append((f"Add {label}", f"window.pin:{hwnd}"))
+            items.append((f"Add {label}", Cmd.Window.PIN(hwnd)))
         for top in tops:
             label = shorten(top.title or "(basliksiz)", 45)
             # Bizim sabitlemediklerimiz "(win)": onlari kullanici ya da
@@ -957,7 +959,7 @@ class KeyPilot:
             # Hepsi ustte, hepsi TIKLI -- tekrar basmak birakir. Uzerinde
             # durdugun pencereninki ayrica kalin.
             marks = (CHECKED, DEFAULT) if top.hwnd == hwnd else (CHECKED,)
-            items.append((label, f"window.pin:{top.hwnd}", "", *marks))
+            items.append((label, Cmd.Window.PIN(top.hwnd), "", *marks))
         return tuple(items)
 
     # ---- uygulamaya ozel kisayollar (AHK: app_shorts.ahk) ----
@@ -975,7 +977,7 @@ class KeyPilot:
         if profile is None:
             return ()
         return tuple(
-            (self._shortcut_label(shortcut), f"shorts.play:{profile.name}/{index}")
+            (self._shortcut_label(shortcut), Cmd.Shorts.PLAY(f"{profile.name}/{index}"))
             for index, shortcut in enumerate(profile.shortcuts)
         )
 
@@ -1013,11 +1015,11 @@ class KeyPilot:
         rows: list = []
         for profile in self.shorts.profiles:
             actions: list = [
-                (self._shortcut_label(shortcut), f"shorts.play:{profile.name}/{index}")
+                (self._shortcut_label(shortcut), Cmd.Shorts.PLAY(f"{profile.name}/{index}"))
                 for index, shortcut in enumerate(profile.shortcuts)
             ]
             if not actions:
-                actions.append(("(kisayol yok)", f"shorts.manage:{profile.name}"))
+                actions.append(("(kisayol yok)", Cmd.Shorts.MANAGE(profile.name)))
             # On plandaki pencerenin profili kalin.
             mark = (DEFAULT,) if profile is active else ()
             rows.append((self._profile_label(profile), tuple(actions), "", *mark))
@@ -1030,7 +1032,7 @@ class KeyPilot:
             rows.append(
                 (
                     f"Profil ekle ({shorten(class_name, 30)})",
-                    f"shorts.add:{class_name}",
+                    Cmd.Shorts.ADD(class_name),
                 )
             )
         else:
@@ -1040,7 +1042,7 @@ class KeyPilot:
         # Eslesen profil varsa yalnizca o secili aciliyor -- madde bunu
         # etiketinde soyluyor.
         if active is not None:
-            rows.append((f"Profil duzenle ({active.name})", f"shorts.manage:{active.name}"))
+            rows.append((f"Profil duzenle ({active.name})", Cmd.Shorts.MANAGE(active.name)))
         else:
             rows.append(("Profil duzenle", Cmd.Shorts.MANAGE))
 
@@ -1056,7 +1058,7 @@ class KeyPilot:
         """
         self.profiles_view.open(argument.strip())
 
-    @command("shorts.add")
+    @command(Cmd.Shorts.ADD)
     def add_profile(self, argument: str = "") -> None:
         """`shorts.add:<sinif>` -- yonetici BOS profille, sinif dolu acilir.
 
@@ -1084,7 +1086,7 @@ class KeyPilot:
             if clash is not None:
                 log.warning("profil kisayolu atlandi: %s zaten %s tarafinda", spec, clash.owner)
 
-    @command("shorts.play")
+    @command(Cmd.Shorts.PLAY)
     def play_shortcut(self, argument: str) -> None:
         """`shorts.play:Chrome/0` -- AHK `ShortCut.play()`.
 
@@ -1099,11 +1101,11 @@ class KeyPilot:
             return
         for stroke in shortcut.strokes:
             if stroke_kind(stroke) == "key":
-                self.runner.run(f"send_key:{stroke}")
+                self.runner.run(Cmd.send_key(stroke))
             else:
                 send.type_text(stroke)
 
-    @command("shorts.edit")
+    @command(Cmd.Shorts.EDIT)
     def edit_shortcuts(self, _argument: str = "") -> None:
         """Profil dosyasini Notepad ile acar (AHK: yonetici GUI'si).
 
@@ -1131,7 +1133,7 @@ class KeyPilot:
         if not self.mem_slots.isVisible():
             return
         self.mem_slots.smart_paste(middle=True)
-        QTimer.singleShot(160, lambda: self.runner.run("send_key:+Enter"))
+        QTimer.singleShot(160, lambda: self.runner.run(Cmd.send_key("+Enter")))
 
     @command(Cmd.Memslots.START)
     def show_mem_slots(self, _argument: str = "") -> None:
@@ -1169,7 +1171,7 @@ class KeyPilot:
 
     # ---- buyutec ----
 
-    @command("magnifier.zoom")
+    @command(Cmd.Magnifier.ZOOM)
     def zoom(self, argument: str) -> None:
         """`magnifier.zoom:+` / `magnifier.zoom:-`"""
         if argument.startswith("-"):
@@ -1186,7 +1188,7 @@ class KeyPilot:
 
     # ---- menuler ve durum ----
 
-    @command("state.reset")
+    @command(Cmd.State.RESET)
     def reset_state(self, _argument: str = "") -> None:
         """Acil fren: takilmis onek / yarida kalmis kaskad varsa temizler.
 
@@ -1326,7 +1328,7 @@ class KeyPilot:
         self._severe_count = 0
         self.tray.set_error_count(0, 0)
 
-    @command("click.bounce")
+    @command(Cmd.Click.BOUNCE)
     def on_click_bounce(self, argument: str) -> None:
         """AHK: `#HotIf A_TimeSincePriorHotkey < 70` -> LButton yutulur.
 
@@ -1408,7 +1410,7 @@ class KeyPilot:
         return tuple(
             QuickItem(
                 content=slot.content,
-                action=f"slot.paste_group:{group}/{index}",
+                action=Cmd.Slot.PASTE_GROUP(f"{group}/{index}"),
                 label=f"{slot.name or f'Slot {index}'}: "
                 + (slot_display(index, " ".join(slot.content.split()), lambda t: t) or "(bos)"),
             )
@@ -1421,7 +1423,7 @@ class KeyPilot:
         return tuple(
             QuickItem(
                 content=entry.text,
-                action=f"clip.paste:{index}",
+                action=Cmd.Clip.PASTE(index),
                 label=entry.preview + (f"  x{entry.count}" if entry.count > 1 else ""),
             )
             for index, entry in enumerate(self.clip.history.entries, start=1)
@@ -1456,7 +1458,7 @@ class KeyPilot:
         self._qr_view.raise_()
         self._qr_view.activateWindow()
 
-    @command("yok")
+    @command(Cmd.Run.YOK)
     def not_ported(self, module: str) -> None:
         """Menude `--` ile isaretli ogeler buraya duser."""
         self.tip.show_html(
@@ -1465,7 +1467,7 @@ class KeyPilot:
             2000,
         )
 
-    @command("click_then")
+    @command(Cmd.Run.CLICK_THEN)
     def click_then(self, keys: str, times: int = 1) -> None:
         """AHK: `(Click("Left", 3), Send("^c"))` -- once tikla, sonra gonder.
 
@@ -1474,7 +1476,7 @@ class KeyPilot:
         """
         for _ in range(times):
             send.click("left")
-        QTimer.singleShot(80, lambda: self.runner.run(f"send_key:{keys}"))
+        QTimer.singleShot(80, lambda: self.runner.run(Cmd.send_key(keys)))
 
     @command(Cmd.App.SETTINGS)
     def show_settings(self, _argument: str = "") -> None:
@@ -1659,7 +1661,7 @@ class KeyPilot:
 
     def _apply(self, action) -> None:
         if isinstance(action, Run):
-            if action.action == "gesture.overlay":
+            if action.action == Cmd.Gesture.OVERLAY:
                 self._apply_gesture_overlay(action)
                 return
             self.runner.run(action.action)
@@ -1809,7 +1811,7 @@ class KeyPilot:
                     index,
                 )
 
-    @command("vmouse.toggle")
+    @command(Cmd.Vmouse.TOGGLE)
     def toggle_virtual_mouse(self, _argument: str = "") -> None:
         """Win+WASD sanal faresini ac/kapa.
 
@@ -2008,7 +2010,6 @@ class KeyPilot:
         )
         self._shutdown()
 
-    @command(Cmd.App.RESTART)
     @command(Cmd.App.RESTART_DEV_OFF)
     def restart_dev_off(self, _argument: str = "") -> None:
         """Gelistirme modu KAPALI olarak yeniden baslat.
@@ -2025,6 +2026,7 @@ class KeyPilot:
         dev.request_off_once()
         self.restart()
 
+    @command(Cmd.App.RESTART)
     def restart(self, _argument: str = "") -> None:
         """AHK: Pause+Home -> reloadScript()
 

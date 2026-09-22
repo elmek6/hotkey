@@ -21,7 +21,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from keypilot import keymap
-from keypilot.commands import Cmd
+from keypilot.commands import Cmd, Id
 from keypilot.core.filter import FilterItem
 from keypilot.store import PASSWORD_SLOT, Slot, SlotStore, slot_display
 from keypilot.ui.preview import preview_html, shorten
@@ -121,7 +121,7 @@ class SlotController:
         loadFromSlot + Sleep(200) + Send("{Enter}")). Enter GECIKMELI:
         yapistirma hedefe varmadan gonderilirse bos alan onaylanir."""
         self.paste_slot_of(argument)
-        QTimer.singleShot(220, lambda: self._send_key("send_key:Enter"))
+        QTimer.singleShot(220, lambda: self._send_key(Cmd.send_key("Enter")))
 
     def copy_slot(self, argument: str) -> None:
         """AHK yan grup menusu: oge tiklaninca icerik PANOYA konur."""
@@ -253,7 +253,7 @@ class SlotController:
 
     # ---- menuler ----
 
-    def items(self, group: str, action: str, prefix: str = "") -> tuple:
+    def items(self, group: str, action, prefix: str = "") -> tuple:
         """Bir grubun on slotu, menu ogesi olarak (AHK: addSlotItems).
 
         `action` her ogeye uygulanacak eylem kimligi: yapistirma, panoya
@@ -266,7 +266,9 @@ class SlotController:
             text = " ".join(slot.content.split())
             shown = slot_display(index, text, lambda t: shorten(t, 40)) if text else "(bos)"
             label = f"{prefix}{index % 10}  {slot.name or f'Slot {index}'}: {shown}"
-            result.append((label, f"{action}:{group}/{index}"))
+            arg = f"{group}/{index}"
+            wired = action(arg) if isinstance(action, Id) else f"{action}:{arg}"
+            result.append((label, wired))
         return tuple(result)
 
     def side_menu_spec(self) -> tuple:
@@ -275,7 +277,7 @@ class SlotController:
             ("Yeni grup ekle", Cmd.Slots.GROUP_NEW),
             ("Notepad ile ac", Cmd.Slots.EDIT_FILE),
             None,
-            ("No side slot", "slots.group_select:"),
+            ("No side slot", Cmd.Slots.GROUP_SELECT("")),
         ]
         for name in self.store.group_names():
             mark = "● " if name == self.store.default_group else ""
@@ -283,13 +285,13 @@ class SlotController:
                 (
                     f"{mark}{name}",
                     (
-                        ("Select this group", f"slots.group_select:{name}"),
+                        ("Select this group", Cmd.Slots.GROUP_SELECT(name)),
                         None,
                         # AHK'de bu ogeler icerigi PANOYA koyuyordu
                         # (yapistirmiyordu); ayni davranis.
                         *self.items(name, Cmd.Slots.COPY),
                         None,
-                        ("Delete this group", f"slots.group_delete:{name}"),
+                        ("Delete this group", Cmd.Slots.GROUP_DELETE(name)),
                     ),
                 )
             )
@@ -329,10 +331,10 @@ class SlotController:
         self.store.load()
         side = self.store.default_group
         spec: tuple = (
-            ("Unformatted paste", "send_key:^+v"),
+            ("Unformatted paste", Cmd.send_key("^+v")),
             None,
             ("Clipboard images", Cmd.Clip.IMAGES, "res:109"),  # gorsel
-            ("Window screenshot", "send_key:!PrintScreen", "shell:196"),
+            ("Window screenshot", Cmd.send_key("!PrintScreen"), "shell:196"),
             None,
             ("QR kod", Cmd.Qr.SHOW, "res:252"),  # dama deseni kareler
             ("Area", keymap.screen_menu()),
@@ -341,18 +343,18 @@ class SlotController:
             keymap.COLUMN,
             ("Search in slots", Cmd.Slots.SEARCH),
             None,
-            *self.items("", "slot.paste_group"),
+            *self.items("", Cmd.Slot.PASTE_GROUP),
             None,
-            ("Edit ^", self.items("", "slots.edit")),
+            ("Edit ^", self.items("", Cmd.Slots.EDIT)),
             keymap.COLUMN,
             (f"Side slot{f' [{side}]' if side else ''}", self.side_menu_spec()),
         )
         if side and side in self.store.groups:
             spec += (
                 None,
-                *self.items(side, "slot.paste_group", prefix="⇥ "),
+                *self.items(side, Cmd.Slot.PASTE_GROUP, prefix="⇥ "),
                 None,
-                (f"Edit ⇥{side}", self.items(side, "slots.edit")),
+                (f"Edit ⇥{side}", self.items(side, Cmd.Slots.EDIT)),
             )
         return spec
 

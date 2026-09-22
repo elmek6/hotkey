@@ -62,9 +62,9 @@ class MacroController(QObject):
         # calisiyor; uc slotun tusu olmali ve bu tuslar keymap.py'ye SABIT
         # yazilmamali -- kayit defterinden gecmeli:
         #
-        #     runner.register("macro.play", lambda arg: self.play(int(arg)))
+        #     runner.register(Cmd.Macro.PLAY, lambda arg: self.play(int(arg)))
         #     for slot in (1, 2, 3):
-        #         table.claim(f"macro:{slot}", spec, f"macro.play:{slot}",
+        #         table.claim(f"macro:{slot}", spec, Cmd.Macro.PLAY(slot),
         #                     f"makro {slot}")
         #
         # Boylece makro tuslari da kisayol haritasinda gorunur, alan ve

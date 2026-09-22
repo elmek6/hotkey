@@ -39,6 +39,7 @@ from pathlib import Path
 import orjson
 
 from keypilot import paths
+from keypilot.commands import Cmd
 from keypilot.store import backup_file
 
 log = logging.getLogger("keypilot.app_shorts")
@@ -221,7 +222,7 @@ class ShortcutStore:
                     rows.append((
                         f"profile:{profile.name}#{index}",
                         shortcut.key,
-                        f"shorts.play:{profile.name}/{index}",
+                        Cmd.Shorts.PLAY(f"{profile.name}/{index}"),
                         f"{profile.name}: {shortcut.name}",
                     ))
         return tuple(rows)

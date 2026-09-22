@@ -187,7 +187,7 @@ class ClipController:
         if not text:
             return
         self.watcher.set_text(text, private=private)
-        QTimer.singleShot(60, lambda: self._send_key("send_key:^v"))
+        QTimer.singleShot(60, lambda: self._send_key(Cmd.send_key("^v")))
 
     def copy_to_history(self, text: str) -> None:
         """Panoya oyle yaz ki pano dinleyicisi NORMAL kopya sansin: metin
@@ -258,10 +258,10 @@ class ClipController:
             self._tip("\U0001f4cb <b>pano gecmisi bos</b>", 1500)
             return
         spec = tuple(
-            (f"{index}  {shorten(entry.preview, 48)}", f"clip.paste:{index}")
+            (f"{index}  {shorten(entry.preview, 48)}", Cmd.Clip.PASTE(index))
             for index, entry in enumerate(entries, start=1)
         )
-        self._menu((*spec, None, ("\U0001f50d Ara...", "clip.filter")))
+        self._menu((*spec, None, ("\U0001f50d Ara...", Cmd.Clip.FILTER)))
 
     def show_history(self) -> None:
         entries = self.history.entries[:9]
@@ -293,11 +293,11 @@ class ClipController:
         F13'te gecmis dogrudan acilan bir liste degil ALT MENU -- ogeler
         onizlemeye kirpiliyor, tiklanan kayit yapistiriliyor.
         """
-        items: list = [("Search on history", "clip.filter"), None]
+        items: list = [("Search on history", Cmd.Clip.FILTER), None]
         for index, entry in enumerate(self.history.entries[:30], start=1):
-            items.append((f"Clip {index}: {shorten(entry.preview, 55)}", f"clip.paste:{index}"))
+            items.append((f"Clip {index}: {shorten(entry.preview, 55)}", Cmd.Clip.PASTE(index)))
         if len(items) == 2:
-            items.append(("(pano gecmisi bos)", "clip.filter"))
+            items.append(("(pano gecmisi bos)", Cmd.Clip.FILTER))
         return tuple(items)
 
     # ---- disk / kapanis ----

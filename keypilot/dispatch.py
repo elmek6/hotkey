@@ -337,7 +337,7 @@ class Dispatcher:
                     # Tus adi da gidiyor: filtre iki dugmeye birden
                     # uygulanabildigi icin "hangisi yaslaniyor" sorusunun
                     # cevabi log satirinda durmali.
-                    self._put(Run(f"click.bounce:{key_name(vk)} {gap:.0f} ms", key=vk))
+                    self._put(Run(Cmd.Click.BOUNCE(f"{key_name(vk)} {gap:.0f} ms"), key=vk))
                     return True
                 self._bounce_up.discard(vk)
             elif vk in self._bounce_up:
@@ -439,7 +439,7 @@ class Dispatcher:
                 mod = MOUSE_AS_MODIFIER[button]
                 if button not in self._mouse_mods:
                     self._mouse_mods[button] = mod
-                    self._put(Run(f"mod_down:{key_name(mod)}", key=button))
+                    self._put(Run(Cmd.Run.MOD_DOWN(key_name(mod)), key=button))
                 # Tuket: birakilinca menu / orta tik / hold calismasin;
                 # surukleme de gercek sag tik enjekte etmesin.
                 if self.prefixes.is_down(button):
@@ -449,14 +449,14 @@ class Dispatcher:
                 self._passed_through.discard(button)
             self._mod_lb_held = True
             self.tracker.key_down(VK_LBUTTON, t)
-            self._put(Run("button_down:LButton", key=VK_LBUTTON))
+            self._put(Run(Cmd.Run.BUTTON_DOWN("LButton"), key=VK_LBUTTON))
             return True
 
         if not self._mod_lb_held:
             return None
         self._mod_lb_held = False
         self.tracker.key_up(VK_LBUTTON, t)
-        self._put(Run("button_up:LButton", key=VK_LBUTTON))
+        self._put(Run(Cmd.Run.BUTTON_UP("LButton"), key=VK_LBUTTON))
         return True
 
     def _release_mouse_mods(self, button: int) -> list:
@@ -464,7 +464,7 @@ class Dispatcher:
         mod = self._mouse_mods.pop(button, None)
         if mod is None:
             return []
-        return [Run(f"mod_up:{key_name(mod)}", key=button)]
+        return [Run(Cmd.Run.MOD_UP(key_name(mod)), key=button)]
 
     def tick(self, now: float) -> list[tuple[int, str]]:
         """Bekletilen kisa basim eylemleri -- Qt zamanlayicisi cagirir.
@@ -642,7 +642,7 @@ class Dispatcher:
                 self._put(action)
         self._mod_lb_held = False
         self._put(Run(Cmd.Tip.HIDE))
-        self._put(Run("gesture.overlay", desc="hide"))
+        self._put(Run(Cmd.Gesture.OVERLAY, desc="hide"))
         self._prefix_at = None
         self._pending_tap.clear()
         self._passed_through.clear()
@@ -685,7 +685,7 @@ class Dispatcher:
             labels = _overlay_labels(self.gestures.labels(vk))
             self._put(
                 Run(
-                    "gesture.overlay",
+                    Cmd.Gesture.OVERLAY,
                     key=vk,
                     desc=f"show|{phase}|{direction}|{steps}|{labels}",
                 )
@@ -693,7 +693,7 @@ class Dispatcher:
             return
         self._put(
             Run(
-                "gesture.overlay",
+                Cmd.Gesture.OVERLAY,
                 key=vk,
                 desc=f"update|{phase}|{direction}|{steps}|",
             )
@@ -765,7 +765,7 @@ class Dispatcher:
         self._gesture_started.clear()
         self._overlay_shown.clear()
         self._put(Run(Cmd.Tip.HIDE))
-        self._put(Run("gesture.overlay", desc="hide"))
+        self._put(Run(Cmd.Gesture.OVERLAY, desc="hide"))
 
     def _gesture_tip(self, t: float) -> None:
         """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
@@ -844,7 +844,7 @@ class Dispatcher:
             self._passed_through.add(vk)
             self._hk_swallowed.discard(vk)
             self.prefixes.combo_used(vk)
-            self._put(Run(f"button_down:{key_name(vk)}", key=vk))
+            self._put(Run(Cmd.Run.BUTTON_DOWN(key_name(vk)), key=vk))
 
     def _bounce_guarded(self, vk: int) -> bool:
         """Bu dugmeye arizali fare filtresi uygulaniyor mu (ayardan)."""
@@ -1009,6 +1009,6 @@ class Dispatcher:
         if was_ours:
             # Hicbir sey olmadi: yuttugumuz tusu geri ver, `^` yazilabilsin.
             return was_ours, mod_actions + [
-                Run(f"send_key:{key_name(vk)}", key=vk)
+                Run(Cmd.send_key(key_name(vk)), key=vk)
             ]
         return was_ours, mod_actions

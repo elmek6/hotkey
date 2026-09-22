@@ -156,13 +156,13 @@ def current_computer() -> str:
 #: Win+WASD sanal fare tuslari. Menu de tablo da BU listeyi okuyor: iki yerde
 #: ayri liste tutulursa biri guncellenip digeri unutulur.
 VIRTUAL_MOUSE_KEYS = (
-    ("#a", "mouse.move:-10,0", "fare sol"),
-    ("#s", "mouse.move:0,10", "fare asagi"),
-    ("#d", "mouse.move:10,0", "fare sag"),
-    ("#w", "mouse.move:0,-10", "fare yukari"),
-    ("#q", "mouse.click:left", "sol tik"),
-    ("#e", "mouse.click:right", "sag tik"),
-    ("#y", "send_key:Enter", "Enter"),
+    ("#a", Cmd.Mouse.MOVE("-10,0"), "fare sol"),
+    ("#s", Cmd.Mouse.MOVE("0,10"), "fare asagi"),
+    ("#d", Cmd.Mouse.MOVE("10,0"), "fare sag"),
+    ("#w", Cmd.Mouse.MOVE("0,-10"), "fare yukari"),
+    ("#q", Cmd.Mouse.CLICK("left"), "sol tik"),
+    ("#e", Cmd.Mouse.CLICK("right"), "sag tik"),
+    ("#y", Cmd.send_key("Enter"), "Enter"),
 )
 
 #: ScrollLock menusundeki radyo grubu. Sira = `turkish.set` argumani:
@@ -262,14 +262,14 @@ def turkish_keys() -> dict[int, str]:
 # AHK: showF14menu() icindeki subMenuKey. F14'un kendisi sende baska is
 # icin duruyor, ozel tuslar F13 menusune tasindi.
 SPECIAL_KEYS_MENU = (
-    ("⏎ Enter", "send_key:Enter"),
-    ("⌫ Backspace", "send_key:Backspace"),
-    ("⌦ Delete", "send_key:Delete"),
-    ("⎋ Esc", "send_key:Escape"),
+    ("⏎ Enter", Cmd.send_key("Enter")),
+    ("⌫ Backspace", Cmd.send_key("Backspace")),
+    ("⌦ Delete", Cmd.send_key("Delete")),
+    ("⎋ Esc", Cmd.send_key("Escape")),
     None,
-    ("Hepsini sec + kes", "send_keys:^a ^x"),
-    ("Hepsini sec + kopyala", "send_keys:^a ^c"),
-    ("Bicimsiz yapistir", "send_key:^+v"),
+    ("Hepsini sec + kes", Cmd.send_keys("^a", "^x")),
+    ("Hepsini sec + kopyala", Cmd.send_keys("^a", "^c")),
+    ("Bicimsiz yapistir", Cmd.send_key("^+v")),
 )
 
 
@@ -287,8 +287,8 @@ def screen_menu() -> tuple:
 
     spec: tuple = ()
     for index, (name, (_x, _y, width, height)) in enumerate(monitors()):
-        spec += ((f"{name} {width}x{height}", f"select.screen:{index}"),)
-    return spec or (("(monitor bulunamadi)", "notify:Monitor bulunamadi"),)
+        spec += ((f"{name} {width}x{height}", Cmd.Select.SCREEN(index)),)
+    return spec or (("(monitor bulunamadi)", Cmd.Run.NOTIFY("Monitor bulunamadi")),)
 
 
 #: Menu ikonlari AHK ile AYNI numaralar (menus.ahk `menuIcon`): sayi
@@ -297,7 +297,7 @@ def screen_menu() -> tuple:
 #: kullanmiyor, o yuzden emoji hep tek renk (siyah/beyaz) cikiyor.
 F13_MENU = (
     # ---- 1. KOLON: pano, ekran goruntusu, OCR (AHK showF13menu) ----
-    ("Clipboard history win", "send_key:#v", "res:243"),  # panodan pencereye
+    ("Clipboard history win", Cmd.send_key("#v"), "res:243"),  # panodan pencereye
     None,
     # Secim/OCR/buyutec maddeleri BURADA YOK: hepsi fare tuslarina bagli
     # (F14 surukleme = alan secimi, cubuktan OCR; F13&F14 = buyutec).
@@ -348,7 +348,7 @@ SYS_COMMANDS_MENU = (
     ("r. Repository (repository.md)", Cmd.Repository.OPEN),
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
     ("i: Incognito", Cmd.Incognito.OPEN),
-    ("a: TrayTip test", "notify:Mesaj icerigi"),
+    ("a: TrayTip test", Cmd.Run.NOTIFY("Mesaj icerigi")),
     None,
     # AHK'de olmayan, bize ozgu olanlar ayracin altinda.
     ("Pano gecmisi...", Cmd.Clip.FILTER),
@@ -383,71 +383,71 @@ def build_cascades() -> dict[int, CascadeDef]:
     defs: list[CascadeDef] = [
         # handleF13 jestleri -- tek kayit yeri.
         KeyBuilder("F13", short=350)
-        .gesture(Direction.UP, "Zoom+", "send_key:#NumpadAdd")
-        .gesture(Direction.DOWN, "Zoom-", "send_key:#NumpadSub")
-        .gesture(Direction.RIGHT, "Vol +", "send_key:Volume_Up")
-        .gesture(Direction.LEFT, "Vol -", "send_key:Volume_Down")
+        .gesture(Direction.UP, "Zoom+", Cmd.send_key("#NumpadAdd"))
+        .gesture(Direction.DOWN, "Zoom-", Cmd.send_key("#NumpadSub"))
+        .gesture(Direction.RIGHT, "Vol +", Cmd.send_key("Volume_Up"))
+        .gesture(Direction.LEFT, "Vol -", Cmd.send_key("Volume_Down"))
         .gestureVisible(True)
         .run_cascade(False)
         .build(),
         # handleF15: kisa ^y (yinele), orta Escape
         KeyBuilder("F15", short=350)
-        .main_key(PressType.SHORT, "send_key:^y")
-        .main_key(PressType.MEDIUM, "send_key:Escape")
+        .main_key(PressType.SHORT, Cmd.send_key("^y"))
+        .main_key(PressType.MEDIUM, Cmd.send_key("Escape"))
         .show_menu(False)
         .named("F15")
         .build(),
         # handleF16: kisa ^z (geri al), orta Enter
         KeyBuilder("F16", short=350)
-        .main_key(PressType.SHORT, "send_key:^z")
-        .main_key(PressType.MEDIUM, "send_key:Enter")
+        .main_key(PressType.SHORT, Cmd.send_key("^z"))
+        .main_key(PressType.MEDIUM, Cmd.send_key("Enter"))
         .show_menu(False)
         .named("F16")
         .build(),
         # handleF17: kisa Alt+Sag, orta Delete, uzun End + yatay jest
         KeyBuilder("F17", short=350, long=800)
-        .main_key(PressType.SHORT, "send_key:!Right")
-        .main_key(PressType.MEDIUM, "send_key:Delete", "Del")
-        .main_key(PressType.LONG, "send_key:End", "End")
+        .main_key(PressType.SHORT, Cmd.send_key("!Right"))
+        .main_key(PressType.MEDIUM, Cmd.send_key("Delete"), "Del")
+        .main_key(PressType.LONG, Cmd.send_key("End"), "End")
         .combo("F18", "panic (buyutec %100 + kucult)", Cmd.Magnifier.PANIC)
-        .gesture(Direction.LEFT, "Undo", "send_key:^z")
-        .gesture(Direction.RIGHT, "Back", "send_key:Backspace")
+        .gesture(Direction.LEFT, "Undo", Cmd.send_key("^z"))
+        .gesture(Direction.RIGHT, "Back", Cmd.send_key("Backspace"))
         .gestureVisible(True)
         .show_menu(False)
         .named("F17")
         .build(),
         # handleF18: kisa Alt+Sol, orta Backspace, uzun Home + jest
         KeyBuilder("F18", short=350, long=800)
-        .main_key(PressType.SHORT, "send_key:!Left")
-        .main_key(PressType.MEDIUM, "send_key:Backspace", "Back")
-        .main_key(PressType.LONG, "send_key:Home", "Home")
+        .main_key(PressType.SHORT, Cmd.send_key("!Left"))
+        .main_key(PressType.MEDIUM, Cmd.send_key("Backspace"), "Back")
+        .main_key(PressType.LONG, Cmd.send_key("Home"), "Home")
         .combo("F17", "panic (buyutec %100 + kucult)", Cmd.Magnifier.PANIC)
-        .combo("LButton", "VSCode/Cursor: satiri sil", "send_key:^+k")
-        .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
-        .gesture(Direction.LEFT, "Del", "send_key:Delete")
+        .combo("LButton", "VSCode/Cursor: satiri sil", Cmd.send_key("^+k"))
+        .combo("MButton", "ipucu", Cmd.Run.TIP("RButton + MButton: Zoom in/out"))
+        .gesture(Direction.LEFT, "Del", Cmd.send_key("Delete"))
         .gestureVisible(True)
         .show_menu(False)
         .named("F18")
         .build(),
         # handleF19: kisa ^v, orta ^a^v, uzun MemSlots
         KeyBuilder("F19", short=300, long=800)
-        .main_key(PressType.SHORT, "send_key:^v")
-        .main_key(PressType.MEDIUM, "send_keys:^a ^v")
+        .main_key(PressType.SHORT, Cmd.send_key("^v"))
+        .main_key(PressType.MEDIUM, Cmd.send_keys("^a", "^v"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
-        .combo("F20", "Hepsini sec + yapistir", "send_keys:^a ^v")
-        .combo("LButton", "Tikla + yapistir", "click_then:^v")
-        .combo("MButton", "3x tikla + yapistir", "click3_then:^v")
+        .combo("F20", "Hepsini sec + yapistir", Cmd.send_keys("^a", "^v"))
+        .combo("LButton", "Tikla + yapistir", Cmd.Run.CLICK_THEN("^v"))
+        .combo("MButton", "3x tikla + yapistir", Cmd.Run.CLICK3_THEN("^v"))
         .show_menu(False)
         .named("F19")
         .build(),
         # handleF20: kisa ^c, orta ^x, uzun MemSlots
         KeyBuilder("F20", short=300, long=800)
-        .main_key(PressType.SHORT, "send_key:^c")
-        .main_key(PressType.MEDIUM, "send_key:^x")
+        .main_key(PressType.SHORT, Cmd.send_key("^c"))
+        .main_key(PressType.MEDIUM, Cmd.send_key("^x"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
-        .combo("F19", "Hepsini sec + kopyala", "send_keys:^a ^c")
-        .combo("LButton", "Tikla + kopyala", "click_then:^c")
-        .combo("MButton", "3x tikla + kopyala", "click3_then:^c")
+        .combo("F19", "Hepsini sec + kopyala", Cmd.send_keys("^a", "^c"))
+        .combo("LButton", "Tikla + kopyala", Cmd.Run.CLICK_THEN("^c"))
+        .combo("MButton", "3x tikla + kopyala", Cmd.Run.CLICK3_THEN("^c"))
         .show_menu(False)
         .named("F20")
         .build(),
@@ -472,9 +472,9 @@ def memslots_defs() -> dict[int, CascadeDef]:
     """
     defs = [
         KeyBuilder(f"F{index}", short=MEMSLOT_SHORT_MS, long=MEMSLOT_LONG_MS)
-        .main_key(PressType.SHORT, f"memslots.paste_slot:{index}")
-        .main_key(PressType.MEDIUM, f"memslots.paste_hist:{index}")
-        .main_key(PressType.LONG, f"memslots.save_slot:{index}")
+        .main_key(PressType.SHORT, Cmd.Memslots.PASTE_SLOT(index))
+        .main_key(PressType.MEDIUM, Cmd.Memslots.PASTE_HIST(index))
+        .main_key(PressType.LONG, Cmd.Memslots.SAVE_SLOT(index))
         .show_menu(False)
         .named(f"F{index} (slot {index})")
         .build()
@@ -524,13 +524,13 @@ def build_hotkeys() -> HotkeyTable:
     # dikdortgen buyur, birakilinca secim biter (ui/snip.py). Argumansiz
     # birakilirsa secim sol fare tusuna kalirdi -- F14 ile secmek isterken
     # bir de fareye basmak gerekiyordu.
-    table.prefix("F14", drag_action="select.start:F14@{x},{y}", desc="surukle: ekran alani sec")
+    table.prefix("F14", drag_action=Cmd.Select.START("F14@{x},{y}"), desc="surukle: ekran alani sec")
 
     # --- F13 & F15..F20: slots.json'daki slotlardan yapistir. AHK
     # handleF14'un slot kombolari (F14 secim tusu olunca F13'e tasindi).
     # Siralama AHK ile ayni ters duzende: en yakin tus F20 = Slot 1.
     for offset, fkey in enumerate(("F20", "F19", "F18", "F17", "F16", "F15")):
-        table.add(f"F13 & {fkey}", f"slot.paste:{offset + 1}", f"slot {offset + 1}")
+        table.add(f"F13 & {fkey}", Cmd.Slot.PASTE(offset + 1), f"slot {offset + 1}")
     # AHK key_handler_mouse.ahk: iki yonde de TOGGLE idi -- buyutulmusse
     # %100'e doner, degilse %200'e cikar (x2 / :2). Yon ayirmayi denedik ama
     # hangi tusa once basildigini ayirt etmek kullanicida "hep yakinlastiriyor"
@@ -544,18 +544,18 @@ def build_hotkeys() -> HotkeyTable:
     # eylemini calistiriyor, ustune bir de F13'u uygulamaya gecirmenin
     # anlami yok. `~` bizde per-tus: bir satirda yazarsan o tus HIC
     # yutulmaz. ---
-    table.add("F13 & WheelUp", "send_key:#NumpadAdd", "buyut")
-    table.add("F13 & WheelDown", "send_key:#NumpadSub", "kucult")
-    table.add("F14 & WheelUp", "send_key:Volume_Up", "ses +")
-    table.add("F14 & WheelDown", "send_key:Volume_Down", "ses -")
+    table.add("F13 & WheelUp", Cmd.send_key("#NumpadAdd"), "buyut")
+    table.add("F13 & WheelDown", Cmd.send_key("#NumpadSub"), "kucult")
+    table.add("F14 & WheelUp", Cmd.send_key("Volume_Up"), "ses +")
+    table.add("F14 & WheelDown", Cmd.send_key("Volume_Down"), "ses -")
 
     # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
     # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---
-    table.add("~LButton & F16", "send_key:^v", "tikla + yapistir")
+    table.add("~LButton & F16", Cmd.send_key("^v"), "tikla + yapistir")
     # AHK handleLButton: F15 -> base grubun 10. slotu + Enter.
-    table.add("~LButton & F15", "slot.paste_enter:/10", "slot 10 + Enter")
-    table.add("~LButton & F19", "send_keys:^a ^v Enter", "hepsini sec + yapistir")
-    table.add("~LButton & F20", "send_keys:^a ^c", "hepsini kopyala")
+    table.add("~LButton & F15", Cmd.Slot.PASTE_ENTER("/10"), "slot 10 + Enter")
+    table.add("~LButton & F19", Cmd.send_keys("^a", "^v", "Enter"), "hepsini sec + yapistir")
+    table.add("~LButton & F20", Cmd.send_keys("^a", "^c"), "hepsini kopyala")
 
     # F15..F20 BURADA DEGIL: onlar kaskad (kisa/orta/uzun basim + kombo),
     # build_cascades() icinde. AHK'de de `F19::` satiri handleF19()'a
@@ -566,8 +566,8 @@ def build_hotkeys() -> HotkeyTable:
     # cevrilirse tuketiliyor. Fare surulurse "bu bir surukleme" deyip
     # gercek basim o anda enjekte ediliyor, tek basina birakilirsa normal
     # sag tik gonderiliyor. Sira dispatch.py icinde. ---
-    table.add("RButton & WheelUp", "send_key:Volume_Up", "ses +")
-    table.add("RButton & WheelDown", "send_key:Volume_Down", "ses -")
+    table.add("RButton & WheelUp", Cmd.send_key("Volume_Up"), "ses +")
+    table.add("RButton & WheelDown", Cmd.send_key("Volume_Down"), "ses -")
     # Sag tus onek: tekerlek + sol tikta Ctrl (buttonAsModifier). Onek
     # kaydi Wheel satirlariyla zaten olusuyor; yine de acik olsun.
 
@@ -585,7 +585,7 @@ def build_hotkeys() -> HotkeyTable:
     # duruma donmek (takilmis onek, olmus kanca): ikisini de reload cozuyor.
     # Cikis tepsi menusunde ve Pause duraklatma penceresinde duruyor.
     table.add("Pause & End", Cmd.App.RESTART, "yeniden baslat")
-    table.add("Pause & c", "state.reset", "takilan durumu sifirla")
+    table.add("Pause & c", Cmd.State.RESET, "takilan durumu sifirla")
 
     # `^` basiliyken rakam: pano gecmisinin o sirasindaki kaydi yapistirir.
     # 1 en yeni kopya, 2 bir onceki... AHK'deki `clip_slot` mantiginin
@@ -599,14 +599,18 @@ def build_hotkeys() -> HotkeyTable:
         # menusu degil: ayni liste iki ayri pencerede yasiyordu ve panelin
         # arama kutusu, uc satira sarilan ogesi burada da isine yariyor.
         # Sekme "Slot", cunku `^ & 1..0` base slotlari yapistiriyor.
-        table.prefix("Caret", hold_action="menu.quick:Slot", desc="basili tut: hizli panel (Slot)")
+        table.prefix(
+            "Caret",
+            hold_action=Cmd.Menu.QUICK("Slot"),
+            desc="basili tut: hizli panel (Slot)",
+        )
         # AHK cascadeCaret: rakamlar BASE grubun (defaultGroup == "") slotlarini
         # yapistirir. 0 -> 10. slot, yani sifre slotu: yapistirma `private`
         # gidiyor (AHK ignoreNextClip) -- pano gecmisine hic yazilmiyor.
         for index in range(10):
             table.add(
                 f"Caret & {index}",
-                f"slot.paste_group:/{index or 10}",
+                Cmd.Slot.PASTE_GROUP(f"/{index or 10}"),
                 "base slot 1-10" if index == 1 else "",
             )
 
@@ -618,7 +622,7 @@ def build_hotkeys() -> HotkeyTable:
     for index in range(10):
         table.add(
             f"Tab & {index}",
-            f"slot.paste_side:{index or 10}",
+            Cmd.Slot.PASTE_SIDE(index or 10),
             "yan grup slot 1-10" if index == 1 else "",
         )
 
@@ -633,7 +637,7 @@ def build_hotkeys() -> HotkeyTable:
     for index in range(1, 10):
         table.add(
             f"CapsLock & {index}",
-            f"clip.paste:{index}",
+            Cmd.Clip.PASTE(index),
             "pano gecmisi 1-9" if index == 1 else "",
         )
 
@@ -646,13 +650,13 @@ def build_hotkeys() -> HotkeyTable:
     less = send.vk_for_char("<")
     if less is not None:
         register_name(less, "Less")
-        table.add("^Less", "send_key:^+k", "satiri sil (VSCode/Cursor)")
+        table.add("^Less", Cmd.send_key("^+k"), "satiri sil (VSCode/Cursor)")
 
     # --- Hafiza slotlari penceresi acikken akilli yapistirma (AHK
     # memory_slots.ahk `smartPaste`). Ikisi de `~` ile: orta tus ve Insert
     # her yerde calisan tuslar, YUTULMAMALI -- eylem pencere kapaliyken
     # zaten hicbir sey yapmiyor. ---
-    table.add("~MButton", "memslots.paste:middle", "memslots: akilli yapistir")
+    table.add("~MButton", Cmd.Memslots.PASTE("middle"), "memslots: akilli yapistir")
     # AHK handleMButton pt2: uzun basim yapistirir ve Shift+Enter gonderir
     # (liste halinde yapistirirken satir atlamak icin). Esik AHK ile ayni.
     table.prefix(
@@ -709,12 +713,12 @@ def scroll_lock_menu(layout: int, enabled: bool = False) -> tuple:
     current = layout if enabled else 0
     for number, name in enumerate(TURKISH_LAYOUTS):
         marks = (CHECKED,) if current == number else ()
-        rows.append((name, f"turkish.set:{number}", *marks))
+        rows.append((name, Cmd.Turkish.SET(number), *marks))
     rows.append(None)
     rows.append(
         (
             "Fare WASD tuslariyla -- " + VIRTUAL_MOUSE_NOTE,
-            "vmouse.toggle",
+            Cmd.Vmouse.TOGGLE,
             *((CHECKED,) if VIRTUAL_MOUSE.get() else ()),
         )
     )

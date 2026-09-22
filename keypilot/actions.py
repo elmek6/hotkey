@@ -18,6 +18,7 @@ import time
 import winsound
 from collections.abc import Callable
 
+from keypilot.commands import Cmd
 from keypilot.core.hotkey import parse_hotkey
 from keypilot.settings import Category, between, setting
 from keypilot.win32 import send
@@ -77,8 +78,8 @@ class ActionRunner:
         self.register("beep", lambda _: beep(800, 60))
         # AHK AutoHotkey.ahk: `#a/#s/#d/#w -> MouseMove(...,"R")`,
         # `#q -> Click("Left")`, `#e -> Click("Right")`. Klavyeyle fare.
-        self.register("mouse.move", self._mouse_move)
-        self.register("mouse.click", send.click)
+        self.register(Cmd.Mouse.MOVE, self._mouse_move)
+        self.register(Cmd.Mouse.CLICK, send.click)
 
     @property
     def handlers(self) -> dict:
