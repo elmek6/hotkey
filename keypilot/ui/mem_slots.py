@@ -1,6 +1,6 @@
 """Hafiza bloklari -- AHK'deki `Lib/memory_slots.ahk` (singleMemorySlot).
 
-On tane elle doldurulan BLOK ve panonun son on kaydi yan yana. Bu bloklarin
+On tane elle doldurulan BLOK ve panonun bellek gecmisi (en fazla 50) yan yana. Bu bloklarin
 `slots.json`'daki slotlarla (F14 menusu, `^`/Tab tuslari) ILGISI YOK: isim
 benzerligi yuzunden karistiriliyordu, o yuzden burada "blok" deniyor.
 Bloklar bellekte yasar -- pencere kapanip acilinca yerinde durur, diske
@@ -57,7 +57,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-SLOT_COUNT = 10  # AHK: Loop 10
+from keypilot.core.clip_history import MAX_ITEMS
+
+SLOT_COUNT = 10  # bloklar + F1..F10; AHK: Loop 10
+HIST_COUNT = MAX_ITEMS  # pano gecmisi tablosu (bellek tavani)
 PREVIEW_LIMIT = 60  # AHK: _makePreview -> SubStr(preview, 1, 60)
 
 ACTIVE_SLOTS_BG = "#2196f3"  # AHK: Background0x2196F3
@@ -218,14 +221,17 @@ class MemSlots(QWidget):
     # ---- disari ----
 
     def start(self, history: tuple[str, ...] | list[str]) -> None:
-        """AHK: start(). Gecmisin ilk on kaydi yuklu acilir.
+        """AHK: start(). Pano gecmisi bellek tavanina kadar yuklu acilir.
+
+        Bloklar 10 tane kalir (F1..F10). Gecmis tablosu `HIST_COUNT` (50):
+        F-tuslari yine ilk ona gider, gerisi fareyle secilir.
 
         Slotlarin ICERIGI KORUNUR: dosyadan gelen (ya da onceki acilista
         doldurulan) kayitlar yerinde kalir -- pencereyi kapatip acmak
         kullanicinin doldurdugu slotlari silmemeli. Temizlemek isteyen
         "Slotlari temizle" dugmesini kullanir.
         """
-        self.history = list(history)[:SLOT_COUNT]
+        self.history = list(history)[:HIST_COUNT]
         self._fill_history()
         self.select_history(1)
         self.show()
@@ -346,7 +352,7 @@ class MemSlots(QWidget):
         """AHK: _populateHistory"""
         self.hist_table.setRowCount(len(self.history))
         for row, text in enumerate(self.history):
-            self.hist_table.setItem(row, 0, QTableWidgetItem(f"F{row + 1:02}"))
+            self.hist_table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
             self.hist_table.setItem(row, 1, QTableWidgetItem(preview(text)))
 
     def select_slot(self, index: int) -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from keypilot.clip_ctl import ClipController
+from keypilot.core.clip_history import ClipEntry
 from keypilot.core.state import ClipboardMode
 
 
@@ -82,6 +83,22 @@ def test_filter_items_carry_content(clip):
     items, title = log.filters[-1]
     assert title == "Pano gecmisi"
     assert items[0].content == "aranacak"
+
+
+def test_filter_includes_disk_history_beyond_memory_limit(clip):
+    ctl, log = clip
+    entries = tuple(
+        ClipEntry(f"kayit-{index}", float(index), float(index))
+        for index in range(60)
+    )
+    ctl.store.save_entries(entries)
+    ctl.history.load(entries)
+
+    ctl.show_filter()
+
+    items, _title = log.filters[-1]
+    assert len(items) == 60
+    assert items[-1].content == "kayit-59"
 
 
 def test_empty_history_opens_no_list(clip):

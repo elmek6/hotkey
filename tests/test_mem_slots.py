@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from keypilot.ui.mem_slots import SLOT_COUNT, MemSlots, preview
+from keypilot.ui.mem_slots import HIST_COUNT, SLOT_COUNT, MemSlots, preview
 
 
 class Kayit:
@@ -63,11 +63,19 @@ def test_acilista_bloklar_bos_gecmis_aktif(pencere):
     assert view._slots_active is False
 
 
-def test_gecmis_on_kayitta_kirpilir(pencere):
+def test_gecmis_yirmi_kayit_kirpilmaz(pencere):
+    """Onluk blok tavani gecmisi kesmesin."""
     view, _ = pencere
     view.start([f"h{i}" for i in range(20)])
-    assert len(view.history) == SLOT_COUNT
-    assert view.hist_table.rowCount() == SLOT_COUNT
+    assert len(view.history) == 20
+    assert view.hist_table.rowCount() == 20
+
+
+def test_gecmis_elli_kayitta_kirpilir(pencere):
+    view, _ = pencere
+    view.start([f"h{i}" for i in range(HIST_COUNT + 10)])
+    assert len(view.history) == HIST_COUNT
+    assert view.hist_table.rowCount() == HIST_COUNT
 
 
 def test_bos_gecmisle_acilis_cokmez(pencere):

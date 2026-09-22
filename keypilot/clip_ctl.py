@@ -216,11 +216,23 @@ class ClipController:
 
     # ---- listeler ----
 
+    def _all_history_entries(self) -> tuple:
+        """Filtre: bellek + disk. CapsLock paneli 10'da kalir; burasi hepsi.
+
+        Bellekte en yeni `MAX_ITEMS` durur; daha eskiler yalniz dosyada.
+        F13 cift basim arama listesi dosyadakileri de gosterir. Ayni metin
+        iki yerdeyse bellekteki (daha taze sayac/sira) kazanir.
+        """
+        memory = list(self.history.entries)
+        seen = {entry.text for entry in memory}
+        older = [entry for entry in self.store.load_entries() if entry.text not in seen]
+        return tuple(memory + older)
+
     def show_filter(self) -> None:
         """Pano gecmisini filtreli listede acar -- array_filter.ahk'nin
         pano icin kullanildigi yer. Liste veriye cevrilir; pencere panoyu
         bilmez, sadece FilterItem gosterir."""
-        entries = self.history.entries
+        entries = self._all_history_entries()
         if not entries:
             self._tip("\U0001f4cb <b>pano gecmisi bos</b>", 1500)
             return
