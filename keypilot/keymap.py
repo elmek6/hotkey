@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import platform
 
+from keypilot.commands import Cmd
 from keypilot.core import turkish
 from keypilot.core.builder import CascadeDef, KeyBuilder, PressType
 from keypilot.core.hot_vectors import (
@@ -301,9 +302,9 @@ F13_MENU = (
     # Secim/OCR/buyutec maddeleri BURADA YOK: hepsi fare tuslarina bagli
     # (F14 surukleme = alan secimi, cubuktan OCR; F13&F14 = buyutec).
     # Menude ikinci bir yol tutmak ayni isi iki yerde bakim ettiriyordu.
-    ("Hafiza bloklari", "memslots.start", "res:30"),  # bellek cubugu
+    ("Hafiza bloklari", Cmd.Memslots.START, "res:30"),  # bellek cubugu
     None,
-    ("Macro recorder", "macro.recorder"),
+    ("Macro recorder", Cmd.Macro.RECORDER),
     # ---- 2. KOLON: aktif pencere profili, araclar, hep ustte ----
     # Kolon ayracini COLUMN ciziyor; bu yuzden 1. kolonun sonunda ayrica
     # yatay ayrac YOK -- AHK'de de oyle, kolon dibinde boslukta asili bir
@@ -326,35 +327,35 @@ uygulama profili + kisayollari (AHK menuAppProfile) ve hep-ustte listesi
 # degil acilir menu olarak veriliyor: icerigi uzun ve fare ile de secilecek.
 # Port edilmemis olanlarin basinda `--` var, tiklanabilirler ama uyari verir.
 SYS_COMMANDS_MENU = (
-    ("1: Reload script", "app.restart"),
-    ("2: Show stats", "errors.show"),
+    ("1: Reload script", Cmd.App.RESTART),
+    ("2: Show stats", Cmd.Errors.SHOW),
     # app_shorts.ahk portu: profiller Files/profiles.json'dan okunuyor,
     # duzenleme dosyanin kendisinden (AHK'nin yonetici GUI'si port edilmedi).
-    ("3: Profile manager", "shorts.manage"),
-    ("4: Key history", "app.monitor"),
-    ("k: Kisayol haritasi", "keys.map"),
-    ("5: Memory slots", "memslots.start"),
-    ("6: Macro recorder", "macro.recorder"),
-    ("7: F13 menu", "menu.f13"),
-    ("8: F14 menu", "menu.slots"),
-    ("9: Pause script", "app.pause"),
+    ("3: Profile manager", Cmd.Shorts.MANAGE),
+    ("4: Key history", Cmd.App.MONITOR),
+    ("k: Kisayol haritasi", Cmd.Keys.MAP),
+    ("5: Memory slots", Cmd.Memslots.START),
+    ("6: Macro recorder", Cmd.Macro.RECORDER),
+    ("7: F13 menu", Cmd.Menu.F13),
+    ("8: F14 menu", Cmd.Menu.SLOTS),
+    ("9: Pause script", Cmd.App.PAUSE),
     # AHK menus.ahk `DialogPauseGui` (Pause basili tutunca acilan pencere):
     # duraklat + yeniden baslat + kaydetmeden yeniden baslat + cikis.
-    ("p: Pause menu...", "app.pause_dialog"),
-    ("0: Exit script", "app.exit"),
+    ("p: Pause menu...", Cmd.App.PAUSE_DIALOG),
+    ("0: Exit script", Cmd.App.EXIT),
     # repository.ahk'nin veri yarisi port edildi (keypilot/repository.py);
     # yonetici GUI'si degil -- duzenleme dosyanin kendisinden.
-    ("r. Repository (repository.md)", "repository.open"),
+    ("r. Repository (repository.md)", Cmd.Repository.OPEN),
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
-    ("i: Incognito", "incognito.open"),
+    ("i: Incognito", Cmd.Incognito.OPEN),
     ("a: TrayTip test", "notify:Mesaj icerigi"),
     None,
     # AHK'de olmayan, bize ozgu olanlar ayracin altinda.
-    ("Pano gecmisi...", "clip.filter"),
-    ("Pano gorselleri...", "clip.images"),
+    ("Pano gecmisi...", Cmd.Clip.FILTER),
+    ("Pano gorselleri...", Cmd.Clip.IMAGES),
     None,
-    ("⚙️ Ayarlar...", "app.settings"),
-    ("\U0001f4cb Son hatayi kopyala", "errors.copy"),
+    ("⚙️ Ayarlar...", Cmd.App.SETTINGS),
+    ("\U0001f4cb Son hatayi kopyala", Cmd.Errors.COPY),
 )
 
 #: F14 menusundeki "System" alt menusu, `´` menusunun TA KENDISI. Ayri bir
@@ -408,7 +409,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .main_key(PressType.SHORT, "send_key:!Right")
         .main_key(PressType.MEDIUM, "send_key:Delete", "Del")
         .main_key(PressType.LONG, "send_key:End", "End")
-        .combo("F18", "panic (buyutec %100 + kucult)", "magnifier.panic")
+        .combo("F18", "panic (buyutec %100 + kucult)", Cmd.Magnifier.PANIC)
         .gesture(Direction.LEFT, "Undo", "send_key:^z")
         .gesture(Direction.RIGHT, "Back", "send_key:Backspace")
         .gestureVisible(True)
@@ -420,7 +421,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .main_key(PressType.SHORT, "send_key:!Left")
         .main_key(PressType.MEDIUM, "send_key:Backspace", "Back")
         .main_key(PressType.LONG, "send_key:Home", "Home")
-        .combo("F17", "panic (buyutec %100 + kucult)", "magnifier.panic")
+        .combo("F17", "panic (buyutec %100 + kucult)", Cmd.Magnifier.PANIC)
         .combo("LButton", "VSCode/Cursor: satiri sil", "send_key:^+k")
         .combo("MButton", "ipucu", "tip:RButton + MButton: Zoom in/out")
         .gesture(Direction.LEFT, "Del", "send_key:Delete")
@@ -432,7 +433,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F19", short=300, long=800)
         .main_key(PressType.SHORT, "send_key:^v")
         .main_key(PressType.MEDIUM, "send_keys:^a ^v")
-        .main_key(PressType.LONG, "memslots.start")
+        .main_key(PressType.LONG, Cmd.Memslots.START)
         .combo("F20", "Hepsini sec + yapistir", "send_keys:^a ^v")
         .combo("LButton", "Tikla + yapistir", "click_then:^v")
         .combo("MButton", "3x tikla + yapistir", "click3_then:^v")
@@ -443,7 +444,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F20", short=300, long=800)
         .main_key(PressType.SHORT, "send_key:^c")
         .main_key(PressType.MEDIUM, "send_key:^x")
-        .main_key(PressType.LONG, "memslots.start")
+        .main_key(PressType.LONG, Cmd.Memslots.START)
         .combo("F19", "Hepsini sec + kopyala", "send_keys:^a ^c")
         .combo("LButton", "Tikla + kopyala", "click_then:^c")
         .combo("MButton", "3x tikla + kopyala", "click3_then:^c")
@@ -498,21 +499,21 @@ def build_hotkeys() -> HotkeyTable:
     # --- F13: kisa basim menu, basili tutma pano hizli menusu ---
     # AHK handleF13: pt1 showF13menu, pt2 showQuickHistoryMenu. Kisa basim
     # tablodan, basili tutma prefix tanimindan geliyor.
-    table.add("F13", "menu.f13", "kisa: menu")
+    table.add("F13", Cmd.Menu.F13, "kisa: menu")
     # AHK handleF13: pt1 menu, pt2 pano menusu, pt4 (CIFT basim) gecmiste
     # arama -- `EM.enableDoubleClick()`. Cift basim tanimli oldugu icin kisa
     # basim eylemi bir sure BEKLETILIR (bkz. core/prefix.py).
     table.prefix(
         "F13",
-        hold_action="menu.clip",
-        double_action="clip.filter",
+        hold_action=Cmd.Menu.CLIP,
+        double_action=Cmd.Clip.FILTER,
         desc="basili tut: pano menusu / cift: gecmiste ara",
     )
     # F14 iki islevli: SURUKLERSEN ekran alani secimi baslar (ui/snip.py),
     # kimildatmadan birakirsan slot menusu acilir. AHK handleF14'te kisa
     # basim showF14menu (slotlar) idi; secim oraya sonradan eklendi ve
     # tusun eski isini yemesin diye surukleme ile ayrildi.
-    table.add("F14", "menu.slots", "kisa: slot menusu")
+    table.add("F14", Cmd.Menu.SLOTS, "kisa: slot menusu")
     # CIFT BASIM YOK. AHK handleF14 pt4 (showSlotsSearch) buradaydi ama
     # `double_action` tanimli olunca KISA basim eylemi `double_ms` kadar
     # BEKLETILIYOR (core/prefix.py): menu tus birakildiktan ~200 ms sonra
@@ -534,8 +535,8 @@ def build_hotkeys() -> HotkeyTable:
     # %100'e doner, degilse %200'e cikar (x2 / :2). Yon ayirmayi denedik ama
     # hangi tusa once basildigini ayirt etmek kullanicida "hep yakinlastiriyor"
     # hissi verdi; AHK'deki tek davranisa geri donuldu.
-    table.add("F13 & F14", "magnifier.toggle", "buyutec: x2 / :2")
-    table.add("F14 & F13", "magnifier.toggle", "buyutec: x2 / :2")
+    table.add("F13 & F14", Cmd.Magnifier.TOGGLE, "buyutec: x2 / :2")
+    table.add("F14 & F13", Cmd.Magnifier.TOGGLE, "buyutec: x2 / :2")
 
     # --- tekerlek kombolari. AHK'de bu satirlar `~F13 & WheelUp::` diye
     # yazili; burada `~` YOK ve olmamali. AHK'de tilde gerekiyordu cunku
@@ -573,17 +574,17 @@ def build_hotkeys() -> HotkeyTable:
     # --- `´` (SC00D, VK 0xDD): AHK sysCommands(). Kaskad degil menu. ---
     backtick = send.vk_for_char("´") or 0xDD
     register_name(backtick, "Backtick")
-    table.add("Backtick", "menu.sys", "sistem menusu")
+    table.add("Backtick", Cmd.Menu.SYS, "sistem menusu")
 
     # --- Pause kombolari. AHK'de bunlar scriptin acil cikis yolu. ---
     # AHK menus.ahk `DialogPauseGui`: Pause basili tutulunca duraklat +
     # pencere (devam / kaydetmeden yeniden baslat / yeniden baslat / cikis).
-    table.prefix("Pause", hold_action="app.pause_dialog", desc="basili tut: duraklat")
-    table.add("Pause & Home", "app.restart", "yeniden baslat")  # AHK: reloadScript()
+    table.prefix("Pause", hold_action=Cmd.App.PAUSE_DIALOG, desc="basili tut: duraklat")
+    table.add("Pause & Home", Cmd.App.RESTART, "yeniden baslat")  # AHK: reloadScript()
     # AHK'de cikisti. Pratikte gereken sey programi OLDURMEK degil temiz
     # duruma donmek (takilmis onek, olmus kanca): ikisini de reload cozuyor.
     # Cikis tepsi menusunde ve Pause duraklatma penceresinde duruyor.
-    table.add("Pause & End", "app.restart", "yeniden baslat")
+    table.add("Pause & End", Cmd.App.RESTART, "yeniden baslat")
     table.add("Pause & c", "state.reset", "takilan durumu sifirla")
 
     # `^` basiliyken rakam: pano gecmisinin o sirasindaki kaydi yapistirir.
@@ -613,7 +614,7 @@ def build_hotkeys() -> HotkeyTable:
     # gondererek), basili tutma slot menusunu acar, rakamlar slot yukler.
     # Modifierli basim (Alt+Tab, Ctrl+Tab, Shift+Tab) onege HIC girmez --
     # sarti dispatch.py `_hotkey_key` koyuyor. ---
-    table.prefix("Tab", hold_action="menu.side_slots", desc="basili tut: yan grup")
+    table.prefix("Tab", hold_action=Cmd.Menu.SIDE_SLOTS, desc="basili tut: yan grup")
     for index in range(10):
         table.add(
             f"Tab & {index}",
@@ -624,11 +625,11 @@ def build_hotkeys() -> HotkeyTable:
     # --- CapsLock: AHK cascadeCaps(). Kisa basim buyuk harf kilidini cevirir
     # (tusu yuttugumuz icin Windows kendi cevirmiyor, biz ceviriyoruz),
     # basili tutma pano gecmisi menusu, rakamlar gecmisten yapistirir. ---
-    table.add("CapsLock", "caps.toggle", "kisa: buyuk harf kilidi")
+    table.add("CapsLock", Cmd.Caps.TOGGLE, "kisa: buyuk harf kilidi")
     # AHK'de burasi da duz pano menusuydu; artik sekmeli hizli panel
     # (ui/quick_panel.py). F13 basili tutma eski menude BIRAKILDI:
     # tek elle, tek tusla acilan kisa liste orada daha hizli.
-    table.prefix("CapsLock", hold_action="menu.quick", desc="basili tut: hizli panel")
+    table.prefix("CapsLock", hold_action=Cmd.Menu.QUICK, desc="basili tut: hizli panel")
     for index in range(1, 10):
         table.add(
             f"CapsLock & {index}",
@@ -657,20 +658,20 @@ def build_hotkeys() -> HotkeyTable:
     table.prefix(
         "~MButton",
         passthrough=True,
-        hold_action="memslots.paste_enter",
+        hold_action=Cmd.Memslots.PASTE_ENTER,
         hold_ms=300,
         desc="basili tut: akilli yapistir + Shift+Enter",
     )
-    table.add("~Insert", "memslots.paste", "memslots: akilli yapistir")
+    table.add("~Insert", Cmd.Memslots.PASTE, "memslots: akilli yapistir")
 
     # --- ScrollLock: Turkce eklentisi (AHK turkish_layout_addon.ahk).
     # Kisa basim Turkce harfleri acar/kapar, BASILI TUTMAK dizilim 1 ile 2
     # arasinda gecer. Harflerin kendisi tabloda degil: karar dispatch'te,
     # tusun ne kadar basili tutuldugunu bilmek gerekiyor. ---
-    table.add("ScrollLock", "turkish.toggle", "kisa: Turkce ac/kapa")
+    table.add("ScrollLock", Cmd.Turkish.TOGGLE, "kisa: Turkce ac/kapa")
     table.prefix(
         "ScrollLock",
-        hold_action="menu.scrolllock",
+        hold_action=Cmd.Menu.SCROLLLOCK,
         hold_ms=600,  # AHK: `duration >= 600`
         desc="basili tut: Turkce + sanal fare menusu",
     )

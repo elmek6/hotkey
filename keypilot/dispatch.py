@@ -25,6 +25,7 @@ import logging
 import queue
 from collections.abc import Callable
 
+from keypilot.commands import Cmd
 from keypilot.core.cascade import CascadeMachine, Phase, Run
 from keypilot.core.combo import ComboTracker
 from keypilot.core.hot_vectors import HotVectors
@@ -250,7 +251,7 @@ class Dispatcher:
         # alamiyor (tepsi uygulamasinin aktif penceresi yok), ama hook
         # her tusu goruyor -- en guvenli yer burasi.
         if event.down and event.vk == VK_ESCAPE and self._menu_open():
-            self._put(Run("menu.close"))
+            self._put(Run(Cmd.Menu.CLOSE))
             return True
 
         # F18 hem kaskad tusu hem gesture oneki: yon kilitlenirse kaskadi
@@ -640,7 +641,7 @@ class Dispatcher:
             for action in self._release_mouse_mods(button):
                 self._put(action)
         self._mod_lb_held = False
-        self._put(Run("tip.hide"))
+        self._put(Run(Cmd.Tip.HIDE))
         self._put(Run("gesture.overlay", desc="hide"))
         self._prefix_at = None
         self._pending_tap.clear()
@@ -763,7 +764,7 @@ class Dispatcher:
         self._gesture_phase.clear()
         self._gesture_started.clear()
         self._overlay_shown.clear()
-        self._put(Run("tip.hide"))
+        self._put(Run(Cmd.Tip.HIDE))
         self._put(Run("gesture.overlay", desc="hide"))
 
     def _gesture_tip(self, t: float) -> None:

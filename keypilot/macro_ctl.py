@@ -24,6 +24,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from keypilot import macro
+from keypilot.commands import Cmd
 from keypilot.core.mouse import MouseSeen
 from keypilot.ui.macro_view import MacroView
 from keypilot.win32.hook import KeyEvent, MouseEvent
@@ -56,7 +57,7 @@ class MacroController(QObject):
         self._window_timer.timeout.connect(self._poll_window)
 
     def register(self, runner) -> None:
-        runner.register("macro.recorder", lambda _: self.show())
+        runner.register(Cmd.Macro.RECORDER, lambda _: self.show())
         # TODO: makro slotlarina KISAYOL. Su an makro yalniz pencereden
         # calisiyor; uc slotun tusu olmali ve bu tuslar keymap.py'ye SABIT
         # yazilmamali -- kayit defterinden gecmeli:

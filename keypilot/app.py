@@ -35,10 +35,11 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from keypilot import autostart, dev, keymap, logs, paths, repository, theme
+from keypilot import autostart, dev, keymap, logs, paths, theme
 from keypilot.actions import ActionRunner, beep, command
 from keypilot.app_shorts import ShortcutStore, stroke_kind
 from keypilot.clip_ctl import ClipController
+from keypilot.commands import Cmd
 from keypilot.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
@@ -405,10 +406,10 @@ class KeyPilot:
         self.runner.register("tip", lambda text: self.tip.show_text(text, 2000))
         # Jest bitince ipucu da gitsin: 2 sn'lik sure jestten sonra da ekranda
         # kaliyordu (dispatch._end_gesture).
-        self.runner.register("tip.hide", lambda _: self.tip.hide())
+        self.runner.register(Cmd.Tip.HIDE, lambda _: self.tip.hide())
         self.runner.register("tip_html", lambda body: self.tip.show_html(body, 2000))
         self.runner.register("notify", lambda text: self.tray.notify("KeyPilot", text))
-        self.runner.register("menu.close", lambda _: self.menu.close())
+        self.runner.register(Cmd.Menu.CLOSE, lambda _: self.menu.close())
         # Surukleme anlasilinca gecikmeli enjekte edilen gercek fare basimi.
         self.runner.register("button_down", press_button)
         self.runner.register("button_up", release_button)
@@ -436,8 +437,8 @@ class KeyPilot:
         self.runner.register("select.ocr", lambda _: self.show_snip_auto("ocr"))
         self.runner.register("select.ocr_adv", lambda _: self.show_snip_auto("ocr_adv"))
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
-        self.runner.register("magnifier.toggle", lambda _: self.magnifier.toggle())
-        self.runner.register("magnifier.reset", lambda _: self.magnifier.reset())
+        self.runner.register(Cmd.Magnifier.TOGGLE, lambda _: self.magnifier.toggle())
+        self.runner.register(Cmd.Magnifier.RESET, lambda _: self.magnifier.reset())
 
         # AHK clip_slot.ahk: slot yapistirma, gruplar ve F14 menusu.
         self.slots = SlotController(
@@ -468,7 +469,7 @@ class KeyPilot:
         self.repository = Repository(paths.REPOSITORY)
         self.repository.load()
         self.repository_view = RepositoryView(self.repository)
-        self.runner.register("repository.open", lambda _: self.repository_view.open())
+        self.runner.register(Cmd.Repository.OPEN, lambda _: self.repository_view.open())
 
         # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
         # Nesne her acilista yeniden kuruluyor -- durum tasimiyor ve
@@ -654,7 +655,7 @@ class KeyPilot:
             2500,
         )
 
-    @command("keys.map")
+    @command(Cmd.Keys.MAP)
     def show_key_map(self, _argument: str = "") -> None:
         """`keys.map` -- HANGI TUS KIMDE. Kendi penceresi (ui/key_map_view).
 
@@ -904,7 +905,7 @@ class KeyPilot:
 
     # ---- hep ustte (AHK: menuAlwaysOnTop) ----
 
-    @command("window.pin")
+    @command(Cmd.Window.PIN)
     def toggle_pin(self, argument: str) -> None:
         """`window.pin` (bos = one cikan pencere) / `window.pin:<hwnd>`.
 
@@ -1041,12 +1042,12 @@ class KeyPilot:
         if active is not None:
             rows.append((f"Profil duzenle ({active.name})", f"shorts.manage:{active.name}"))
         else:
-            rows.append(("Profil duzenle", "shorts.manage"))
+            rows.append(("Profil duzenle", Cmd.Shorts.MANAGE))
 
         title = f"Profil ({active.name})" if active is not None else "Profil (ekle)"
         return (title, tuple(rows))
 
-    @command("shorts.manage")
+    @command(Cmd.Shorts.MANAGE)
     def open_profiles(self, argument: str = "") -> None:
         """`shorts.manage[:<profil adi>]` -- yonetici penceresi.
 
@@ -1122,7 +1123,7 @@ class KeyPilot:
 
     # ---- hafiza slotlari ----
 
-    @command("memslots.paste_enter")
+    @command(Cmd.Memslots.PASTE_ENTER)
     def memslots_paste_enter(self, _argument: str = "") -> None:
         """Orta tus UZUN basim -- AHK handleMButton pt2. Yapistirma panoya
         yazip Ctrl+V gonderiyor (asenkron), Shift+Enter onun ARDINDAN
@@ -1132,7 +1133,7 @@ class KeyPilot:
         self.mem_slots.smart_paste(middle=True)
         QTimer.singleShot(160, lambda: self.runner.run("send_key:+Enter"))
 
-    @command("memslots.start")
+    @command(Cmd.Memslots.START)
     def show_mem_slots(self, _argument: str = "") -> None:
         """AHK: singleMemorySlot.getInstance().start()
 
@@ -1176,7 +1177,7 @@ class KeyPilot:
         else:
             self.magnifier.zoom_in()
 
-    @command("magnifier.panic")
+    @command(Cmd.Magnifier.PANIC)
     def panic(self, _argument: str = "") -> None:
         """AHK: `(App.Magnifier.reset(), WinMinimize("A"))` -- buyutec %100'e
         doner ve one cikan pencere kuculur."""
@@ -1196,7 +1197,7 @@ class KeyPilot:
         self.dispatcher.reset()
         self.tip.show_html("\U0001f513 <b>durum sifirlandi</b>", 1200)
 
-    @command("errors.show")
+    @command(Cmd.Errors.SHOW)
     def show_errors(self, _argument: str = "") -> None:
         """AHK: getStatsArray / getRecentErrors -- artik log penceresi.
 
@@ -1231,7 +1232,7 @@ class KeyPilot:
     # "Dosyayi ac" dugmesinde (ui/log_view.py) ve tepsi menusu artik
     # pencereyi aciyor.
 
-    @command("errors.copy")
+    @command(Cmd.Errors.COPY)
     def copy_last_error(self, _argument: str = "") -> None:
         """AHK: App.ErrHandler.copyLastError()"""
         last = logs.errors.last
@@ -1337,7 +1338,7 @@ class KeyPilot:
         log.warning("cift tiklama yutuldu (%s, toplam %d)", argument, self._bounce_count)
         beep(1000, 100)
 
-    @command("caps.toggle")
+    @command(Cmd.Caps.TOGGLE)
     def toggle_caps(self, _argument: str = "") -> None:
         """AHK cascadeCaps: kilidi cevirir, yeni durumu soyler (AHK ShowTip).
 
@@ -1349,7 +1350,7 @@ class KeyPilot:
         send.tap(VK_CAPITAL)
         self.tip.show_html("<b>CAPSLOCK</b>" if not state else "<b>capslock</b>", 900)
 
-    @command("menu.sys")
+    @command(Cmd.Menu.SYS)
     def show_sys_menu(self, _argument: str = "") -> None:
         """AHK: sysCommands() -- `´` tusunun menusu."""
         self.menu.show(keymap.SYS_COMMANDS_MENU, title=f"⚙️ KeyPilot {full_version()}")
@@ -1357,10 +1358,10 @@ class KeyPilot:
     def _incognito_menu_item(self) -> tuple:
         """F13 menusundeki tek satir: pencereyi acar (kapatma pencerede)."""
         if self.incognito.active:
-            return (f"🏴‍☠️ Incognito ({self.incognito.locked_count})", "incognito.open")
-        return ("🏴‍☠️ Incognito", "incognito.open")
+            return (f"🏴‍☠️ Incognito ({self.incognito.locked_count})", Cmd.Incognito.OPEN)
+        return ("🏴‍☠️ Incognito", Cmd.Incognito.OPEN)
 
-    @command("menu.f13")
+    @command(Cmd.Menu.F13)
     def show_f13_menu(self, _argument: str = "") -> None:
         """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
         # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolonun basi o
@@ -1373,7 +1374,7 @@ class KeyPilot:
         # yok -- icerik pencerede yasiyor (AHK'de Repository de boyleydi).
         spec += (
             None,
-            ("📚 Repository", "repository.open"),
+            ("📚 Repository", Cmd.Repository.OPEN),
             self._incognito_menu_item(),
         )
         pins = self._pin_menu_items()
@@ -1426,7 +1427,7 @@ class KeyPilot:
             for index, entry in enumerate(self.clip.history.entries, start=1)
         )
 
-    @command("menu.quick")
+    @command(Cmd.Menu.QUICK)
     def show_quick_panel(self, argument: str = "") -> None:
         """`menu.quick[:sekme]` -- CapsLock ve `^` basili tutunca acilan panel.
 
@@ -1440,7 +1441,7 @@ class KeyPilot:
             self._quick.qr_requested.connect(self.show_qr_text)
         self._quick.open(self._quick.tab_index(argument))
 
-    @command("qr.show")
+    @command(Cmd.Qr.SHOW)
     def show_qr(self, _argument: str = "") -> None:
         """F14 menusu > QR kod. Panodaki metinle acilir."""
         self.show_qr_text(QGuiApplication.clipboard().text() or "")
@@ -1475,7 +1476,7 @@ class KeyPilot:
             send.click("left")
         QTimer.singleShot(80, lambda: self.runner.run(f"send_key:{keys}"))
 
-    @command("app.settings")
+    @command(Cmd.App.SETTINGS)
     def show_settings(self, _argument: str = "") -> None:
         """AHK subMenuSet "Settings" -- ayar ekrani (ui/settings_dialog.py)."""
         if self._settings_dialog is None:
@@ -1496,7 +1497,7 @@ class KeyPilot:
         )
         return answer == QMessageBox.StandardButton.Yes
 
-    @command("incognito.open")
+    @command(Cmd.Incognito.OPEN)
     def open_incognito(self, _argument: str = "") -> None:
         """Kisayolun/menunun tek isi: pencereyi acmak.
 
@@ -1539,7 +1540,7 @@ class KeyPilot:
             2000,
         )
 
-    @command("app.monitor")
+    @command(Cmd.App.MONITOR)
     def show_monitor(self, _argument: str = "") -> None:
         """`´` menusu 4 + tepsi -- olay gecmisi penceresi (ui/monitor.py)."""
         self.monitor.show()
@@ -1692,7 +1693,7 @@ class KeyPilot:
 
     # ---- yasam dongusu ----
 
-    @command("app.pause")
+    @command(Cmd.App.PAUSE)
     def toggle_pause(self, _argument: str = "") -> None:
         """AHK: Suspend. Hook yerinde kalir, sadece kararlar devre disi."""
         self.set_paused(not self.paused)
@@ -1718,7 +1719,7 @@ class KeyPilot:
         else:
             self.tip.show_html("▶️ <b>devam</b>", 1200)
 
-    @command("turkish.toggle")
+    @command(Cmd.Turkish.TOGGLE)
     def toggle_turkish(self, _argument: str = "") -> None:
         """ScrollLock kisa basim -- AHK: `SetScrollLockState(!state)` + tip.
 
@@ -1735,13 +1736,13 @@ class KeyPilot:
             900,
         )
 
-    @command("turkish.layout")
+    @command(Cmd.Turkish.LAYOUT)
     def switch_turkish_layout(self, _argument: str = "") -> None:
         """ScrollLock basili tutma -- AHK: dizilim 1 <-> 2."""
         self.dispatcher.turkish.switch_layout()
         self.switch_turkish_layout_tip()
 
-    @command("turkish.set")
+    @command(Cmd.Turkish.SET)
     def set_turkish_layout(self, arg: str) -> None:
         """Menudeki radyo grubu -- `turkish.set:0|1|2`.
 
@@ -1770,7 +1771,7 @@ class KeyPilot:
             1200,
         )
 
-    @command("menu.scrolllock")
+    @command(Cmd.Menu.SCROLLLOCK)
     def show_scroll_lock_menu(self, _argument: str = "") -> None:
         """ScrollLock basili tutulunca: Turkce seti + sanal fare kipi.
 
@@ -1829,7 +1830,7 @@ class KeyPilot:
             1400,
         )
 
-    @command("app.pause_dialog")
+    @command(Cmd.App.PAUSE_DIALOG)
     def show_pause_dialog(self, critical: str = "") -> None:
         """AHK `DialogPauseGui`: once duraklat, sonra pencereyi ac.
 
@@ -2007,8 +2008,8 @@ class KeyPilot:
         )
         self._shutdown()
 
-    @command("app.restart")
-    @command("app.restart_dev_off")
+    @command(Cmd.App.RESTART)
+    @command(Cmd.App.RESTART_DEV_OFF)
     def restart_dev_off(self, _argument: str = "") -> None:
         """Gelistirme modu KAPALI olarak yeniden baslat.
 
@@ -2149,7 +2150,7 @@ class KeyPilot:
         self._release_pins_on_exit = False
         self._quit_requested = True
 
-    @command("app.exit")
+    @command(Cmd.App.EXIT)
     def quit(self, _argument: str = "", source: str = "") -> None:
         """AHK: Pause & End -> ExitApp()
 

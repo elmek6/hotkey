@@ -21,6 +21,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from keypilot import keymap
+from keypilot.commands import Cmd
 from keypilot.core.filter import FilterItem
 from keypilot.store import PASSWORD_SLOT, Slot, SlotStore, slot_display
 from keypilot.ui.preview import preview_html, shorten
@@ -51,20 +52,20 @@ class SlotController:
 
     def register(self, runner) -> None:
         """Eylem kimlikleri -- AHK'de bunlar dogrudan fonksiyon referansiydi."""
-        runner.register("slot.paste", self.paste_slot)
-        runner.register("slot.paste_group", self.paste_slot_of)
-        runner.register("slot.paste_side", self.paste_side_slot)
-        runner.register("slot.paste_enter", self.paste_slot_then_enter)
-        runner.register("slots.copy", self.copy_slot)
-        runner.register("slots.edit", self.edit_slot)
-        runner.register("slots.group_new", lambda _: self.new_group())
-        runner.register("slots.group_select", self.select_group)
-        runner.register("slots.group_delete", self.delete_group)
-        runner.register("slots.search", lambda _: self.show_filter())
-        runner.register("slots.edit_file", lambda _: self.open_in_notepad())
-        runner.register("menu.slots", lambda _: self.show_menu())
-        runner.register("menu.base_slots", lambda _: self.show_base_menu())
-        runner.register("menu.side_slots", lambda _: self.show_side_menu())
+        runner.register(Cmd.Slot.PASTE, self.paste_slot)
+        runner.register(Cmd.Slot.PASTE_GROUP, self.paste_slot_of)
+        runner.register(Cmd.Slot.PASTE_SIDE, self.paste_side_slot)
+        runner.register(Cmd.Slot.PASTE_ENTER, self.paste_slot_then_enter)
+        runner.register(Cmd.Slots.COPY, self.copy_slot)
+        runner.register(Cmd.Slots.EDIT, self.edit_slot)
+        runner.register(Cmd.Slots.GROUP_NEW, lambda _: self.new_group())
+        runner.register(Cmd.Slots.GROUP_SELECT, self.select_group)
+        runner.register(Cmd.Slots.GROUP_DELETE, self.delete_group)
+        runner.register(Cmd.Slots.SEARCH, lambda _: self.show_filter())
+        runner.register(Cmd.Slots.EDIT_FILE, lambda _: self.open_in_notepad())
+        runner.register(Cmd.Menu.SLOTS, lambda _: self.show_menu())
+        runner.register(Cmd.Menu.BASE_SLOTS, lambda _: self.show_base_menu())
+        runner.register(Cmd.Menu.SIDE_SLOTS, lambda _: self.show_side_menu())
 
     # ---- yapistirma ----
 
@@ -271,8 +272,8 @@ class SlotController:
     def side_menu_spec(self) -> tuple:
         """AHK `buildSideSlotMenu`: gruplar, secim, ekle/sil, Notepad."""
         result: list = [
-            ("Yeni grup ekle", "slots.group_new"),
-            ("Notepad ile ac", "slots.edit_file"),
+            ("Yeni grup ekle", Cmd.Slots.GROUP_NEW),
+            ("Notepad ile ac", Cmd.Slots.EDIT_FILE),
             None,
             ("No side slot", "slots.group_select:"),
         ]
@@ -286,7 +287,7 @@ class SlotController:
                         None,
                         # AHK'de bu ogeler icerigi PANOYA koyuyordu
                         # (yapistirmiyordu); ayni davranis.
-                        *self.items(name, "slots.copy"),
+                        *self.items(name, Cmd.Slots.COPY),
                         None,
                         ("Delete this group", f"slots.group_delete:{name}"),
                     ),
@@ -305,7 +306,7 @@ class SlotController:
         (keymap.py "Caret"). Eylem kimligi duruyor -- geri baglanabilsin.
         """
         self.store.load()
-        self._menu(self.items("", "slot.paste_group"))
+        self._menu(self.items("", Cmd.Slot.PASTE_GROUP))
 
     def show_side_menu(self) -> None:
         """Tab basili tutunca: SECILI yan grubun slotlari (`Tab & 1..0` ile
@@ -315,7 +316,7 @@ class SlotController:
         if not side:
             self._menu(self.side_menu_spec())
             return
-        self._menu(self.items(side, "slot.paste_group", prefix="⇥ "))
+        self._menu(self.items(side, Cmd.Slot.PASTE_GROUP, prefix="⇥ "))
 
     def menu_spec(self) -> tuple:
         """F14 kisa basim -- AHK `showF14menu` + `showQuickSlotsMenu`.
@@ -330,15 +331,15 @@ class SlotController:
         spec: tuple = (
             ("Unformatted paste", "send_key:^+v"),
             None,
-            ("Clipboard images", "clip.images", "res:109"),  # gorsel
+            ("Clipboard images", Cmd.Clip.IMAGES, "res:109"),  # gorsel
             ("Window screenshot", "send_key:!PrintScreen", "shell:196"),
             None,
-            ("QR kod", "qr.show", "res:252"),  # dama deseni kareler
+            ("QR kod", Cmd.Qr.SHOW, "res:252"),  # dama deseni kareler
             ("Area", keymap.screen_menu()),
             ("System", keymap.SYSTEM_MENU),
             ("Special keys", keymap.SPECIAL_KEYS_MENU),
             keymap.COLUMN,
-            ("Search in slots", "slots.search"),
+            ("Search in slots", Cmd.Slots.SEARCH),
             None,
             *self.items("", "slot.paste_group"),
             None,

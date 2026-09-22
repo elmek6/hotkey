@@ -24,6 +24,7 @@ from PIL import Image
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication, QImage
 
+from keypilot.commands import Cmd
 from keypilot.core.clip_history import ClipHistory
 from keypilot.core.filter import FilterItem
 from keypilot.core.state import ClipboardState
@@ -70,11 +71,11 @@ class ClipController:
         self.watcher.other_copied.connect(self.on_other)
 
     def register(self, runner) -> None:
-        runner.register("clip.show", lambda _: self.show_history())
-        runner.register("clip.filter", lambda _: self.show_filter())
-        runner.register("clip.paste", self.paste_history)
-        runner.register("menu.clip", lambda _: self.show_menu())
-        runner.register("clip.images", lambda _: self.show_images())
+        runner.register(Cmd.Clip.SHOW, lambda _: self.show_history())
+        runner.register(Cmd.Clip.FILTER, lambda _: self.show_filter())
+        runner.register(Cmd.Clip.PASTE, self.paste_history)
+        runner.register(Cmd.Menu.CLIP, lambda _: self.show_menu())
+        runner.register(Cmd.Clip.IMAGES, lambda _: self.show_images())
 
     # ---- gelen kopya ----
 
