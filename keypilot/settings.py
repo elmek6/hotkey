@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -33,12 +34,15 @@ log = logging.getLogger("keypilot.settings")
 VERSION = 1
 
 
-class Category:
+class Category(StrEnum):
     """AHK: `class Cat`. Ayar ekranindaki sol sutun.
 
-    Sabitler KIMLIK, `LABELS` ekranda gorunen ad. Ayrilar cunku kimlik
-    esitlik karsilastirmasinda ve `tree` anahtari olarak kullaniliyor:
+    Uyeler KIMLIK (`StrEnum`), etiketler `_CATEGORY_LABELS`. Ayrilar cunku
+    kimlik esitlik karsilastirmasinda ve `tree` anahtari olarak kullaniliyor:
     baslik metnini degistirmek mantigi bozmamali.
+
+    Komut kimlikleri (`Cmd`) buraya girmez: ayar grubu ile eylem farkli
+    sozluklerdir.
     """
 
     GENERAL = "general"
@@ -57,22 +61,23 @@ class Category:
     #: `keypilot.dev`i ilk import ediyor ve sira kayit sirasi.
     DEVELOPMENT = "development"
 
-    LABELS = {
-        GENERAL: "Genel",
-        TRAY: "Sistem tepsisi",
-        GESTURE: "Jestler",
-        MOUSE: "Fare",
-        CLIP: "Pano",
-        LIST: "Array filter",
-        WINDOW: "Pencere",
-        OCR: "OCR",
-        MACRO: "Makro",
-        DEVELOPMENT: "GELISTIRME",
-    }
-
     @classmethod
     def label(cls, category: str) -> str:
-        return cls.LABELS.get(category, category)
+        return _CATEGORY_LABELS.get(category, category)
+
+
+_CATEGORY_LABELS = {
+    Category.GENERAL: "Genel",
+    Category.TRAY: "Sistem tepsisi",
+    Category.GESTURE: "Jestler",
+    Category.MOUSE: "Fare",
+    Category.CLIP: "Pano",
+    Category.LIST: "Array filter",
+    Category.WINDOW: "Pencere",
+    Category.OCR: "OCR",
+    Category.MACRO: "Makro",
+    Category.DEVELOPMENT: "GELISTIRME",
+}
 
 
 class Setting:

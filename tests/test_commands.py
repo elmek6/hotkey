@@ -22,3 +22,5 @@ def test_send_key_factory():
     assert Cmd.send_key("#NumpadAdd") == "send_key:#NumpadAdd"
     assert Cmd.send_keys("^a", "^v") == "send_keys:^a ^v"
     assert Cmd.send_text("selam") == "send_text:selam"
+    assert Cmd.Run.SEND_KEY == "send_key"
+    assert Cmd.Run.BEEP == "beep"

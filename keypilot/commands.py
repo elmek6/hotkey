@@ -42,15 +42,15 @@ class Cmd:
 
     @staticmethod
     def send_key(stroke: str) -> str:
-        return f"send_key:{stroke}"
+        return Cmd.Run.SEND_KEY(stroke)
 
     @staticmethod
     def send_keys(*strokes: str) -> str:
-        return "send_keys:" + " ".join(strokes)
+        return Cmd.Run.SEND_KEYS(" ".join(strokes))
 
     @staticmethod
     def send_text(body: str) -> str:
-        return f"send_text:{body}"
+        return Cmd.Run.SEND_TEXT(body)
 
     class App(Id):
         _generate_next_value_ = _prefix("app")
@@ -220,6 +220,10 @@ class Cmd:
         BUTTON_UP = auto()
         MOD_DOWN = auto()
         MOD_UP = auto()
+        SEND_KEY = auto()
+        SEND_KEYS = auto()
+        SEND_TEXT = auto()
+        BEEP = auto()
 
 
 __all__ = ["Cmd", "Id"]

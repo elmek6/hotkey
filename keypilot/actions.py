@@ -18,7 +18,7 @@ import time
 import winsound
 from collections.abc import Callable
 
-from keypilot.commands import Cmd
+from keypilot.commands import Cmd, Id
 from keypilot.core.hotkey import parse_hotkey
 from keypilot.settings import Category, between, setting
 from keypilot.win32 import send
@@ -37,7 +37,7 @@ KEY_DELAY = setting(
 )
 
 
-def command(*names: str):
+def command(*names: str | Id):
     """Metodu eylem kimligiyle isaretler -- kaydi `ActionRunner.adopt` yapar.
 
     Amac: kimlik, aciklama ve gercek is AYNI yerde dursun. Onceden kimlik
@@ -72,10 +72,10 @@ class ActionRunner:
 
     def __init__(self) -> None:
         self._commands: dict[str, Callable[[str], None]] = {}
-        self.register("send_key", self._send_key)
-        self.register("send_keys", self._send_keys)
-        self.register("send_text", send.type_text)
-        self.register("beep", lambda _: beep(800, 60))
+        self.register(Cmd.Run.SEND_KEY, self._send_key)
+        self.register(Cmd.Run.SEND_KEYS, self._send_keys)
+        self.register(Cmd.Run.SEND_TEXT, send.type_text)
+        self.register(Cmd.Run.BEEP, lambda _: beep(800, 60))
         # AHK AutoHotkey.ahk: `#a/#s/#d/#w -> MouseMove(...,"R")`,
         # `#q -> Click("Left")`, `#e -> Click("Right")`. Klavyeyle fare.
         self.register(Cmd.Mouse.MOVE, self._mouse_move)
