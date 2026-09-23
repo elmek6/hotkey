@@ -62,6 +62,15 @@ class Cmd:
         SETTINGS = auto()
         MONITOR = auto()
 
+    class Idle(Id):
+        _generate_next_value_ = _prefix("idle")
+        SHOW = auto()
+
+    class Mbutton(Id):
+        _generate_next_value_ = _prefix("mbutton")
+        PASTE_ENTER = auto()
+        SELECT_PASTE = auto()
+
     class Menu(Id):
         _generate_next_value_ = _prefix("menu")
         F13 = auto()

@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from keypilot.core.keynames import MODIFIER_VKS, key_name, vk_from_name
-from keypilot.core.prefix import DEFAULT_DOUBLE_MS, DEFAULT_HOLD_MS, PrefixDef
+from keypilot.core.prefix import DEFAULT_DOUBLE_MS, DEFAULT_HOLD_MS, DEFAULT_LONG_MS, PrefixDef
 
 # Sembol -> (kanonik ad, (sol VK, sag VK))
 MOD_SYMBOLS: dict[str, tuple[str, tuple[int, int]]] = {
@@ -257,6 +257,8 @@ class HotkeyTable:
         passthrough: bool = False,
         hold_action: str = "",
         hold_ms: float = DEFAULT_HOLD_MS,
+        long_action: str = "",
+        long_ms: float = DEFAULT_LONG_MS,
         double_action: str = "",
         double_ms: float = DEFAULT_DOUBLE_MS,
         drag_action: str = "",
@@ -278,6 +280,8 @@ class HotkeyTable:
             passthrough=passthrough or spec.strip().startswith("~"),
             hold_action=hold_action,
             hold_ms=hold_ms,
+            long_action=long_action,
+            long_ms=long_ms,
             double_action=double_action,
             double_ms=double_ms,
             drag_action=drag_action,
@@ -292,6 +296,8 @@ class HotkeyTable:
         passthrough: bool = False,
         hold_action: str = "",
         hold_ms: float = DEFAULT_HOLD_MS,
+        long_action: str = "",
+        long_ms: float = DEFAULT_LONG_MS,
         double_action: str = "",
         double_ms: float = DEFAULT_DOUBLE_MS,
         drag_action: str = "",
@@ -306,6 +312,8 @@ class HotkeyTable:
             passthrough=passthrough or (old.passthrough if old else False),
             hold_action=hold_action or (old.hold_action if old else ""),
             hold_ms=hold_ms if hold_action else (old.hold_ms if old else hold_ms),
+            long_action=long_action or (old.long_action if old else ""),
+            long_ms=long_ms if long_action else (old.long_ms if old else long_ms),
             double_action=double_action or (old.double_action if old else ""),
             double_ms=double_ms if double_action else (old.double_ms if old else double_ms),
             drag_action=drag_action or (old.drag_action if old else ""),

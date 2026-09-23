@@ -28,6 +28,33 @@ shell32.SHChangeNotify.argtypes = [
 ]
 shell32.SHChangeNotify.restype = None
 
+SW_SHOWMINNOACTIVE = 7
+
+shell32.ShellExecuteW.argtypes = [
+    wintypes.HWND,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    ctypes.c_int,
+]
+shell32.ShellExecuteW.restype = wintypes.HINSTANCE
+
+
+def open_minimized(program: str, params: str = "") -> bool:
+    """Programi simge durumunda acar; odak calinmaz.
+
+    `outlook.exe` gibi PATH / App Paths kaydindaki adlar yeter: tam yol yok.
+    Donus > 32 basari (ShellExecute sozlesmesi).
+    """
+    result = int(
+        shell32.ShellExecuteW(None, "open", program, params or None, None, SW_SHOWMINNOACTIVE)
+    )
+    if result <= 32:
+        log.warning("simge durumunda acilamadi: %s (kod %s)", program, result)
+        return False
+    return True
+
 
 def refresh_shell() -> None:
     shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)

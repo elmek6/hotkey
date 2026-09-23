@@ -260,6 +260,51 @@ def test_surukleme_bir_kez_tetiklenir():
     assert len(_drain(box.actions)) == 1
 
 
+def make_mbutton_dispatcher() -> Dispatcher:
+    table = (
+        HotkeyTable()
+        .add("~MButton", "memslots.paste:middle")
+        .prefix(
+            "~MButton",
+            passthrough=True,
+            hold_action="mbutton.paste_enter",
+            hold_ms=350,
+            long_action="mbutton.select_paste",
+            long_ms=800,
+        )
+    )
+    return Dispatcher(
+        machine=CascadeMachine(),
+        hotkeys=table,
+        gestures=HotVectors(),
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+
+
+def test_orta_tus_hareketsiz_short_yapistirir():
+    box = make_mbutton_dispatcher()
+    feed(box, MBUTTON, True, 0.0)
+    box._prefix_at = (500, 500)
+    assert actions(feed(box, MBUTTON, False, 0.4)) == ["mbutton.paste_enter"]
+
+
+def test_orta_tus_hareketsiz_long_hepsini_secer():
+    box = make_mbutton_dispatcher()
+    feed(box, MBUTTON, True, 0.0)
+    box._prefix_at = (500, 500)
+    assert actions(feed(box, MBUTTON, False, 0.85)) == ["mbutton.select_paste"]
+
+
+def test_orta_tus_hareket_edince_tutma_iptal():
+    box = make_mbutton_dispatcher()
+    feed(box, MBUTTON, True, 0.0)
+    box._prefix_at = (500, 500)
+    box._drag_check(_Mouse(560, 540))
+    assert actions(feed(box, MBUTTON, False, 0.85)) == []
+
+
 # ---- onek + kaskad tusu cakismasi ----
 
 

@@ -73,6 +73,9 @@ def test_menu_actions_are_registered(keypilot):
         "menu.base_slots",
         "menu.side_slots",
         "incognito.open",
+        "idle.show",
+        "mbutton.paste_enter",
+        "mbutton.select_paste",
     ):
         assert action in keypilot.runner.handlers, f"kayitsiz eylem: {action}"
 

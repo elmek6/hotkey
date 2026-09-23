@@ -6,7 +6,8 @@ from keypilot.commands import Cmd, Id
 def test_parametresiz_strenum_dizgiye_esit():
     assert Cmd.Menu.F13 == "menu.f13"
     assert Cmd.App.PAUSE_DIALOG == "app.pause_dialog"
-    assert Cmd.Menu.CLIP == "menu.clip"
+    assert Cmd.Idle.SHOW == "idle.show"
+    assert Cmd.Mbutton.PASTE_ENTER == "mbutton.paste_enter"
 
 
 def test_id_cagrisi_arguman_ekler():

@@ -32,7 +32,8 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     Pause & End      yeniden baslat    Pause & c   takilan durumu sifirlar
     ^ & 1 .. 0       base grubun (defaultGroup=='') slotunu yapistirir
     ScrollLock       kisa: Turkce ac/kapa   basili tut: dizilim 1<->2
-    ~MButton/~Insert memslots penceresi acikken akilli yapistirma
+    ~MButton         kisa: memslots / normal orta tik
+                     hareketsiz tut: yapistir+Enter; uzun: ^a ^v Enter
 """
 
 from __future__ import annotations
@@ -134,11 +135,6 @@ VECTOR_STEP_PX = setting(
 KEY_F13 = 0x7C  # jest tanimlari / testler icin; keynames tablosuyla ayni deger
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
-# AHK bu ayrimla is bilgisayarinda ekran koruyucu engellemeyi ve Outlook'u
-# simge durumunda baslatmayi aciyordu. Burada SIMDILIK yalnizca hangi
-# bilgisayarda acildigini bildiriyoruz; buna bagli acilis eylemleri
-# eklenecekse yerleri START_ACTIONS'in yanidir.
-#
 # ADI NEDEN "PROFIL" DEGIL: proje "profil" kelimesini UYGULAMA profilleri
 # icin kullaniyor (Files/profiles.json -- pencereye bagli kisayol kumeleri).
 # Iki kavramin ortak hicbir yani yok; ayni kelime menude, log'da ve tepsi
@@ -349,6 +345,7 @@ SYS_COMMANDS_MENU = (
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
     ("i: Incognito", Cmd.Incognito.OPEN),
     ("a: TrayTip test", Cmd.Run.NOTIFY("Mesaj icerigi")),
+    ("t: Zamanlayici...", Cmd.Idle.SHOW),
     None,
     # AHK'de olmayan, bize ozgu olanlar ayracin altinda.
     ("Pano gecmisi...", Cmd.Clip.FILTER),
@@ -657,14 +654,16 @@ def build_hotkeys() -> HotkeyTable:
     # her yerde calisan tuslar, YUTULMAMALI -- eylem pencere kapaliyken
     # zaten hicbir sey yapmiyor. ---
     table.add("~MButton", Cmd.Memslots.PASTE("middle"), "memslots: akilli yapistir")
-    # AHK handleMButton pt2: uzun basim yapistirir ve Shift+Enter gonderir
-    # (liste halinde yapistirirken satir atlamak icin). Esik AHK ile ayni.
+    # Hareketsiz basili tutma: short sonrasi yapistir+Enter, long sonrasi
+    # hepsini sec + yapistir + Enter. Imlec oynarsa iptal (orta tik / kaydirma).
     table.prefix(
         "~MButton",
         passthrough=True,
-        hold_action=Cmd.Memslots.PASTE_ENTER,
-        hold_ms=300,
-        desc="basili tut: akilli yapistir + Shift+Enter",
+        hold_action=Cmd.Mbutton.PASTE_ENTER,
+        hold_ms=350,
+        long_action=Cmd.Mbutton.SELECT_PASTE,
+        long_ms=800,
+        desc="hareketsiz tut: yapistir+enter / uzun: hepsini sec",
     )
     table.add("~Insert", Cmd.Memslots.PASTE, "memslots: akilli yapistir")
 

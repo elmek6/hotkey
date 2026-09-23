@@ -31,6 +31,8 @@ DEFAULT_HOLD_MS = 350.0
 #: `KeyWait(key, "D T0.1")` -- 100 ms icinde ikinci basim gelirse basim
 #: turu 4 (cift) olur. Bizde de kisa basim eylemi bu kadar BEKLETILIR.
 DEFAULT_DOUBLE_MS = 180.0
+#: Ikinci basili-tutma esigi (orta tus: hepsini sec + yapistir).
+DEFAULT_LONG_MS = 800.0
 
 
 class Outcome(IntEnum):
@@ -39,6 +41,7 @@ class Outcome(IntEnum):
     NOTHING = 0  # kombo/surukleme yapildi -- tusun kendi isi bitti
     TAP = 1  # tek basina kisa basim -- cagiran tap eylemini calistirir
     HOLD = 2  # esik gecti, kombo yok -- cagiran hold eylemini calistirir
+    LONG = 3  # ikinci esik -- cagiran long_action'i calistirir
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +53,8 @@ class PrefixDef:
     passthrough: bool = False  # AHK'deki `~`
     hold_action: str = ""
     hold_ms: float = DEFAULT_HOLD_MS
+    long_action: str = ""
+    long_ms: float = DEFAULT_LONG_MS
     #: AHK `EM.enableDoubleClick()`: kisa basim iki kere ust uste yapilirsa
     #: calisir. Tanimliysa TEK basim eylemi `double_ms` kadar bekletilir --
     #: yoksa ilk basimin menusu acilip ikinciyi yerdi (AHK'de de basim
@@ -143,9 +148,11 @@ class PrefixTracker:
         if started is None or used:
             return Outcome.NOTHING
         definition = self.defs.get(vk)
-        if definition is not None and definition.hold_action:
+        if definition is not None:
             elapsed = (t - started) * 1000.0
-            if elapsed >= definition.hold_ms:
+            if definition.long_action and elapsed >= definition.long_ms:
+                return Outcome.LONG
+            if definition.hold_action and elapsed >= definition.hold_ms:
                 return Outcome.HOLD
         return Outcome.TAP
 

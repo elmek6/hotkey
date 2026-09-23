@@ -826,6 +826,13 @@ class Dispatcher:
                     action = action.format(x=origin[0], y=origin[1])
                 self._put(Run(action, key=vk, desc=definition.desc))
                 continue
+            # Orta tus: imlec oynadiysa basili-tutma yapistirmasi iptal.
+            if (
+                vk in send.MOUSE_VK_NAMES
+                and definition is not None
+                and (definition.hold_action or definition.long_action)
+            ):
+                self.prefixes.combo_used(vk)
             if vk not in send.MOUSE_VK_NAMES or vk in self._passed_through:
                 continue
             if vk not in self._hk_swallowed:
@@ -985,6 +992,10 @@ class Dispatcher:
             self._prefix_at = None
 
         definition = self.prefixes.definition(vk)
+        if outcome is Outcome.LONG and definition is not None:
+            return was_ours, mod_actions + [
+                Run(definition.long_action, key=vk, desc=definition.desc)
+            ]
         if outcome is Outcome.HOLD and definition is not None:
             # Basili tutma esigi gecildi: cift basim beklenmez (AHK'de de
             # cift basim kontrolu yalniz KISA basimda yapiliyor).

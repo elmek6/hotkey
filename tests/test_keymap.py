@@ -7,6 +7,7 @@ kucuk tablolarini yaziyordu.
 """
 
 from keypilot import keymap
+from keypilot.commands import Cmd
 from keypilot.win32.menu import COLUMN
 
 
@@ -63,3 +64,4 @@ def test_menu_tablolari_bicimli():
     ):
         _check_menu(spec, seen)
     assert "clip.filter" in seen
+    assert Cmd.Idle.SHOW in seen

@@ -43,6 +43,13 @@ from keypilot.commands import Cmd
 from keypilot.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
+from keypilot.idle import (
+    IDLE_INTERVAL_MS,
+    minutes_for,
+    should_open_outlook,
+    startup_minutes,
+    ticks_for,
+)
 from keypilot.incognito import Incognito
 from keypilot.macro_ctl import MacroController
 from keypilot.repository import Repository
@@ -51,6 +58,7 @@ from keypilot.slots_ctl import SlotController
 from keypilot.store import SlotStore, slot_display
 from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.gesture_overlay import GestureOverlay
+from keypilot.ui.idle import IdleDialog
 from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.key_map_view import KeyMapView
 from keypilot.ui.log_view import LogView
@@ -85,11 +93,6 @@ from keypilot.win32.window import (
 )
 
 log = logging.getLogger("keypilot.app")
-
-#: Ekran koruyucu engelleyici -- AHK IdleModule: 5 dakikada bir, en cok
-#: 60 tur (5 saat) boyunca.
-IDLE_INTERVAL_MS = 5 * 60 * 1000
-IDLE_TICKS = 60
 
 VK_CAPITAL = 0x14  # buyuk harf kilidi (caps.toggle)
 VK_SCROLL = 0x91  # ScrollLock lambasi (turkish.toggle)
@@ -315,7 +318,8 @@ class KeyPilot:
         self.pins = WindowPins()
 
         self.paused = False
-        self._idle_count = IDLE_TICKS  # ekran koruyucu engelleyici sayaci
+        self._idle_count = 0
+        self._idle_budget = 0
         #: Fare kimildatma bir kez engellendi mi (bkz. _idle_tick).
         self._idle_blocked = False
         #: Nobetcinin son turu -- iki tur arasi acilirsa surec donmustur
@@ -488,6 +492,7 @@ class KeyPilot:
         # yerden (tepsi menusu, bu pencere, `´`/F14 menusundeki "0: Exit")
         # ayni satir yaziliyordu.
         self.pause_dialog.exit_app.connect(lambda: self.quit(source="Pause menusu"))
+        self._idle_dialog: IdleDialog | None = None
 
         # AHK turkish_layout_addon.ahk -- ScrollLock. Hangi VK hangi harf,
         # duzene sorularak bulunuyor; kararlari dispatch veriyor.
@@ -1134,6 +1139,20 @@ class KeyPilot:
             return
         self.mem_slots.smart_paste(middle=True)
         QTimer.singleShot(160, lambda: self.runner.run(Cmd.send_key("+Enter")))
+
+    @command(Cmd.Mbutton.PASTE_ENTER)
+    def mbutton_paste_enter(self, _argument: str = "") -> None:
+        if self.mem_slots.isVisible():
+            self.memslots_paste_enter()
+            return
+        self.runner.run(Cmd.send_keys("^v", "Enter"))
+
+    @command(Cmd.Mbutton.SELECT_PASTE)
+    def mbutton_select_paste(self, _argument: str = "") -> None:
+        if self.mem_slots.isVisible():
+            self.memslots_paste_enter()
+            return
+        self.runner.run(Cmd.send_keys("^a", "^v", "Enter"))
 
     @command(Cmd.Memslots.START)
     def show_mem_slots(self, _argument: str = "") -> None:
@@ -1832,6 +1851,26 @@ class KeyPilot:
             1400,
         )
 
+    @command(Cmd.Idle.SHOW)
+    def show_idle_dialog(self, _argument: str = "") -> None:
+        if self._idle_dialog is None:
+            self._idle_dialog = IdleDialog()
+            self._idle_dialog.accepted_minutes.connect(self.set_idle_minutes)
+        remaining = minutes_for(self._idle_count) if self._idle_timer.isActive() else 0
+        self._idle_dialog.show_for(remaining)
+
+    def set_idle_minutes(self, minutes: int) -> None:
+        ticks = ticks_for(minutes)
+        self._idle_budget = ticks
+        self._idle_count = ticks
+        if ticks <= 0:
+            self._idle_timer.stop()
+            log.info("ekran koruyucu engelleyici kapali")
+            return
+        self.dispatcher.last_physical = time.perf_counter()
+        self._idle_timer.start(IDLE_INTERVAL_MS)
+        log.info("ekran koruyucu engelleyici: %d dakika (%d tur)", minutes_for(ticks), ticks)
+
     @command(Cmd.App.PAUSE_DIALOG)
     def show_pause_dialog(self, critical: str = "") -> None:
         """AHK `DialogPauseGui`: once duraklat, sonra pencereyi ac.
@@ -1874,16 +1913,12 @@ class KeyPilot:
         computer = keymap.current_computer()
         label = keymap.COMPUTER_LABELS.get(computer, computer)
         log.info("bilgisayar: %s (%s)", computer, platform.node())
-        # IPUCU BURADAN YAZILMIYOR. Yaziyordu ve tepsinin kendi metnini
-        # (surum + profil + tiklamalarin karsiligi) sessizce EZIYORDU:
-        # ekranda hep bu eski satir kaliyor, tepsideki her guncelleme
-        # gorunmez oluyordu. Ipucunun tek sahibi ui/tray.py.
-        # AHK LoadSettings: is bilgisayarinda State.Idle.enable() -- ekran
-        # koruyucu devreye girmesin diye 5 dakikada bir fareyi kimildatir.
-        if computer == "work":
-            self._idle_count = IDLE_TICKS
-            self.dispatcher.last_physical = time.perf_counter()
-            self._idle_timer.start(IDLE_INTERVAL_MS)
+        self.set_idle_minutes(startup_minutes(computer))
+        if should_open_outlook(computer):
+            if shell.open_minimized("outlook.exe"):
+                log.info("Outlook simge durumunda acildi")
+            else:
+                log.warning("Outlook simge durumunda acilamadi")
         # Acilis karti: bilgisayar, surum, yapim damgasi. Uc satir ve 4 saniye
         # -- hata bildiriminde istenen bilgi bu ucu ve acilista bir kez
         # bakip gorulebilsin diye okunacak kadar duruyor. Sayimlar (pano
@@ -1919,12 +1954,12 @@ class KeyPilot:
         """
         idle_ms = (time.perf_counter() - self.dispatcher.last_physical) * 1000.0
         if idle_ms < 60_000:
-            self._idle_count = IDLE_TICKS
+            self._idle_count = self._idle_budget
             return
         self._idle_count -= 1
         if self._idle_count <= 0:
             self._idle_timer.stop()
-            log.info("ekran koruyucu engelleyici durdu (%d tur doldu)", IDLE_TICKS)
+            log.info("ekran koruyucu engelleyici durdu (%d tur doldu)", self._idle_budget)
             return
         # GIT-GEL: tek yonlu -1,-1 imleci her turda bir piksel sol uste
         # kaydiriyordu -- bes saatte 59 piksel. Ayni turda geri aliniyor;
@@ -2173,6 +2208,7 @@ class KeyPilot:
         self._drain_timer.stop()
         self._tick_timer.stop()
         self._watchdog_timer.stop()
+        self._idle_timer.stop()
         self.clip.close()
         self.filter_window.close()
         self.snip.close()
@@ -2185,6 +2221,8 @@ class KeyPilot:
         self.macro.shutdown()
         self.macro.view.close()
         self.pause_dialog.close()
+        if self._idle_dialog is not None:
+            self._idle_dialog.close()
         self.machine.reset()
         self.hook.stop()
         self.gesture_overlay.close()

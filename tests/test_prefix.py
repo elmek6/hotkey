@@ -105,7 +105,14 @@ def test_otomatik_tekrar_sureyi_sifirlamaz():
 # ---- temizlik ----
 
 
-def test_reset_hayalet_tusu_temizler():
+def test_uzun_esik_long_doner():
+    tracker = PrefixTracker(
+        {CARET: PrefixDef(CARET, hold_action="a", hold_ms=350, long_action="b", long_ms=800)}
+    )
+    tracker.key_down(CARET, 0.0)
+    assert tracker.key_up(CARET, 0.4) is Outcome.HOLD
+    tracker.key_down(CARET, 1.0)
+    assert tracker.key_up(CARET, 1.8) is Outcome.LONG
     tracker = make()
     tracker.key_down(CARET, 0.0)
     tracker.reset()
