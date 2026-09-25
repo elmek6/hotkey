@@ -88,6 +88,7 @@ class Cmd:
         SHOW = auto()
         FILTER = auto()
         PASTE = auto()
+        PASTE_PREV = auto()
         IMAGES = auto()
 
     class Slots(Id):

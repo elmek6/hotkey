@@ -8,6 +8,7 @@ def test_parametresiz_strenum_dizgiye_esit():
     assert Cmd.App.PAUSE_DIALOG == "app.pause_dialog"
     assert Cmd.Idle.SHOW == "idle.show"
     assert Cmd.Mbutton.PASTE_ENTER == "mbutton.paste_enter"
+    assert Cmd.Clip.PASTE_PREV == "clip.paste_prev"
 
 
 def test_id_cagrisi_arguman_ekler():

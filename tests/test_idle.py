@@ -40,14 +40,36 @@ def test_outlook_simge_durumunda_shellexecute(monkeypatch):
         calls.append((file, show))
         return 42
 
+    monkeypatch.setattr(shell, "process_exists", lambda _name: False)
     monkeypatch.setattr(shell.shell32, "ShellExecuteW", fake)
     assert shell.open_minimized("outlook.exe") is True
     assert calls == [("outlook.exe", shell.SW_SHOWMINNOACTIVE)]
 
 
 def test_outlook_basarisiz_kod(monkeypatch):
+    monkeypatch.setattr(shell, "process_exists", lambda _name: False)
     monkeypatch.setattr(shell.shell32, "ShellExecuteW", lambda *_a: 2)
     assert shell.open_minimized("outlook.exe") is False
+
+
+def test_outlook_zaten_aciksa_tekrar_acilmaz(monkeypatch):
+    calls = []
+    monkeypatch.setattr(shell, "process_exists", lambda name: name.lower() == "outlook.exe")
+    monkeypatch.setattr(
+        shell.shell32, "ShellExecuteW", lambda *_a: calls.append(_a) or 42
+    )
+    assert shell.open_minimized("outlook.exe") is True
+    assert calls == []
+
+
+def test_yeni_outlook_aciksa_klasik_tekrar_acilmaz(monkeypatch):
+    calls = []
+    monkeypatch.setattr(shell, "process_exists", lambda name: name.lower() == "olk.exe")
+    monkeypatch.setattr(
+        shell.shell32, "ShellExecuteW", lambda *_a: calls.append(_a) or 42
+    )
+    assert shell.open_minimized("outlook.exe") is True
+    assert calls == []
 
 
 def test_dialog_dakika_etiketi_gunceller(qapp):

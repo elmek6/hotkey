@@ -31,6 +31,10 @@ def test_kaskadlar_ve_jestler_kurulur():
     assert gestures.labels(0x81)["P"] == "Back"
     assert gestures.labels(0x81)["S"] == "Home"
     assert keymap.memslots_defs()
+    f19 = cascades[0x82]
+    combo = f19.combo_for(0x04)
+    assert combo is not None
+    assert combo.action == Cmd.Clip.PASTE_PREV
 
 
 def test_turkce_harf_haritasi_vk_dondurur():

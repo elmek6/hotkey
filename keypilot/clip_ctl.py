@@ -74,6 +74,7 @@ class ClipController:
         runner.register(Cmd.Clip.SHOW, lambda _: self.show_history())
         runner.register(Cmd.Clip.FILTER, lambda _: self.show_filter())
         runner.register(Cmd.Clip.PASTE, self.paste_history)
+        runner.register(Cmd.Clip.PASTE_PREV, lambda _: self.paste_then_previous())
         runner.register(Cmd.Menu.CLIP, lambda _: self.show_menu())
         runner.register(Cmd.Clip.IMAGES, lambda _: self.show_images())
 
@@ -214,6 +215,43 @@ class ClipController:
         # kacinci kaydi istedigini biliyor, gormek istedigi sey ne geldigi.
         self._tip(preview_html(entry.text), 1200)
         self.paste_text(entry.text)
+
+    def older_clip(self, current: str) -> str | None:
+        """Panodaki metnin gecmisteki bir onceki (daha eski) kaydi.
+
+        F19+MButton her basista bir geri gider: yapistir, sonra panoyu
+        onceki kayda cek. Listenin sonuna gelindiyse None.
+        """
+        for index, entry in enumerate(self.history.entries, start=1):
+            if entry.text == current:
+                nxt = self.history.get(index + 1)
+                return nxt.text if nxt else None
+        top = self.history.get(1)
+        if top is not None and top.text != current:
+            return top.text
+        return None
+
+    def paste_then_previous(self) -> None:
+        """Once panodaki metni yapistir, sonra panoyu bir onceki kayda al.
+
+        Panoya yazma Ctrl+V'den SONRA: aksi halde hedef eski icerigi
+        yapistirir. `watcher.set_text` kendi yazdigimizi gecmise koymaz.
+        """
+        board = QGuiApplication.clipboard()
+        current = board.text() if board is not None else ""
+        if current:
+            self._send_key(Cmd.send_key("^v"))
+        else:
+            top = self.history.get(1)
+            if top is None:
+                self._tip("\U0001f4cb <b>pano bos</b>", 1200)
+                return
+            current = top.text
+            self.paste_text(current)
+        older = self.older_clip(current)
+        if older is None:
+            return
+        QTimer.singleShot(80, lambda: self.watcher.set_text(older))
 
     # ---- listeler ----
 

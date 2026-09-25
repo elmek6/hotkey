@@ -76,6 +76,7 @@ def test_menu_actions_are_registered(keypilot):
         "idle.show",
         "mbutton.paste_enter",
         "mbutton.select_paste",
+        "clip.paste_prev",
     ):
         assert action in keypilot.runner.handlers, f"kayitsiz eylem: {action}"
 

@@ -853,6 +853,19 @@ class Dispatcher:
             self.prefixes.combo_used(vk)
             self._put(Run(Cmd.Run.BUTTON_DOWN(key_name(vk)), key=vk))
 
+    def _cancel_mouse_hold_for_wheel(self) -> None:
+        """Fare tusu BASILIYKEN tekerlek: hold/long yapistirma calismasin.
+
+        Orta tus hem kaydirma (basili tekerlek) hem uzun basista yapistir+
+        Enter yapiyor. Tekerlek geldiyse bu basim kaydirmadir, paste yok.
+        """
+        for vk in self.prefixes.held:
+            if vk not in send.MOUSE_VK_NAMES:
+                continue
+            definition = self.prefixes.definition(vk)
+            if definition is not None and (definition.hold_action or definition.long_action):
+                self.prefixes.combo_used(vk)
+
     def _bounce_guarded(self, vk: int) -> bool:
         """Bu dugmeye arizali fare filtresi uygulaniyor mu (ayardan)."""
         if vk == VK_LBUTTON:
@@ -869,6 +882,7 @@ class Dispatcher:
             chord = self.tracker.key_down(vk, t)
             if momentary:  # tekerlek: basili kalmaz
                 self.tracker.key_up(vk, t)
+                self._cancel_mouse_hold_for_wheel()
         else:
             self.tracker.key_up(vk, t)
             chord = None

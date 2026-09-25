@@ -431,14 +431,15 @@ def build_cascades() -> dict[int, CascadeDef]:
         .show_menu(False)
         .named("F18")
         .build(),
-        # handleF19: kisa ^v, orta ^a^v, uzun MemSlots
+        # handleF19: kisa ^v, orta ^a^v, uzun MemSlots;
+        # MButton: yapistir, sonra panoyu gecmisteki bir oncekine cek
         KeyBuilder("F19", short=300, long=800)
         .main_key(PressType.SHORT, Cmd.send_key("^v"))
         .main_key(PressType.MEDIUM, Cmd.send_keys("^a", "^v"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
         .combo("F20", "Hepsini sec + yapistir", Cmd.send_keys("^a", "^v"))
         .combo("LButton", "Tikla + yapistir", Cmd.Run.CLICK_THEN("^v"))
-        .combo("MButton", "3x tikla + yapistir", Cmd.Run.CLICK3_THEN("^v"))
+        .combo("MButton", "yapistir + onceki panoya", Cmd.Clip.PASTE_PREV)
         .show_menu(False)
         .named("F19")
         .build(),

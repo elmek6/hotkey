@@ -305,6 +305,15 @@ def test_orta_tus_hareket_edince_tutma_iptal():
     assert actions(feed(box, MBUTTON, False, 0.85)) == []
 
 
+def test_orta_tus_tekerlek_cevirince_yapistirma_yok():
+    """Basili orta tus + tekerlek kaydirmadir; hold paste calismaz."""
+    box = make_mbutton_dispatcher()
+    feed(box, MBUTTON, True, 0.0)
+    box._prefix_at = (500, 500)
+    feed(box, VK_WHEEL_UP, True, 0.1, momentary=True)
+    assert actions(feed(box, MBUTTON, False, 0.5)) == []
+
+
 # ---- onek + kaskad tusu cakismasi ----
 
 

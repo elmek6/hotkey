@@ -129,3 +129,36 @@ def test_disk_round_trip(clip):
     ctl.history.clear()
     assert ctl.load() == 1
     assert ctl.history.get(1).text == "diske yazilacak"
+
+
+def test_older_clip_walks_history(clip):
+    ctl, _ = clip
+    ctl.on_text("eski")
+    ctl.on_text("yeni")
+    assert ctl.older_clip("yeni") == "eski"
+    assert ctl.older_clip("eski") is None
+    assert ctl.older_clip("yok") == "yeni"
+
+
+def test_paste_then_previous_sends_paste_then_restores(clip, monkeypatch):
+    ctl, log = clip
+    ctl.on_text("eski")
+    ctl.on_text("yeni")
+    later: list = []
+
+    def fake_shot(ms, fn):
+        later.append((ms, fn))
+
+    monkeypatch.setattr("keypilot.clip_ctl.QTimer.singleShot", fake_shot)
+    monkeypatch.setattr(
+        "keypilot.clip_ctl.QGuiApplication.clipboard",
+        lambda: type("B", (), {"text": lambda self: "yeni"})(),
+    )
+    written: list[str] = []
+    ctl.watcher.set_text = lambda text, private=False: written.append(text)
+
+    ctl.paste_then_previous()
+    assert log.keys == ["send_key:^v"]
+    assert later and later[0][0] == 80
+    later[0][1]()
+    assert written == ["eski"]
