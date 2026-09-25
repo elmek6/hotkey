@@ -1385,6 +1385,11 @@ class KeyPilot:
     @command(Cmd.Menu.F13)
     def show_f13_menu(self, _argument: str = "") -> None:
         """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
+        # Kisa F13: menu oncesi orta tik. Enjekte (SendInput) -- kancamiz
+        # LLMHF_INJECTED olayi yutmaz; ~MButton eylemlerimiz tetiklenmez.
+        # Kapat: keymap.F13_SHORT_MIDDLE_CLICK = False (veya bu blogu yorumla).
+        if keymap.F13_SHORT_MIDDLE_CLICK:
+            send.click("middle")
         # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolonun basi o
         # anki pencereye bagli bloklar, sonu sabit kuyruk -- sira AHK
         # showF13menu ile ayni.

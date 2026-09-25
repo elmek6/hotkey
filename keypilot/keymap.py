@@ -10,7 +10,7 @@ Ileride JSON'a tasinacak yer de burasi (builder.def_from_dict hazir).
 
 Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
 
-    F13              kisa: acilir menu     basili tut: pano hizli menusu
+    F13              kisa: [orta tik] + acilir menu     basili tut: pano hizli menusu
     F14              kisa: slot menusu     surukle: ekran alani sec
     ^ (Caret)        kisa: `^` yazilir     basili tut: hizli panel (Slot sekmesi)
     Tab              kisa: Tab yazilir     basili tut: yan grup slotlari
@@ -133,6 +133,11 @@ VECTOR_STEP_PX = setting(
 )
 
 KEY_F13 = 0x7C  # jest tanimlari / testler icin; keynames tablosuyla ayni deger
+
+#: F13 kisa basimda menu ACILMADAN hemen once orta fare tusu gonderilir
+#: (tarayici yeni sekme, kaydirma-orta-tik, vb.). Kapatmak icin `False`
+#: ya da asagidaki satiri ve `show_f13_menu` icindeki cagriyi yorumla.
+F13_SHORT_MIDDLE_CLICK = True
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # ADI NEDEN "PROFIL" DEGIL: proje "profil" kelimesini UYGULAMA profilleri
@@ -496,7 +501,7 @@ def build_hotkeys() -> HotkeyTable:
     # --- F13: kisa basim menu, basili tutma pano hizli menusu ---
     # AHK handleF13: pt1 showF13menu, pt2 showQuickHistoryMenu. Kisa basim
     # tablodan, basili tutma prefix tanimindan geliyor.
-    table.add("F13", Cmd.Menu.F13, "kisa: menu")
+    table.add("F13", Cmd.Menu.F13, "kisa: orta tik + menu")
     # AHK handleF13: pt1 menu, pt2 pano menusu, pt4 (CIFT basim) gecmiste
     # arama -- `EM.enableDoubleClick()`. Cift basim tanimli oldugu icin kisa
     # basim eylemi bir sure BEKLETILIR (bkz. core/prefix.py).

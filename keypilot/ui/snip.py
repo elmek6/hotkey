@@ -9,8 +9,9 @@ uygulamaya kaza tiklamasi gitmez.
 **2. Ayar fazi.** Secim birakilinca:
 
     * 8 tutamac (koseler + kenar ortalari) secimi yeniden boyutlandirir
-    * cercevenin ICINDEN tutup surukleyince secim tasinir (modern secim
-      araclarindaki davranis; AHK'de ortadaki nokta bu isi yapiyordu)
+    * ORTA tutamac + cercevenin ici: komple tasima
+    * Tiklanan/suruklenen tutamac beyaz kalir; yon tuslari o kipe gore
+      1 piksel oynatir. Varsayilan: orta (tasima).
     * secimin disina tiklamak yeni secim baslatir
     * yanindaki cubuktan islem secilir
     * Esc iptal eder
@@ -90,6 +91,8 @@ VEIL = QColor(0, 0, 0, 90)  # AHK: DIM_ALPHA 90
 # notu). Ayni renk: ekranin geri kalaninda nadir, her zaman secilir.
 BORDER = QColor(220, 30, 40)
 FILL = QColor(220, 30, 40, 22)
+HANDLE = BORDER
+HANDLE_ACTIVE = QColor(255, 255, 255)  # secili tutamac: yon tusu kipi
 # Ayar fazinda secimin ici: gorunmez ama SIFIR DEGIL. Pencere katmanli
 # (WA_TranslucentBackground) oldugu icin tamamen saydam piksel fareyi alta
 # geciriyor; alfa 0 birakilirsa cercevenin ICINDEN tutup tasima calismaz.
@@ -113,6 +116,17 @@ class Grip(IntEnum):
     LEFT = 8
     MOVE = 9  # cercevenin ici: komple tasima
 
+
+#: Yon tusu izinleri. Kenar ortasi yalniz kendi ekseni; koseler iki eksen;
+#: MOVE dort yon (cercevenin tamami kayar).
+_ARROW_DELTA = {
+    Qt.Key.Key_Left: (-1, 0),
+    Qt.Key.Key_Right: (1, 0),
+    Qt.Key.Key_Up: (0, -1),
+    Qt.Key.Key_Down: (0, 1),
+}
+_HORIZONTAL = frozenset({Grip.LEFT, Grip.RIGHT})
+_VERTICAL = frozenset({Grip.TOP, Grip.BOTTOM})
 
 _CURSORS = {
     Grip.TOP_LEFT: Qt.CursorShape.SizeFDiagCursor,
@@ -171,6 +185,7 @@ class SnipOverlay(QWidget):
             | Qt.WindowType.Tool,
         )
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # Ayar fazinda (OCR+) ekran goruntusu CIZILMEZ -- alttaki uygulama
         # gorunmeli. Saydamlik olmadan boyanmayan alan pencerenin duz
         # arkaplaniyla, yani BEYAZLA doluyordu.
@@ -202,6 +217,8 @@ class SnipOverlay(QWidget):
         self._ocr_preview_rect = QRect()
         self._ocr_preview_text = ""
         self._grip = Grip.NONE  # su an suruklenen tutamac
+        self._selected_grip = Grip.NONE  # son tiklanan/cekilen (yon tuslari)
+        self._hover_grip = Grip.NONE  # imlecin uzerinde oldugu tutamac
         self._anchor = QPoint()  # surukleme baslangici
         self._rect_at_press = QRect()
         self._picking = False  # ilk secim suruklemesi mi
@@ -841,6 +858,8 @@ class SnipOverlay(QWidget):
         self._rect = QRect()
         self._reset_ocr_preview()
         self._grip = Grip.NONE
+        self._selected_grip = Grip.NONE
+        self._hover_grip = Grip.NONE
         self._picking = False
         self._panel.hide()
         self.clearMask()
@@ -976,15 +995,21 @@ class SnipOverlay(QWidget):
         rect = self._rect.normalized()
         if rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
             self._rect = QRect()
+            self._selected_grip = Grip.NONE
+            self._hover_grip = Grip.NONE
             self._update_mask()
             self.update()
             return
         self._rect = rect
+        # Yeni secimde tutamac yoksa orta (tasima) varsayilan aktif kip.
+        if self._selected_grip == Grip.NONE:
+            self._selected_grip = Grip.MOVE
         self._reset_ocr_preview()
         self._place_bar()
         self._update_mask()
         self._sync_toolbox()  # cift yon: cerceve -> kutular
         self.update()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
         if self.auto_action:
             action, self.auto_action = self.auto_action, ""
             self._finish(action)
@@ -1001,6 +1026,8 @@ class SnipOverlay(QWidget):
         self._panel.hide()
         self.clearMask()
         self._grip = Grip.NONE
+        self._selected_grip = Grip.NONE
+        self._hover_grip = Grip.NONE
         self._picking = True
         self._key_vk = self._start_vk
         self._key_held = self._start_held
@@ -1245,6 +1272,44 @@ class SnipOverlay(QWidget):
                 rect.setBottom(rect.bottom() + delta.y())
         self._rect = rect
 
+    def _active_grip(self) -> Grip:
+        """Yon tuslarinin ve beyaz tutamacin kipi: hover varsa o, yoksa son tik."""
+        if self._hover_grip != Grip.NONE:
+            return self._hover_grip
+        if self._selected_grip != Grip.NONE:
+            return self._selected_grip
+        return Grip.MOVE if not self._rect.normalized().isEmpty() else Grip.NONE
+
+    def _nudge(self, dx: int, dy: int) -> bool:
+        """Aktif tutamaca gore secimi 1 piksel oynatir. Izin yoksa False."""
+        if self._picking or self._rect.normalized().isEmpty():
+            return False
+        grip = self._active_grip()
+        if grip == Grip.NONE:
+            return False
+        if grip in _HORIZONTAL:
+            dy = 0
+        elif grip in _VERTICAL:
+            dx = 0
+        if dx == 0 and dy == 0:
+            return False
+        self._grip = grip
+        self._rect_at_press = QRect(self._rect.normalized())
+        self._anchor = QPoint(0, 0)
+        self._apply_grip(QPoint(dx, dy))
+        self._grip = Grip.NONE
+        rect = self._rect.normalized()
+        if rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
+            self._rect = QRect(self._rect_at_press)
+            return False
+        self._rect = rect
+        self._selected_grip = grip
+        self._place_bar()
+        self._update_mask()
+        self._sync_toolbox()
+        self.update()
+        return True
+
     def _place_bar(self) -> None:
         """Paneli secimin altina (sigmiyorsa ustune) yerlestirir.
 
@@ -1296,9 +1361,13 @@ class SnipOverlay(QWidget):
                 return  # ayar fazinda maske disi zaten bize gelmez
             # Bos alana basildi: yeni secim baslar.
             self._picking = True
+            self._selected_grip = Grip.NONE
+            self._hover_grip = Grip.NONE
             self._rect = QRect(pos, pos)
             self._panel.hide()
         else:
+            self._selected_grip = self._grip
+            self._hover_grip = self._grip
             self._rect_at_press = QRect(self._rect.normalized())
             self._panel.hide()
             self._update_mask()
@@ -1316,8 +1385,11 @@ class SnipOverlay(QWidget):
             self._update_mask()
             self.update()
             return
-        # Surukleme yok: imlec sekli tutamaca gore.
+        # Surukleme yok: imlec sekli tutamaca gore; hover aktif kipi gosterir.
         grip = self._grip_at(pos)
+        if grip != self._hover_grip:
+            self._hover_grip = grip
+            self.update()
         if grip == Grip.NONE:
             self.setCursor(
                 Qt.CursorShape.ArrowCursor if self._session else Qt.CursorShape.CrossCursor
@@ -1346,6 +1418,11 @@ class SnipOverlay(QWidget):
         if event.key() == Qt.Key.Key_Escape:
             self.close()
             return
+        delta = _ARROW_DELTA.get(event.key())
+        if delta is not None and not event.modifiers():
+            if self._nudge(*delta):
+                event.accept()
+                return
         # FARENIN KOPYALA TUSU. F20 kaskadi kisa basimda `^c` gonderiyor
         # (keymap.build_cascades) ve o tus, secim penceresi ondeyken bize
         # geliyordu -- ama burada Ctrl+C'nin bir anlami yoktu, tus hicbir
@@ -1363,6 +1440,12 @@ class SnipOverlay(QWidget):
             self._finish("copy")
             return
         super().keyPressEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if self._grip == Grip.NONE and self._hover_grip != Grip.NONE:
+            self._hover_grip = Grip.NONE
+            self.update()
+        super().leaveEvent(event)
 
     def paintEvent(self, _event) -> None:
         rect = self._rect.normalized()
@@ -1409,10 +1492,12 @@ class SnipOverlay(QWidget):
         painter.drawRect(rect)
 
         # Tutamaclar. Ilk surukleme sirasinda gosterilmez; cok kucuk secimde
-        # ust uste binerler (AHK: GRIP_MIN).
+        # ust uste binerler (AHK: GRIP_MIN). Aktif kip beyaz.
         if not self._picking and min(rect.width(), rect.height()) >= GRIP_MIN:
-            painter.setBrush(BORDER)
-            for point in self._grip_points(rect):
+            active = self._active_grip()
+            painter.setPen(QPen(BORDER, 1))
+            for grip, point in self._grip_handles(rect):
+                painter.setBrush(HANDLE_ACTIVE if grip == active else HANDLE)
                 painter.drawRect(
                     point.x() - HANDLE_PX, point.y() - HANDLE_PX,
                     HANDLE_PX * 2, HANDLE_PX * 2,
@@ -1429,12 +1514,18 @@ class SnipOverlay(QWidget):
         painter.end()
 
     @staticmethod
-    def _grip_points(rect: QRect) -> tuple[QPoint, ...]:
+    def _grip_handles(rect: QRect) -> tuple[tuple[Grip, QPoint], ...]:
         cx, cy = rect.center().x(), rect.center().y()
         return (
-            rect.topLeft(), QPoint(cx, rect.top()), rect.topRight(),
-            QPoint(rect.right(), cy), rect.bottomRight(), QPoint(cx, rect.bottom()),
-            rect.bottomLeft(), QPoint(rect.left(), cy),
+            (Grip.TOP_LEFT, rect.topLeft()),
+            (Grip.TOP, QPoint(cx, rect.top())),
+            (Grip.TOP_RIGHT, rect.topRight()),
+            (Grip.RIGHT, QPoint(rect.right(), cy)),
+            (Grip.BOTTOM_RIGHT, rect.bottomRight()),
+            (Grip.BOTTOM, QPoint(cx, rect.bottom())),
+            (Grip.BOTTOM_LEFT, rect.bottomLeft()),
+            (Grip.LEFT, QPoint(rect.left(), cy)),
+            (Grip.MOVE, QPoint(cx, cy)),
         )
 
     def closeEvent(self, event) -> None:

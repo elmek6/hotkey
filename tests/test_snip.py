@@ -6,9 +6,11 @@ gercek masaustunu aliyor, Qt'nin gorunur pencereye ihtiyaci yok.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
+
+from keypilot.ui.snip import Grip, SnipOverlay
 
 
 def _ctrl_c(widget) -> None:
@@ -81,4 +83,87 @@ def test_ocr_hover_paneli_solda_metin_sagda_diller(qapp):
     assert snip._ocr_expand.isVisible()
     labels = [child.text() for child in snip._ocr_expand.findChildren(QPushButton)]
     assert "En" in labels and "Tr" in labels and "De" in labels
+    snip.close()
+
+
+def _arrow(widget, key) -> None:
+    QApplication.sendEvent(
+        widget,
+        QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier),
+    )
+
+
+def _click(widget, pos: QPoint) -> None:
+    point = QPointF(pos)
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        point,
+        point,
+        point,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(widget, press)
+    release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        point,
+        point,
+        point,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(widget, release)
+
+
+def test_secim_bitince_orta_tutamac_varsayilan_ve_cizilir(qapp):
+    snip = _open_bar(qapp)
+    assert snip._selected_grip == Grip.MOVE
+    grips = {grip for grip, _point in SnipOverlay._grip_handles(snip._rect)}
+    assert Grip.MOVE in grips
+    assert len(grips) == 9
+    snip.close()
+
+
+def test_yon_tuslari_ortayi_1px_kaydirir(qapp):
+    snip = _open_bar(qapp)
+    before = QRect(snip._rect)
+    _arrow(snip, Qt.Key.Key_Right)
+    assert snip._rect.left() == before.left() + 1
+    assert snip._rect.width() == before.width()
+    assert snip._rect.height() == before.height()
+    snip.close()
+
+
+def test_sol_tutamac_yalniz_yatay_yon_tuslari(qapp):
+    snip = _open_bar(qapp)
+    snip._selected_grip = Grip.LEFT
+    snip._hover_grip = Grip.NONE
+    before = QRect(snip._rect)
+    _arrow(snip, Qt.Key.Key_Up)
+    assert snip._rect == before
+    _arrow(snip, Qt.Key.Key_Left)
+    assert snip._rect.left() == before.left() - 1
+    assert snip._rect.top() == before.top()
+    snip.close()
+
+
+def test_ust_tutamac_yalniz_dikey_yon_tuslari(qapp):
+    snip = _open_bar(qapp)
+    snip._selected_grip = Grip.TOP
+    snip._hover_grip = Grip.NONE
+    before = QRect(snip._rect)
+    _arrow(snip, Qt.Key.Key_Right)
+    assert snip._rect == before
+    _arrow(snip, Qt.Key.Key_Up)
+    assert snip._rect.top() == before.top() - 1
+    snip.close()
+
+
+def test_kenar_tutamacina_tiklamak_kipi_secer(qapp):
+    snip = _open_bar(qapp)
+    rect = snip._rect.normalized()
+    _click(snip, QPoint(rect.left(), rect.center().y()))
+    assert snip._selected_grip == Grip.LEFT
     snip.close()
