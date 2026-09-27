@@ -4,6 +4,8 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCursor, QFont, QGuiApplication
 from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
+from keypilot.core.hot_vectors import Cell
+
 
 class GestureOverlay(QWidget):
     """Basili gesture tusu icin gecici, odak almayan yon overlay'i."""
@@ -42,17 +44,17 @@ class GestureOverlay(QWidget):
             """
         )
 
-        self._phase = ""
-        self._direction = ""
-        self._labels: dict[str, str] = {}
-        self._counts: dict[str, str] = {}
+        self._phase: Cell | None = None
+        self._direction: Cell | None = None
+        self._labels: dict[Cell, str] = {}
+        self._counts: dict[Cell, str] = {}
         self._expired = False
 
         self._timeout = QTimer(self)
         self._timeout.setSingleShot(True)
         self._timeout.timeout.connect(self._expire)
 
-        self._tiles: dict[str, QLabel] = {}
+        self._tiles: dict[Cell, QLabel] = {}
         self._grid = QGridLayout(self)
         self._s_span = False
         self._create_tiles()
@@ -69,27 +71,23 @@ class GestureOverlay(QWidget):
         for i in range(4):
             layout.setRowStretch(i, 1)
 
-        self._tiles["U"] = self._create_tile()
-        self._tiles["L"] = self._create_tile()
-        self._tiles["P"] = self._create_tile()
-        self._tiles["S"] = self._create_tile()
-        self._tiles["R"] = self._create_tile()
-        self._tiles["D"] = self._create_tile()
+        for cell in (Cell.UP, Cell.LEFT, Cell.P, Cell.S, Cell.RIGHT, Cell.DOWN):
+            self._tiles[cell] = self._create_tile()
 
-        layout.addWidget(self._tiles["U"], 0, 1)
-        layout.addWidget(self._tiles["L"], 1, 0, 2, 1)
-        layout.addWidget(self._tiles["P"], 1, 1)
-        layout.addWidget(self._tiles["S"], 2, 1)
-        layout.addWidget(self._tiles["R"], 1, 2, 2, 1)
-        layout.addWidget(self._tiles["D"], 3, 1)
+        layout.addWidget(self._tiles[Cell.UP], 0, 1)
+        layout.addWidget(self._tiles[Cell.LEFT], 1, 0, 2, 1)
+        layout.addWidget(self._tiles[Cell.P], 1, 1)
+        layout.addWidget(self._tiles[Cell.S], 2, 1)
+        layout.addWidget(self._tiles[Cell.RIGHT], 1, 2, 2, 1)
+        layout.addWidget(self._tiles[Cell.DOWN], 3, 1)
 
     def _place_center(self, s_only: bool) -> None:
         """S ikinci asamada P+S hucrelerini kaplar."""
         if s_only == self._s_span:
             return
         self._s_span = s_only
-        p_tile = self._tiles["P"]
-        s_tile = self._tiles["S"]
+        p_tile = self._tiles[Cell.P]
+        s_tile = self._tiles[Cell.S]
         self._grid.removeWidget(p_tile)
         self._grid.removeWidget(s_tile)
         if s_only:
@@ -105,10 +103,10 @@ class GestureOverlay(QWidget):
 
     def update_state(
         self,
-        phase: str = "",
-        direction: str = "",
-        labels: dict[str, str] | None = None,
-        counts: dict[str, str] | None = None,
+        phase: Cell | None = None,
+        direction: Cell | None = None,
+        labels: dict[Cell, str] | None = None,
+        counts: dict[Cell, str] | None = None,
     ) -> None:
         if self._expired:
             return
@@ -129,18 +127,18 @@ class GestureOverlay(QWidget):
 
     def begin(
         self,
-        phase: str,
-        labels: dict[str, str],
+        phase: Cell | None,
+        labels: dict[Cell, str],
     ) -> None:
         self._expired = False
         self._timeout.stop()
         if self.ACTIVE_SECONDS > 0:
             self._timeout.start(int(self.ACTIVE_SECONDS * 1000))
-        self.update_state(phase, "", labels, {})
+        self.update_state(phase, None, labels, {})
 
     def clear_state(self) -> None:
-        self._phase = ""
-        self._direction = ""
+        self._phase = None
+        self._direction = None
         self._labels.clear()
         self._counts.clear()
         self._expired = False
@@ -153,28 +151,26 @@ class GestureOverlay(QWidget):
         self.hide()
 
     def _refresh(self) -> None:
-        locked = self._direction in "UDLR" and bool(self._direction)
-        allowed_axes = None
-        if self._direction in ("U", "D"):
-            allowed_axes = {"U", "D"}
-        elif self._direction in ("L", "R"):
-            allowed_axes = {"L", "R"}
+        direction = self._direction
+        axis = direction if direction is not None and direction.is_direction else None
+        locked = axis is not None
 
-        s_only = not locked and self._phase == "S"
+        s_only = not locked and self._phase == Cell.S
         self._place_center(s_only)
 
         for name, tile in self._tiles.items():
-            if name in "ULRD":
+            if name.is_direction:
+                # Kilitli yon varsa yalniz onun ekseni gorunur.
                 visible = name in self._labels and (
-                    allowed_axes is None or name in allowed_axes
+                    axis is None or name.vertical == axis.vertical
                 )
-                is_active = visible and name == self._direction
-            elif name == "P":
-                visible = not locked and self._phase != "S"
-                is_active = visible and self._phase == "P"
+                is_active = visible and name == direction
+            elif name == Cell.P:
+                visible = not locked and self._phase != Cell.S
+                is_active = visible and self._phase == Cell.P
             else:
                 visible = not locked
-                is_active = visible and self._phase == "S"
+                is_active = visible and self._phase == Cell.S
             tile.setVisible(visible)
             if not visible:
                 continue
@@ -182,7 +178,7 @@ class GestureOverlay(QWidget):
             label = self._labels.get(name) or name
             value = self._counts.get(name, "")
 
-            if name in "ULRD":
+            if name.is_direction:
                 if is_active and value:
                     text = f"{label}\n{value}"
                 else:
@@ -194,7 +190,7 @@ class GestureOverlay(QWidget):
                 )
             else:
                 text = label
-                font = QFont("Segoe UI", 22 if s_only and name == "S" else 14)
+                font = QFont("Segoe UI", 22 if s_only and name == Cell.S else 14)
 
             tile.setText(text)
             tile.setFont(font)

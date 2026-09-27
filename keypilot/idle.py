@@ -6,6 +6,8 @@ Kullanici backtick menusunden dakikayi degistirir, etiket saat:dakika gosterir.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 TICK_MINUTES = 5
 IDLE_INTERVAL_MS = TICK_MINUTES * 60 * 1000
 WORK_MINUTES = 8 * 60
@@ -28,9 +30,16 @@ def clock_label(minutes: int) -> str:
     return f"{hours}:{mins:02d}"
 
 
-def startup_minutes(computer: str) -> int:
-    return WORK_MINUTES if computer == "work" else HOME_MINUTES
+class Computer(StrEnum):
+    """Hangi bilgisayar -- `keymap.current_computer` karar verir."""
+
+    WORK = "work"
+    HOME = "home"
 
 
-def should_open_outlook(computer: str) -> bool:
-    return computer == "work"
+def startup_minutes(computer: Computer) -> int:
+    return WORK_MINUTES if computer == Computer.WORK else HOME_MINUTES
+
+
+def should_open_outlook(computer: Computer) -> bool:
+    return computer == Computer.WORK

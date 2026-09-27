@@ -26,6 +26,7 @@ from keypilot.core.filter import FilterItem
 from keypilot.store import PASSWORD_SLOT, Slot, SlotStore, slot_display
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.slot_edit import SlotEditDialog
+from keypilot.win32.menu import Icon
 
 
 class SlotController:
@@ -48,7 +49,7 @@ class SlotController:
         self._filter = show_filter
         self._send_key = send_key
         #: Acik duzenleme kutusu -- referansi tutulmazsa kapaniyor.
-        self._editor = None
+        self._editor: SlotEditDialog | None = None
 
     def register(self, runner) -> None:
         """Eylem kimlikleri -- AHK'de bunlar dogrudan fonksiyon referansiydi."""
@@ -169,11 +170,14 @@ class SlotController:
         dialog = SlotEditDialog(index, slot.name, slot.content, proposed)
         dialog.accepted.connect(lambda: self._store_slot(group, index, dialog.values()))
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        dialog.destroyed.connect(lambda: setattr(self, "_editor", None))
+        dialog.destroyed.connect(self._forget_editor)
         self._editor = dialog
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+
+    def _forget_editor(self) -> None:
+        self._editor = None
 
     def _store_slot(self, group: str, index: int, values: tuple[str, str]) -> None:
         """Duzenleme kutusunun Save'i. Ad ve icerik BIRLIKTE yaziliyor."""
@@ -333,10 +337,10 @@ class SlotController:
         spec: tuple = (
             ("Unformatted paste", Cmd.send_key("^+v")),
             None,
-            ("Clipboard images", Cmd.Clip.IMAGES, "res:109"),  # gorsel
-            ("Window screenshot", Cmd.send_key("!PrintScreen"), "shell:196"),
+            ("Clipboard images", Cmd.Clip.IMAGES, Icon.res(109)),  # gorsel
+            ("Window screenshot", Cmd.send_key("!PrintScreen"), Icon.shell(196)),
             None,
-            ("QR kod", Cmd.Qr.SHOW, "res:252"),  # dama deseni kareler
+            ("QR kod", Cmd.Qr.SHOW, Icon.res(252)),  # dama deseni kareler
             ("Area", keymap.screen_menu()),
             ("System", keymap.SYSTEM_MENU),
             ("Special keys", keymap.SPECIAL_KEYS_MENU),

@@ -58,9 +58,10 @@ class MacroView(QWidget):
         self.slots.currentIndexChanged.connect(self._on_slot_change)
 
         self.types = QComboBox()
-        for kind in macro.REC_TYPES:
+        kinds = list(macro.RecType)
+        for kind in kinds:
             self.types.addItem(macro.RECORD_TYPE.label_for(kind), kind)
-        self.types.setCurrentIndex(macro.REC_TYPES.index(str(macro.RECORD_TYPE.get())))
+        self.types.setCurrentIndex(kinds.index(macro.RECORD_TYPE.get()))
 
         top = QHBoxLayout()
         top.addWidget(self.slots, 1)
@@ -148,8 +149,8 @@ class MacroView(QWidget):
         self.slots.setCurrentIndex(max(0, index))
         self.slots.blockSignals(False)
         self.name.setText(macro.slot_name(self.slot()))
-        self.record_window.setChecked(bool(macro.RECORD_WINDOW.get()))
-        self.activate_window.setChecked(bool(macro.ACTIVATE_WINDOW.get()))
+        self.record_window.setChecked(macro.RECORD_WINDOW.get())
+        self.activate_window.setChecked(macro.ACTIVATE_WINDOW.get())
 
     def slot(self) -> int:
         return int(self.slots.currentData() or 1)

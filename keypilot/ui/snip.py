@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap, QRegion
@@ -68,6 +68,9 @@ from keypilot.areas import (
     Area,
     AreaStore,
     Rule,
+    RuleDo,
+    RuleTo,
+    RuleWhen,
     default_name,
 )
 from keypilot.commands import Id
@@ -75,11 +78,6 @@ from keypilot.ui.key_capture import KeyCapture
 from keypilot.win32 import menu as win32_menu
 from keypilot.win32.ocr import OCR_LANGUAGES
 from keypilot.win32.screen import grab_virtual
-
-#: Hedef klasor soran `to` degerleri (oteki hedeflerde alan gizlenir).
-PATH_TARGETS = frozenset({"file", "py"})
-#: Aranan metin isteyen `when` degerleri.
-NEEDS_TEXT = frozenset({"contains", "missing"})
 
 HANDLE_PX = 4  # tutamac karesinin yarim kenari
 GRIP_PX = 8  # tutamaca "isabet etti" sayilan mesafe (AHK: GRAB_TOL)
@@ -209,8 +207,9 @@ class SnipOverlay(QWidget):
         #: ici olacak.
         self.store = AreaStore()
         self.store.load()
-        #: Cubugun kipi: "screen" (piksel islemleri) / "area" (alan kaydi).
-        self._mode = "screen"
+        #: Area paneli acik mi: kapaliyken cubuk piksel islemleri (screen),
+        #: acikken alan kaydi da yapilir.
+        self._area_shown = False
         #: Toolbox'ta kayitli olandan farkli bir sey yazili mi -- kapanirken
         #: "saklansin mi?" sorusu buna bakiyor.
         self._dirty = False
@@ -495,11 +494,11 @@ class SnipOverlay(QWidget):
         grid.setContentsMargins(0, 6, 0, 0)
         grid.setHorizontalSpacing(10)
 
-        self._rule_lists = {}
-        for column, (title, choices, attr) in enumerate((
-            ("Ne alinacak", DO_CHOICES, "do"),
-            ("Nereye alinacak", TO_CHOICES, "to"),
-            ("Nasil alinacak", WHEN_CHOICES, "when"),
+        lists: list[QListWidget] = []
+        for column, (title, choices) in enumerate((
+            ("Ne alinacak", DO_CHOICES),
+            ("Nereye alinacak", TO_CHOICES),
+            ("Nasil alinacak", WHEN_CHOICES),
         )):
             grid.addWidget(QLabel(title, box), 0, column)
             widget = QListWidget(box)
@@ -510,7 +509,8 @@ class SnipOverlay(QWidget):
             widget.setCurrentRow(0)
             widget.currentRowChanged.connect(self._refresh_rule)
             grid.addWidget(widget, 1, column)
-            self._rule_lists[attr] = widget
+            lists.append(widget)
+        self._do_list, self._to_list, self._when_list = lists
 
         # Hedef KLASOR: dosya adini kural kendisi uretiyor
         # (`YYYYMMDD_HHmmss`), kullanici yalniz nereye yazilacagini secer.
@@ -592,15 +592,19 @@ class SnipOverlay(QWidget):
         if chosen:
             self._path_edit.setText(chosen)
 
-    def _rule_value(self, attr: str) -> str:
-        item = self._rule_lists[attr].currentItem()
-        return item.data(Qt.ItemDataRole.UserRole) if item else ""
+    @staticmethod
+    def _choice[E: StrEnum](widget: QListWidget, kind: type[E]) -> E:
+        """Listede secili kimlik. Qt veriyi duz dizge olarak geri veriyor."""
+        item = widget.currentItem()
+        return kind(item.data(Qt.ItemDataRole.UserRole)) if item else next(iter(kind))
 
     def _fill_rule(self, rule: Rule) -> None:
         """Kutulari verilen kuraldan doldurur."""
-        for attr in ("do", "to", "when"):
-            widget = self._rule_lists[attr]
-            wanted = getattr(rule, attr)
+        for widget, wanted in (
+            (self._do_list, rule.do),
+            (self._to_list, rule.to),
+            (self._when_list, rule.when),
+        ):
             for row in range(widget.count()):
                 if widget.item(row).data(Qt.ItemDataRole.UserRole) == wanted:
                     widget.setCurrentRow(row)
@@ -612,14 +616,14 @@ class SnipOverlay(QWidget):
         self._refresh_rule()
 
     def _current_rule(self) -> Rule:
-        to = self._rule_value("to")
-        when = self._rule_value("when")
+        to = self._choice(self._to_list, RuleTo)
+        when = self._choice(self._when_list, RuleWhen)
         return Rule(
-            do=self._rule_value("do"),
+            do=self._choice(self._do_list, RuleDo),
             to=to,
-            path=self._path_edit.text().strip() if to in PATH_TARGETS else "",
+            path=self._path_edit.text().strip() if to.needs_path else "",
             when=when,
-            text=self._text_edit.text().strip() if when in NEEDS_TEXT else "",
+            text=self._text_edit.text().strip() if when.needs_text else "",
             key=self._rule_key.spec,
             every=self._rule_every.value(),
         )
@@ -630,8 +634,8 @@ class SnipOverlay(QWidget):
         "Panoya" secilmisken klasor kutusu duruyorsa kullanici onu
         doldurmasi gerektigini sanar; gereksiz alan soru isareti uretir.
         """
-        needs_path = self._rule_value("to") in PATH_TARGETS
-        needs_text = self._rule_value("when") in NEEDS_TEXT
+        needs_path = self._choice(self._to_list, RuleTo).needs_path
+        needs_text = self._choice(self._when_list, RuleWhen).needs_text
         for widget in (self._path_label, self._path_edit, self._path_button):
             widget.setVisible(needs_path)
         for widget in (self._text_label, self._text_edit):
@@ -656,16 +660,16 @@ class SnipOverlay(QWidget):
 
     def _toggle_mode(self) -> None:
         """Area panelini acar/kapatir. Kapatirken kaydedilmemis is sorulur."""
-        if self._mode == "area" and not self._confirm_discard():
+        if self._area_shown and not self._confirm_discard():
             return
-        self._mode = "area" if self._mode == "screen" else "screen"
-        if self._mode == "area":
+        self._area_shown = not self._area_shown
+        if self._area_shown:
             self._fill_toolbox()
         self._apply_mode()
 
     def _apply_mode(self) -> None:
         """Acici dugmenin gorunumu ve panelin gorunurlugu."""
-        area = self._mode == "area"
+        area = self._area_shown
         self._mode_button.setText("\u25be Area" if area else "\u25b8 Area")
         self._mode_button.setProperty("on", area)
         # Qt, ozellik degisince stil sayfasini kendiliginden tazelemiyor.
@@ -721,7 +725,7 @@ class SnipOverlay(QWidget):
 
     def _sync_toolbox(self) -> None:
         """Cerceve degisti: kutulari CERCEVEDEN tazele (cift yonun bir yonu)."""
-        if self._mode != "area" or self._syncing:
+        if not self._area_shown or self._syncing:
             return
         self._syncing = True
         box = self._screen_rect()
@@ -1550,7 +1554,7 @@ class SnipOverlay(QWidget):
         if not self._confirm_discard():
             event.ignore()
             return
-        self._mode = "screen"
+        self._area_shown = False
         self._apply_mode()
         self._session = False
         self._key_timer.stop()

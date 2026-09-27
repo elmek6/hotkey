@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 
-from keypilot.core.hot_vectors import Direction
+from keypilot.core.hot_vectors import Cell, Direction
 from keypilot.core.keynames import key_name, vk_from_name
 
 
@@ -130,21 +130,21 @@ class CascadeDef:
         return tuple((c.key_text, c.desc) for c in self.combos)
 
     @property
-    def overlay_center(self) -> dict[str, str]:
+    def overlay_center(self) -> dict[Cell, str]:
         """P/S etiketleri: gesture_center override, yoksa MEDIUM/LONG main_labels."""
         if self.gesture_center is not None:
             p_label, s_label = self.gesture_center
-            out: dict[str, str] = {}
+            out: dict[Cell, str] = {}
             if p_label:
-                out["P"] = p_label
+                out[Cell.P] = p_label
             if s_label:
-                out["S"] = s_label
+                out[Cell.S] = s_label
             return out
         out = {}
         if PressType.MEDIUM in self.main_labels:
-            out["P"] = self.main_labels[PressType.MEDIUM]
+            out[Cell.P] = self.main_labels[PressType.MEDIUM]
         if PressType.LONG in self.main_labels:
-            out["S"] = self.main_labels[PressType.LONG]
+            out[Cell.S] = self.main_labels[PressType.LONG]
         return out
 
 

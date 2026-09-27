@@ -7,8 +7,9 @@ callback'inin icinde calisan kod.
 
 import queue
 
-from keypilot.core.cascade import CascadeMachine
-from keypilot.core.hot_vectors import Direction, HotVectors
+from keypilot.commands import Cmd
+from keypilot.core.cascade import CascadeMachine, HideGesture, ShowGesture, UpdateGesture
+from keypilot.core.hot_vectors import Cell, Direction, HotVectors
 from keypilot.core.hotkey import HotkeyTable
 from keypilot.core.keynames import VK_WHEEL_UP, register_name
 from keypilot.dispatch import Dispatcher
@@ -263,7 +264,7 @@ def test_surukleme_bir_kez_tetiklenir():
 def make_mbutton_dispatcher() -> Dispatcher:
     table = (
         HotkeyTable()
-        .add("~MButton", "memslots.paste:middle")
+        .add("~MButton", Cmd.Memslots.PASTE_MIDDLE)
         .prefix(
             "~MButton",
             passthrough=True,
@@ -548,10 +549,10 @@ def test_turkce_asamasi_onek_basiliyken_atlanir():
 def test_tilde_ile_yazilan_tus_yutulmaz_ama_eylem_calisir():
     """`~MButton` -- orta tus her yerde isini gorur, eylem de calisir."""
     box = make_dispatcher()
-    box.hotkeys.add("~MButton", "memslots.paste:middle")
+    box.hotkeys.add("~MButton", Cmd.Memslots.PASTE_MIDDLE)
     swallow, acts = feed(box, MBUTTON, True, 0.0)
     assert swallow is False
-    assert [a.action for a in acts] == ["memslots.paste:middle"]
+    assert [a.action for a in acts] == [Cmd.Memslots.PASTE_MIDDLE]
     # Birakma da yutulmaz: basim listemize hic girmedi.
     assert feed(box, MBUTTON, False, 0.1)[0] is False
 
@@ -738,11 +739,11 @@ def test_nobetci_thread_olunce_olu_der(monkeypatch):
     assert box.looks_dead(10.0) is True
 
 
-def _overlay_descs(box) -> list[str]:
+def _overlay_events(box) -> list[ShowGesture | UpdateGesture | HideGesture]:
     return [
-        item.desc
+        item
         for item in _drain(box.actions)
-        if getattr(item, "action", None) == "gesture.overlay"
+        if isinstance(item, ShowGesture | UpdateGesture | HideGesture)
     ]
 
 
@@ -773,14 +774,14 @@ def test_f13_basinca_overlay_acilmaz_short_sonra_acilir(monkeypatch):
     monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
     box = make_f13_gesture_dispatcher()
     feed(box, F13, True, 0.0)
-    assert _overlay_descs(box) == []  # hemen show YOK
+    assert _overlay_events(box) == []  # hemen show YOK
     box.tick(0.1)
-    assert _overlay_descs(box) == []  # short esigi (350ms) gecmedi
+    assert _overlay_events(box) == []  # short esigi (350ms) gecmedi
     box.tick(0.4)
-    descs = _overlay_descs(box)
-    assert descs
-    assert descs[0].startswith("show|")
-    assert descs[0].split("|")[1] == "P"
+    events = _overlay_events(box)
+    assert events
+    assert isinstance(events[0], ShowGesture)
+    assert events[0].phase == Cell.P
 
 
 def test_f13_f14_kombo_overlay_kapanir(monkeypatch):
@@ -794,7 +795,7 @@ def test_f13_f14_kombo_overlay_kapanir(monkeypatch):
     _drain(box.actions)
     combo = feed(box, F14, True, 0.45)
     assert actions(combo) == ["magnifier.toggle"]
-    assert any(desc == "hide" for desc in _overlay_descs(box))
+    assert any(isinstance(event, HideGesture) for event in _overlay_events(box))
     assert not box.gestures.watching
 
 
@@ -808,7 +809,9 @@ def test_ikinci_asamada_s_gelir_jest_baslayinca_faz_kesilir(monkeypatch):
     feed(box, F13, True, 0.0)
     _drain(box.actions)
     box.tick(0.8)
-    assert any(desc.startswith("show|") and "|S|" in desc for desc in _overlay_descs(box))
+    assert any(
+        isinstance(event, ShowGesture) and event.phase == Cell.S for event in _overlay_events(box)
+    )
     box._freeze_at = (100, 100)
     box._gesture_at = (100, 100)
 
@@ -822,7 +825,7 @@ def test_ikinci_asamada_s_gelir_jest_baslayinca_faz_kesilir(monkeypatch):
     assert box.gestures.fired(F13)
     _drain(box.actions)
     box.tick(1.2)
-    assert _overlay_descs(box) == []
+    assert _overlay_events(box) == []
 
 
 def test_f18_jest_overlay_short_sonra_acilir(monkeypatch):
@@ -849,10 +852,12 @@ def test_f18_jest_overlay_short_sonra_acilir(monkeypatch):
         menu_open=lambda: False,
     )
     box.key_filter(_Key(F18, True, 0.0))
-    assert _overlay_descs(box) == []
+    assert _overlay_events(box) == []
     box.tick(0.4)
-    descs = _overlay_descs(box)
-    assert any(desc.startswith("show|") and "L=Del" in desc for desc in descs)
+    events = _overlay_events(box)
+    assert any(
+        isinstance(event, ShowGesture) and event.labels.get(Cell.LEFT) == "Del" for event in events
+    )
 
 
 def _rclick(t: float, down: bool = True):

@@ -44,17 +44,17 @@ from keypilot.commands import Cmd
 from keypilot.core import turkish
 from keypilot.core.builder import CascadeDef, KeyBuilder, PressType
 from keypilot.core.hot_vectors import (
-    LOCK_AXIS,
-    LOCK_DIRECTION,
-    LOCK_MODES,
+    Cell,
     Direction,
     HotVectors,
+    LockMode,
 )
 from keypilot.core.hotkey import HotkeyTable
 from keypilot.core.keynames import register_name
+from keypilot.idle import Computer
 from keypilot.settings import Category, between, setting
 from keypilot.win32 import send
-from keypilot.win32.menu import CHECKED, COLUMN
+from keypilot.win32.menu import CHECKED, COLUMN, Icon
 
 # AHK hot_vectors.ahk: prefDirThreshold / prefStepSize. Ivme carpani
 # (prefAcceleration) PORT EDILMEDI -- AHK 3.0 da kaldirmisti, duz piksel
@@ -75,10 +75,10 @@ VECTOR_LOCK_PX = setting(
 VECTOR_LOCK_MODE = setting(
     "hotVector.lockMode",
     "Jest kilidi",
-    default=LOCK_AXIS,
-    choices=LOCK_MODES,
-    labels={LOCK_AXIS: "eksen", LOCK_DIRECTION: "yon"},
-    legacy={"eksen": LOCK_AXIS, "yon": LOCK_DIRECTION},
+    default=LockMode.AXIS,
+    choices=tuple(LockMode),
+    labels={LockMode.AXIS: "eksen", LockMode.DIRECTION: "yon"},
+    legacy={"eksen": LockMode.AXIS, "yon": LockMode.DIRECTION},
     category=Category.GESTURE,
     tags="fare vektor jest eksen yon kilit",
     desc=(
@@ -145,13 +145,13 @@ F13_SHORT_MIDDLE_CLICK = True
 # Iki kavramin ortak hicbir yani yok; ayni kelime menude, log'da ve tepsi
 # ipucunda yan yana geldiginde "hangi profil" diye sormak gerekiyordu.
 WORK_COMPUTERS = ("LAPTOP-UTN6L5PA",)
-COMPUTER_LABELS = {"work": "🏢 Work", "home": "🏠 Home"}
+COMPUTER_LABELS = {Computer.WORK: "🏢 Work", Computer.HOME: "🏠 Home"}
 
 
-def current_computer() -> str:
-    """Bu bilgisayar `work` mu `home` mu (AHK ile ayni olcut)."""
+def current_computer() -> Computer:
+    """Bu bilgisayar is mi ev mi (AHK ile ayni olcut)."""
     name = platform.node().strip().upper()
-    return "work" if name in {item.upper() for item in WORK_COMPUTERS} else "home"
+    return Computer.WORK if name in {item.upper() for item in WORK_COMPUTERS} else Computer.HOME
 
 
 #: Win+WASD sanal fare tuslari. Menu de tablo da BU listeyi okuyor: iki yerde
@@ -298,12 +298,12 @@ def screen_menu() -> tuple:
 #: kullanmiyor, o yuzden emoji hep tek renk (siyah/beyaz) cikiyor.
 F13_MENU = (
     # ---- 1. KOLON: pano, ekran goruntusu, OCR (AHK showF13menu) ----
-    ("Clipboard history win", Cmd.send_key("#v"), "res:243"),  # panodan pencereye
+    ("Clipboard history win", Cmd.send_key("#v"), Icon.res(243)),  # panodan pencereye
     None,
     # Secim/OCR/buyutec maddeleri BURADA YOK: hepsi fare tuslarina bagli
     # (F14 surukleme = alan secimi, cubuktan OCR; F13&F14 = buyutec).
     # Menude ikinci bir yol tutmak ayni isi iki yerde bakim ettiriyordu.
-    ("Hafiza bloklari", Cmd.Memslots.START, "res:30"),  # bellek cubugu
+    ("Hafiza bloklari", Cmd.Memslots.START, Icon.res(30)),  # bellek cubugu
     None,
     ("Macro recorder", Cmd.Macro.RECORDER),
     # ---- 2. KOLON: aktif pencere profili, araclar, hep ustte ----
@@ -659,7 +659,7 @@ def build_hotkeys() -> HotkeyTable:
     # memory_slots.ahk `smartPaste`). Ikisi de `~` ile: orta tus ve Insert
     # her yerde calisan tuslar, YUTULMAMALI -- eylem pencere kapaliyken
     # zaten hicbir sey yapmiyor. ---
-    table.add("~MButton", Cmd.Memslots.PASTE("middle"), "memslots: akilli yapistir")
+    table.add("~MButton", Cmd.Memslots.PASTE_MIDDLE, "memslots: akilli yapistir")
     # Hareketsiz basili tutma: short sonrasi yapistir+Enter, long sonrasi
     # hepsini sec + yapistir + Enter. Imlec oynarsa iptal (orta tik / kaydirma).
     table.prefix(
@@ -732,11 +732,16 @@ def scroll_lock_menu(layout: int, enabled: bool = False) -> tuple:
 
 def build_gestures() -> HotVectors:
     """CascadeDef.gesture satirlarindan HotVectors kurar (tek kaynak)."""
-    tracker = HotVectors(step_px=float(VECTOR_STEP_PX.get()), lock_px=float(VECTOR_LOCK_PX.get()))
-    VECTOR_STEP_PX.subscribe(lambda value, _old: setattr(tracker, "step_px", float(str(value))))
-    VECTOR_LOCK_PX.subscribe(lambda value, _old: setattr(tracker, "lock_px", float(str(value))))
-    tracker.lock_mode = str(VECTOR_LOCK_MODE.get())
-    VECTOR_LOCK_MODE.subscribe(lambda value, _old: setattr(tracker, "lock_mode", str(value)))
+    tracker = HotVectors()
+
+    def apply(*_changed: object) -> None:
+        tracker.step_px = VECTOR_STEP_PX.get()
+        tracker.lock_px = VECTOR_LOCK_PX.get()
+        tracker.lock_mode = VECTOR_LOCK_MODE.get()
+
+    apply()
+    for item in (VECTOR_STEP_PX, VECTOR_LOCK_PX, VECTOR_LOCK_MODE):
+        item.subscribe(apply)
     for definition in build_cascades().values():
         _harvest_gestures(tracker, definition)
     return tracker
@@ -754,5 +759,5 @@ def _harvest_gestures(tracker: HotVectors, definition: CascadeDef) -> None:
         )
     center = definition.overlay_center
     if center:
-        tracker.center(definition.key, center.get("P", ""), center.get("S", ""))
+        tracker.center(definition.key, center.get(Cell.P, ""), center.get(Cell.S, ""))
     tracker.set_visible(definition.key, definition.gesture_visible)

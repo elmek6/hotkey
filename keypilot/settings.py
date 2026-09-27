@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -93,23 +94,27 @@ class Kind(StrEnum):
     STR = "str"
 
 
-class Setting:
-    """Tek bir ayar. `get`/`set`, degisince aboneleri uyarir."""
+class Setting[T]:
+    """Tek bir ayar. `get`/`set`, degisince aboneleri uyarir.
+
+    `T` varsayilandan cikarilir: `setting(..., default=10)` bir
+    `Setting[int]`, `get()` de `int` doner.
+    """
 
     def __init__(
         self,
         key: str,
         name: str,
-        default,
+        default: T,
         category: Category = Category.GENERAL,
         kind: Kind | None = None,
         tags: str = "",
         desc: str = "",
-        choices: tuple = (),
-        labels: dict | None = None,
-        legacy: dict | None = None,
-        validate: Callable[[object], str] | None = None,
-        on_change: Callable[[object, object], None] | None = None,
+        choices: tuple[T, ...] = (),
+        labels: dict[T, str] | None = None,
+        legacy: dict[str, T] | None = None,
+        validate: Callable[[T], str] | None = None,
+        on_change: Callable[[T, T], None] | None = None,
         hidden: bool = False,
         info: str = "",
     ) -> None:
@@ -122,11 +127,11 @@ class Setting:
         self.desc = desc
         self.choices = tuple(choices)
         #: enum kimligi -> ekranda gorunen ad. Bos ise kimlik gosterilir.
-        self.labels: dict = dict(labels or {})
+        self.labels: dict[T, str] = dict(labels or {})
         #: dosyada duran ESKI deger -> yeni kimlik. Kimlige gecmeden once
         #: settings.json'a gorunen metin yaziliyordu; kullanicinin secimi
         #: bir surum gecisinde varsayilana dusmesin.
-        self.legacy: dict = dict(legacy or {})
+        self.legacy: dict[str, T] = dict(legacy or {})
         self.validate = validate
         #: Ayar ekraninda degerin YANINDA duran kisa bilgi ("0=yok 500-60000ms").
         #: Verilmezse `between` dogrulayicisinin sinirlarindan turetiliyor;
@@ -138,8 +143,8 @@ class Setting:
         #: Iki yerden degistirilebilen ayar kullanicida "hangisi gecerli"
         #: sorusu birakiyordu.
         self.hidden = hidden
-        self._value = default
-        self._subs: list[Callable[[object, object], None]] = []
+        self._value: T = default
+        self._subs: list[Callable[[T, T], None]] = []
         if on_change is not None:
             self._subs.append(on_change)
 
@@ -147,13 +152,11 @@ class Setting:
         """Deger kutusunun yanindaki kisa bilgi -- yoksa bos."""
         if self.info:
             return self.info
-        limits = getattr(self.validate, "limits", None)
-        if not limits:
-            return ""
-        low, high, unit = limits
-        return f"{low}-{high}{' ' + unit if unit else ''}"
+        if isinstance(self.validate, Between):
+            return self.validate.span
+        return ""
 
-    def label_for(self, value) -> str:
+    def label_for(self, value: T) -> str:
         """enum kimliginin ekranda gorunen adi."""
         return self.labels.get(value, str(value))
 
@@ -171,35 +174,32 @@ class Setting:
             return Kind.FLOAT
         return Kind.STR
 
-    def get(self) -> Any:
-        """Ayarin o anki degeri.
-
-        Donus `Any`: bir ayarin tipi TANIMINDAN geliyor (bool/int/float/
-        str/enum) ve `Setting` bunu tip duzeyinde tasimiyor. `object`
-        dondurmek her cagri yerinde `int(...)`/`float(...)` sarmalarini
-        tip hatasi yapiyordu -- hepsi sahte, cunku `coerce` degeri zaten
-        tanimlanan tipe zorluyor.
-        """
+    def get(self) -> T:
+        """Ayarin o anki degeri -- `coerce` onu tanimdaki tipe zorluyor."""
         return self._value
 
     def is_changed(self) -> bool:
         return self._value != self.default
 
-    def set(self, value) -> str:
-        """`""` = basarili, dolu string = ret gerekcesi (AHK ile ayni)."""
-        value, ok = self.coerce(value)
+    def set(self, value: object) -> str:
+        """`""` = basarili, dolu string = ret gerekcesi (AHK ile ayni).
+
+        `object` alir: ayar ekrani kutudaki METNI veriyor, `coerce` tipe
+        cevirir ya da reddeder.
+        """
+        coerced, ok = self.coerce(value)
         if not ok:
             return f"Gecersiz deger: {self.name}"
         if self.validate is not None:
-            message = self.validate(value)
+            message = self.validate(coerced)
             if message:
                 return message
         old = self._value
-        if old == value:
+        if old == coerced:
             return ""
-        self._value = value
+        self._value = coerced
         SETTINGS.dirty = True
-        self.notify(value, old)
+        self.notify(coerced, old)
         return ""
 
     def toggle(self) -> str:
@@ -208,23 +208,27 @@ class Setting:
     def reset(self) -> str:
         return self.set(self.default)
 
-    def subscribe(self, callback: Callable[[object, object], None]) -> Callable:
+    def subscribe(self, callback: Callable[[T, T], None]) -> Callable[[T, T], None]:
         self._subs.append(callback)
         return callback
 
-    def unsubscribe(self, callback: Callable) -> None:
+    def unsubscribe(self, callback: Callable[[T, T], None]) -> None:
         if callback in self._subs:
             self._subs.remove(callback)
 
-    def notify(self, value, old) -> None:
+    def notify(self, value: T, old: T) -> None:
         for callback in self._subs:
             try:
                 callback(value, old)
             except Exception:  # dinleyici hatasi ayari geri almamali
                 log.exception("Ayar dinleyicisi hatasi: %s", self.key)
 
-    def coerce(self, value) -> tuple[object, bool]:
-        """Elle duzenlenmis json'a karsi: tip tutmuyorsa (varsayilan, False)."""
+    def coerce(self, value: Any) -> tuple[Any, bool]:
+        """Elle duzenlenmis json'a karsi: tip tutmuyorsa (varsayilan, False).
+
+        Donus `Any`: dal `type_of()`a gore secildigi icin deger `T`dir ama
+        bunu tip denetleyicisine kanitlamak her dalda `cast` demek.
+        """
         kind = self.type_of()
         if kind == Kind.BOOL:
             if isinstance(value, bool):
@@ -244,7 +248,12 @@ class Setting:
                 return self.default, False
         if kind == Kind.ENUM:
             value = self.legacy.get(value, value)
-            return (value, True) if value in self.choices else (self.default, False)
+            # Dosyadaki duz dizge yerine TANIMDAKI secenek: `StrEnum` ile
+            # tanimlanan ayar `get()`te enum uyesi dondursun.
+            for choice in self.choices:
+                if choice == value:
+                    return choice, True
+            return self.default, False
         return str(value), True
 
 
@@ -252,14 +261,14 @@ class Registry:
     """AHK: `class Settings`. Kayit defteri, json okuma/yazma, arama."""
 
     def __init__(self) -> None:
-        self.all: list[Setting] = []
-        self.by_key: dict[str, Setting] = {}
-        self.tree: dict[Category, list[Setting]] = {}
+        self.all: list[Setting[Any]] = []
+        self.by_key: dict[str, Setting[Any]] = {}
+        self.tree: dict[Category, list[Setting[Any]]] = {}
         self.dirty = False
         #: Tanimi yuklu olmayan anahtarlar -- geri yazilsinlar diye duruyor.
         self.orphans: dict[str, object] = {}
 
-    def register(self, item: Setting) -> Setting:
+    def register[T](self, item: Setting[T]) -> Setting[T]:
         if item.key in self.by_key:
             raise ValueError(f"Ayar anahtari iki kez tanimlanmis: {item.key}")
         self.by_key[item.key] = item
@@ -377,7 +386,8 @@ class Registry:
 SETTINGS = Registry()
 
 
-def between(low, high, unit: str = ""):
+@dataclass(frozen=True, slots=True)
+class Between:
     """Aralik dogrulayicisi. Ret gerekcesi ayar ekraninda kutunun saginda
     kirmizi olarak gorunuyor, o yuzden BIRIMI de tasiyor: "0-500 arasi
     olmali" ile "0-500 ms arasi olmali" ayni cumle degil.
@@ -385,20 +395,28 @@ def between(low, high, unit: str = ""):
     Tek tek yazilan `lambda v: "" if 0 <= v <= 500 else "..."` satirlarinin
     yerine geciyor: sinir ile gerekce metni ayri yerlerde durunca biri
     degisip oteki eski kaliyordu.
+
+    Ayar ekrani sinirlari OKUYOR: deger kutusunun yanindaki bilgi buradan
+    turetiliyor (bkz. `Setting.info_text`). Kapanisin icine gomulseydi her
+    ayar araligini bir de elle yazmak zorunda kalirdi.
     """
 
-    def check(value) -> str:
-        if low <= value <= high:
-            return ""
-        return f"{low}-{high}{' ' + unit if unit else ''} arasi olmali"
+    low: float
+    high: float
+    unit: str = ""
 
-    #: Ayar ekrani sinirlari OKUYOR: deger kutusunun yanindaki bilgi buradan
-    #: turetiliyor (bkz. `Setting.info_text`). Kapanisin icine gomulseydi
-    #: her ayar araligini bir de elle yazmak zorunda kalirdi.
-    check.limits = (low, high, unit)
-    return check
+    @property
+    def span(self) -> str:
+        return f"{self.low}-{self.high}{' ' + self.unit if self.unit else ''}"
+
+    def __call__(self, value) -> str:
+        return "" if self.low <= value <= self.high else f"{self.span} arasi olmali"
 
 
-def setting(key: str, name: str, default, **kwargs) -> Setting:
+def between(low: float, high: float, unit: str = "") -> Between:
+    return Between(low, high, unit)
+
+
+def setting[T](key: str, name: str, default: T, **kwargs: Any) -> Setting[T]:
     """Tanimla ve kaydet -- modullerin cagirdigi tek fonksiyon."""
     return SETTINGS.register(Setting(key, name, default, **kwargs))

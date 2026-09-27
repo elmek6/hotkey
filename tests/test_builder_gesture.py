@@ -1,7 +1,7 @@
 """KeyBuilder jest / etiket / harvest."""
 
 from keypilot.core.builder import KeyBuilder, PressType
-from keypilot.core.hot_vectors import Direction, HotVectors
+from keypilot.core.hot_vectors import Cell, Direction, HotVectors
 from keypilot.keymap import _harvest_gestures, build_cascades, build_gestures
 
 
@@ -14,7 +14,7 @@ def test_main_key_etiketli():
     )
     assert definition.main[PressType.MEDIUM] == "send_key:Backspace"
     assert definition.main_labels[PressType.MEDIUM] == "Back"
-    assert definition.overlay_center == {"P": "Back", "S": "Home"}
+    assert definition.overlay_center == {Cell.P: "Back", Cell.S: "Home"}
 
 
 def test_gesture_every_ve_visible():
@@ -26,7 +26,7 @@ def test_gesture_every_ve_visible():
     )
     assert definition.gestures[0].every == 5
     assert definition.gesture_visible is False
-    assert definition.overlay_center == {"P": "Back", "S": "Home"}
+    assert definition.overlay_center == {Cell.P: "Back", Cell.S: "Home"}
 
 
 def test_f13_jest_tek_kaynak_makineye_girmez():
@@ -45,9 +45,9 @@ def test_f18_harvest_p_s():
     f18 = cascades[0x81]
     tracker = HotVectors()
     _harvest_gestures(tracker, f18)
-    assert tracker.labels(0x81)["L"] == "Del"
-    assert tracker.labels(0x81)["P"] == "Back"
-    assert tracker.labels(0x81)["S"] == "Home"
+    assert tracker.labels(0x81)[Cell.LEFT] == "Del"
+    assert tracker.labels(0x81)[Cell.P] == "Back"
+    assert tracker.labels(0x81)[Cell.S] == "Home"
     assert tracker.visible(0x81) is True
 
 

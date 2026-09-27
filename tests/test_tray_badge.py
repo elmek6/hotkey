@@ -47,7 +47,7 @@ def test_ipucu_UC_SATIR_surum_bilgisayar_ve_tiklamalar(qapp):
     # tek tik varsayilanda "hicbir sey": ipucunda da yer kaplamiyor
     assert t.toolTip().splitlines() == ["KeyPilot 1.2.0 - work", "dbClick = Pause/Play"]
 
-    tray.SINGLE_CLICK.set("restart")
+    tray.SINGLE_CLICK.set(tray.TrayAction.RESTART)
     try:
         # AYAR DEGISINCE ipucu da degisir -- yoksa yanlis bilgi asili kalir
         tip = t.toolTip()
@@ -101,7 +101,7 @@ def test_tek_tiklama_varsayilanda_hicbir_sey_yapmaz(qapp):
     t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
     assert calls == []
 
-    tray.SINGLE_CLICK.set("settings")
+    tray.SINGLE_CLICK.set(tray.TrayAction.SETTINGS)
     try:
         t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
         assert calls == ["settings"]
@@ -125,7 +125,7 @@ def test_isaretli_simgede_tek_tik_da_hatalari_acar(qapp):
         on_show_errors=lambda: calls.append("errors"),
     )
     t.set_error_count(1, severe=1)
-    tray.SINGLE_CLICK.set("pause")
+    tray.SINGLE_CLICK.set(tray.TrayAction.PAUSE)
     try:
         t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
         assert calls == ["errors"]

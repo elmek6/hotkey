@@ -54,7 +54,7 @@ class Sahte:
 
 
 def test_kayit_dosyaya_yazilir(ctl, files_dir):
-    ctl.start_record(1, macro.KEY)
+    ctl.start_record(1, macro.RecType.KEY)
     ctl.feed(key(65))
     ctl.feed(key(65, down=False))
     ctl.stop(1, "deneme")
@@ -65,7 +65,7 @@ def test_kayit_dosyaya_yazilir(ctl, files_dir):
 def test_esc_kaydi_bitirip_yazar(ctl, files_dir):
     """Kaydedici kendini durdurunca denetleyici diske yazmali."""
     ctl.view.name.setText("esc")
-    ctl.start_record(1, macro.KEY)
+    ctl.start_record(1, macro.RecType.KEY)
     ctl.feed(key(65))
     ctl.feed(key(macro.VK_ESCAPE))
     assert not ctl.recorder.recording
@@ -74,13 +74,13 @@ def test_esc_kaydi_bitirip_yazar(ctl, files_dir):
 
 
 def test_key_modunda_fare_beslemesi_yok_sayilir(ctl):
-    ctl.start_record(1, macro.KEY)
+    ctl.start_record(1, macro.RecType.KEY)
     ctl.feed(mouse(0x0201))
     assert ctl.recorder.events == []
 
 
 def test_hybrid_modunda_fare_kaydedilir(ctl):
-    ctl.start_record(1, macro.HYBRID)
+    ctl.start_record(1, macro.RecType.HYBRID)
     ctl.feed(mouse(0x0201))
     assert [e["e"] for e in ctl.recorder.events] == ["mouse"]
 
@@ -161,7 +161,7 @@ def test_dispatcher_yolundan_gelen_fare_kaydedilir(ctl):
     dispatcher.bounce_guard_left = False
     dispatcher.bounce_guard_middle = False
 
-    ctl.start_record(1, macro.HYBRID)
+    ctl.start_record(1, macro.RecType.HYBRID)
     dispatcher.mouse_filter(mouse(0x0201))  # WM_LBUTTONDOWN
     dispatcher.mouse_filter(mouse(0x0202))  # WM_LBUTTONUP
     while not seen.empty():

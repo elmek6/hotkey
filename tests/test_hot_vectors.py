@@ -6,7 +6,7 @@ Girdinin delta olmasinin sebebi: jest sirasinda imlec donduruluyor
 darbenin ne kadar ittigini soyluyor.
 """
 
-from keypilot.core.hot_vectors import LOCK_DIRECTION, Direction, HotVectors
+from keypilot.core.hot_vectors import Cell, Direction, HotVectors, LockMode
 
 F13, F14 = 0x7C, 0x7D
 
@@ -88,7 +88,7 @@ def test_eksen_kilitlenir():
 
 
 def test_eksen_kipinde_geri_hareket_ters_yonu_calistirir():
-    """Varsayilan `LOCK_AXIS`: eksen kilitlenir, o eksenin IKI yonu de canli
+    """Varsayilan `LockMode.AXIS`: eksen kilitlenir, o eksenin IKI yonu de canli
     kalir -- yukari surukleyip asagi donmek sesi kisar."""
     t = tracker()
     t.start(F13)
@@ -98,9 +98,9 @@ def test_eksen_kipinde_geri_hareket_ters_yonu_calistirir():
 
 
 def test_yon_kipinde_geri_hareket_adim_uretmez():
-    """`LOCK_DIRECTION`: yalniz ilk yon calisir, geri hareket olu."""
+    """`LockMode.DIRECTION`: yalniz ilk yon calisir, geri hareket olu."""
     t = tracker()
-    t.lock_mode = LOCK_DIRECTION
+    t.lock_mode = LockMode.DIRECTION
     t.start(F13)
     t.move(0, -100)
     assert t.move(0, 100) == []
@@ -109,14 +109,14 @@ def test_yon_kipinde_geri_hareket_adim_uretmez():
 def test_etiket_aciklama_yoksa_yon_adini_kullanir():
     t = HotVectors()
     t.register(F13, Direction.UP, "ses+")
-    assert t.labels(F13) == {"U": "yukari"}
+    assert t.labels(F13) == {Cell.UP: "yukari"}
 
 
 def test_merkez_etiketleri_p_s():
     t = HotVectors()
     t.register(F13, Direction.LEFT, "send_key:Delete", "Del")
     t.center(F13, "Back", "Home")
-    assert t.labels(F13) == {"L": "Del", "P": "Back", "S": "Home"}
+    assert t.labels(F13) == {Cell.LEFT: "Del", Cell.P: "Back", Cell.S: "Home"}
 
 
 def test_tanimsiz_yon_kilitlemez():

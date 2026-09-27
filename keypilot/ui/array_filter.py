@@ -129,7 +129,7 @@ class ArrayFilter(QWidget):
         # Ayarin penceredeki yuzu: kutu ile ayar ekrani ayni degeri gosterir
         # (ayar ekrani ayrica kalici kaydeder).
         self.keep_open = QCheckBox("Baska yere tiklayinca kapanmasin")
-        self.keep_open.setChecked(bool(KEEP_OPEN.get()))
+        self.keep_open.setChecked(KEEP_OPEN.get())
         self.keep_open.toggled.connect(KEEP_OPEN.set)
         self.table.setMouseTracking(True)
         self.table.viewport().setMouseTracking(True)

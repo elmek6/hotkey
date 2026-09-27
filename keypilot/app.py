@@ -38,10 +38,19 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from keypilot import autostart, dev, keymap, logs, paths, theme
 from keypilot.actions import ActionRunner, beep, command
-from keypilot.app_shorts import ShortcutStore, stroke_kind
+from keypilot.app_shorts import ShortcutStore, is_key_stroke
 from keypilot.clip_ctl import ClipController
 from keypilot.commands import Cmd
-from keypilot.core.cascade import Beep, CascadeMachine, CloseMenu, OpenMenu, Run
+from keypilot.core.cascade import (
+    Beep,
+    CascadeMachine,
+    CloseMenu,
+    HideGesture,
+    OpenMenu,
+    Run,
+    ShowGesture,
+    UpdateGesture,
+)
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
 from keypilot.idle import (
@@ -270,12 +279,12 @@ class KeyPilot:
         # tetiklenmesin.
         self.filter_window = ArrayFilter()
         self.filter_window.chosen.connect(self.clip.paste_text)
-        self.filter_window.closed.connect(lambda: setattr(self.dispatcher, "ui_open", False))
+        self.filter_window.closed.connect(lambda: self._set_ui_open(False))
         # Menu acikken dispatcher susmali: Win32 menusu kendi modal
         # dongusunu isletir, tuslar hook'a degil MENUYE gitmeli.
         self.menu = PopupMenu(
             self.runner.run,
-            set_ui_open=lambda state: setattr(self.dispatcher, "ui_open", state),
+            set_ui_open=self._set_ui_open,
         )
 
         # AHK: App.Magnifier. Magnify.exe bir kez acilir ve acik kalir;
@@ -370,28 +379,15 @@ class KeyPilot:
         )
         # AHK hot_vectors.ahk `__New`: ayarlar dinleniyor. Imlec dondurma
         # kararini dispatcher veriyor, o yuzden buradan baglaniyor.
-        self.dispatcher.freeze_cursor = bool(keymap.VECTOR_FREEZE.get())
-        keymap.VECTOR_FREEZE.subscribe(
-            lambda value, _old: setattr(self.dispatcher, "freeze_cursor", bool(value))
-        )
-        self.dispatcher.drag_px = int(keymap.VECTOR_IGNORE_PX.get())
-        keymap.VECTOR_IGNORE_PX.subscribe(
-            lambda value, _old: setattr(self.dispatcher, "drag_px", int(value))
-        )
-        # Arizali fare filtresi tus basina aciliyor: bir dugme yipranirken
-        # otekinin filtresini kapatmak gerekmesin.
-        self.dispatcher.bounce_guard_left = bool(keymap.BOUNCE_LEFT.get())
-        keymap.BOUNCE_LEFT.subscribe(
-            lambda value, _old: setattr(self.dispatcher, "bounce_guard_left", bool(value))
-        )
-        self.dispatcher.bounce_guard_middle = bool(keymap.BOUNCE_MIDDLE.get())
-        keymap.BOUNCE_MIDDLE.subscribe(
-            lambda value, _old: setattr(self.dispatcher, "bounce_guard_middle", bool(value))
-        )
-        self.dispatcher.button_as_modifier = bool(keymap.BUTTON_AS_MODIFIER.get())
-        keymap.BUTTON_AS_MODIFIER.subscribe(
-            lambda value, _old: setattr(self.dispatcher, "button_as_modifier", bool(value))
-        )
+        self._apply_dispatch_settings()
+        for item in (
+            keymap.VECTOR_FREEZE,
+            keymap.VECTOR_IGNORE_PX,
+            keymap.BOUNCE_LEFT,
+            keymap.BOUNCE_MIDDLE,
+            keymap.BUTTON_AS_MODIFIER,
+        ):
+            item.subscribe(self._apply_dispatch_settings)
         # Sanal fare kombolari TABLODA duruyor (bkz. keymap.build_hotkeys):
         # ayar degisince tablo yeniden kurulmali. Abonelik burada, cunku
         # ayar tepsi menusunden de ayar EKRANINDAN da degisebiliyor -- iki
@@ -438,8 +434,9 @@ class KeyPilot:
         self.runner.register(Cmd.Memslots.SAVE_SLOT, lambda n: self.mem_slots.save_slot(int(n)))
         # AHK smartPaste(middlePressed): orta tus / Insert ile gelen cagri
         # yapistirdiktan sonra siradaki kayda gecer, tus kombosu gecmez.
+        self.runner.register(Cmd.Memslots.PASTE, lambda _: self.mem_slots.smart_paste())
         self.runner.register(
-            Cmd.Memslots.PASTE, lambda arg: self.mem_slots.smart_paste(arg == "middle")
+            Cmd.Memslots.PASTE_MIDDLE, lambda _: self.mem_slots.smart_paste(middle=True)
         )
         # Kural penceresi acilirken hook susmali (tus yakalanacak), kural
         # kisayolu da kayit defterine tutulmali: ikisi de app.py'nin isi,
@@ -621,8 +618,19 @@ class KeyPilot:
         self.dispatcher.ui_open = True
         self.filter_window.show_items(items, title)
 
+    def _apply_dispatch_settings(self, *_changed: object) -> None:
+        """Dispatcher'in ayardan gelen alanlari -- kurulusta ve her degisimde."""
+        dispatcher = self.dispatcher
+        dispatcher.freeze_cursor = keymap.VECTOR_FREEZE.get()
+        dispatcher.drag_px = keymap.VECTOR_IGNORE_PX.get()
+        # Arizali fare filtresi tus basina aciliyor: bir dugme yipranirken
+        # otekinin filtresini kapatmak gerekmesin.
+        dispatcher.bounce_guard_left = keymap.BOUNCE_LEFT.get()
+        dispatcher.bounce_guard_middle = keymap.BOUNCE_MIDDLE.get()
+        dispatcher.button_as_modifier = keymap.BUTTON_AS_MODIFIER.get()
+
     def _set_ui_open(self, state: bool) -> None:
-        """Snip'in kancasi: pencere acikken dusuk seviye hook sussun."""
+        """Kendi penceremiz (menu, liste, snip) acikken dusuk seviye hook sussun."""
         self.dispatcher.ui_open = state
 
     def _bind_area_rule(self, owner: str, spec: str, area_name: str, index: int) -> str:
@@ -700,7 +708,7 @@ class KeyPilot:
             self._key_map_view = KeyMapView()
             # `ui_open` acik kalirsa hook susar ve pencere kapandiktan
             # sonra HICBIR kisayol calismaz; kapanis sinyali sart.
-            self._key_map_view.closed.connect(lambda: setattr(self.dispatcher, "ui_open", False))
+            self._key_map_view.closed.connect(lambda: self._set_ui_open(False))
         self.dispatcher.ui_open = True
         self._key_map_view.show_rows(tuple(rows))
 
@@ -1108,7 +1116,7 @@ class KeyPilot:
 
         Diziler SIRAYLA gonderilir. AHK'nin tek `Send`i yerine iki yol var:
         modifierla baslayan ya da `{...}` iceren dizi kisayol, geri kalani
-        duz metin (bkz. app_shorts.stroke_kind).
+        duz metin (bkz. app_shorts.is_key_stroke).
         """
         profile_name, _, index = argument.rpartition("/")
         shortcut = self.shorts.shortcut(profile_name, int(index) if index.isdigit() else -1)
@@ -1116,7 +1124,7 @@ class KeyPilot:
             self.tip.show_html("⚠️ <b>kisayol bulunamadi</b>", 1500)
             return
         for stroke in shortcut.strokes:
-            if stroke_kind(stroke) == "key":
+            if is_key_stroke(stroke):
                 self.runner.run(Cmd.send_key(stroke))
             else:
                 send.type_text(stroke)
@@ -1696,9 +1704,6 @@ class KeyPilot:
 
     def _apply(self, action) -> None:
         if isinstance(action, Run):
-            if action.action == Cmd.Gesture.OVERLAY:
-                self._apply_gesture_overlay(action)
-                return
             self.runner.run(action.action)
         elif isinstance(action, Beep):
             beep(action.freq, action.ms)
@@ -1706,27 +1711,17 @@ class KeyPilot:
             self.tip.show_menu(action.title, action.items)
         elif isinstance(action, CloseMenu):
             self.tip.hide()
-
-    def _apply_gesture_overlay(self, action: Run) -> None:
-        parts = action.desc.split("|")
-        if not parts or parts[0] == "hide":
+        elif isinstance(action, ShowGesture):
+            self.gesture_overlay.begin(action.phase, action.labels)
+        elif isinstance(action, UpdateGesture):
+            counts = (
+                {action.direction: f"+{action.steps}"}
+                if action.direction is not None and action.steps
+                else None
+            )
+            self.gesture_overlay.update_state(action.phase, action.direction, counts=counts)
+        elif isinstance(action, HideGesture):
             self.gesture_overlay.clear_state()
-            return
-        phase = parts[1] if len(parts) > 1 else ""
-        direction = parts[2] if len(parts) > 2 else ""
-        steps = parts[3] if len(parts) > 3 and parts[3] else ""
-        encoded_labels = parts[4] if len(parts) > 4 else ""
-        labels = {
-            key: value
-            for item in encoded_labels.split(";")
-            if "=" in item
-            for key, value in (item.split("=", 1),)
-        }
-        counts = {direction: f"+{steps}"} if direction and steps else None
-        if parts[0] == "show":
-            self.gesture_overlay.begin(phase, labels)
-        else:
-            self.gesture_overlay.update_state(phase, direction, labels or None, counts)
 
     # ---- yasam dongusu ----
 
@@ -1927,7 +1922,7 @@ class KeyPilot:
         self.shorts.load()
         self.bind_profile_keys()
         computer = keymap.current_computer()
-        label = keymap.COMPUTER_LABELS.get(computer, computer)
+        label = keymap.COMPUTER_LABELS[computer]
         log.info("bilgisayar: %s (%s)", computer, platform.node())
         self.set_idle_minutes(startup_minutes(computer))
         if should_open_outlook(computer):

@@ -136,6 +136,7 @@ class Cmd:
         _generate_next_value_ = _prefix("memslots")
         START = auto()
         PASTE = auto()
+        PASTE_MIDDLE = auto()
         PASTE_ENTER = auto()
         PASTE_SLOT = auto()
         PASTE_HIST = auto()
@@ -202,10 +203,6 @@ class Cmd:
         _generate_next_value_ = _prefix("mouse")
         MOVE = auto()
         CLICK = auto()
-
-    class Gesture(Id):
-        _generate_next_value_ = _prefix("gesture")
-        OVERLAY = auto()
 
     class Run(Id):
         """Noktasiz kosucu adlari (`tip`, `click_then`, `button_down`)."""

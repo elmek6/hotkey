@@ -81,7 +81,7 @@ class MacroController(QObject):
 
     def start_record(self, slot: int, record_type: str) -> None:
         self._slot = slot
-        self.recorder.start(record_type)
+        self.recorder.start(macro.RecType(record_type))
         self._pending = True
         if macro.RECORD_WINDOW.get():
             self._window_timer.start(100)

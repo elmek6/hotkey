@@ -49,6 +49,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 
 from keypilot import paths
@@ -67,11 +68,32 @@ MIN_GAP_MS = 250
 #: kullanicinin kontrolunden cikiyor, cikis yolu her zaman acik olmali.
 VK_ESCAPE = 0x1B
 
-#: Kayit turu -- AHK `recType`. Kimlik, ekranda gorunen ad degil.
-KEY = "key"
-MOUSE = "mouse"
-HYBRID = "hybrid"
-REC_TYPES = (KEY, MOUSE, HYBRID)
+class RecType(StrEnum):
+    """Kayit turu -- AHK `recType`. Kimlik, ekranda gorunen ad degil."""
+
+    KEY = "key"
+    MOUSE = "mouse"
+    HYBRID = "hybrid"
+
+
+class Event(StrEnum):
+    """Kayit satirinin `"e"` alani -- dosyaya bu degerler yazilir."""
+
+    META = "meta"
+    KEY = "key"
+    TEXT = "text"
+    MOUSE = "mouse"
+    WHEEL = "wheel"
+    WINDOW = "window"
+
+
+class MouseMode(StrEnum):
+    """Oynatmada tiklama koordinati neye gore (bkz. `Player._mouse`)."""
+
+    SCREEN = "screen"
+    WINDOW = "window"
+    RELATIVE = "relative"
+
 
 #: Fare dugmesi VK'lari (`send.MOUSE_VK_NAMES` ile ayni adlar). Hook bize
 #: mesaj numarasi veriyor, kayda ADI yaziyoruz: dosya okunabilir kalsin.
@@ -130,8 +152,8 @@ SPEED_UP = setting(
 MOUSE_MODE = setting(
     "macro.mouseMode",
     "Fare koordinat modu",
-    default="window",
-    choices=("screen", "window", "relative"),
+    default=MouseMode.WINDOW,
+    choices=tuple(MouseMode),
     category=Category.MACRO,
     tags="macro fare koordinat",
     desc="Tiklamalarin ekrana mi, pencereye mi, onceki noktaya gore mi oynatilacagi",
@@ -139,9 +161,13 @@ MOUSE_MODE = setting(
 RECORD_TYPE = setting(
     "macro.recordType",
     "Kayit turu",
-    default=KEY,
-    choices=REC_TYPES,
-    labels={KEY: "Yalniz klavye", MOUSE: "Yalniz fare", HYBRID: "Klavye + fare"},
+    default=RecType.KEY,
+    choices=tuple(RecType),
+    labels={
+        RecType.KEY: "Yalniz klavye",
+        RecType.MOUSE: "Yalniz fare",
+        RecType.HYBRID: "Klavye + fare",
+    },
     category=Category.MACRO,
     tags="macro kayit tur klavye fare",
     desc="Kayit ekranindaki acilir listenin baslangic degeri (AHK: recType)",
@@ -176,7 +202,7 @@ def write(path: Path, events: Iterable[dict], name: str = "") -> None:
     """Ilk satir meta, sonrasi olaylar."""
     paths.ensure_files_dir()
     meta = {
-        "e": "meta",
+        "e": Event.META,
         "name": name,
         "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -204,7 +230,7 @@ def read(path: Path) -> tuple[str, list[dict]]:
             continue
         if not isinstance(item, dict):
             continue
-        if item.get("e") == "meta":
+        if item.get("e") == Event.META:
             name = str(item.get("name", ""))
             continue
         events.append(item)
@@ -237,7 +263,7 @@ def slot_label(slot: int) -> str:
 
 def iter_slots() -> Iterator[tuple[int, str]]:
     """(slot, etiket) -- GUI'deki slot listesi."""
-    for slot in range(1, int(SLOT_COUNT.get()) + 1):
+    for slot in range(1, SLOT_COUNT.get() + 1):
         yield slot, slot_label(slot)
 
 
@@ -288,16 +314,16 @@ class Recorder:
         self._rect = rect or _foreground_rect
         self.events: list[dict] = []
         self.recording = False
-        self.record_type = KEY
+        self.record_type = RecType.KEY
         self._last_t = 0.0
         self._started = 0.0
         self._last_window: tuple[str, str] | None = None
         self._last_point = (0, 0)
 
-    def start(self, record_type: str = "") -> None:
+    def start(self, record_type: RecType | None = None) -> None:
         self.events = []
         self.recording = True
-        self.record_type = record_type or str(RECORD_TYPE.get())
+        self.record_type = record_type if record_type is not None else RECORD_TYPE.get()
         self._started = self._last_t = self._clock()
         self._last_window = None
         self._last_point = (0, 0)
@@ -320,9 +346,9 @@ class Recorder:
         if event.vk == VK_ESCAPE:
             self.stop()
             return
-        if self.record_type == MOUSE:
+        if self.record_type == RecType.MOUSE:
             return
-        self._push({"e": "key", "vk": event.vk, "down": bool(event.down)}, event.t)
+        self._push({"e": Event.KEY, "vk": event.vk, "down": bool(event.down)}, event.t)
 
     def feed_mouse(self, event) -> None:
         """`hook.MouseEvent`. Hareket kaydedilmez -- yalniz dugme ve
@@ -331,12 +357,12 @@ class Recorder:
         olayin kendi koordinatinda."""
         if not self.recording or event.injected or event.ours:
             return
-        if self.record_type == KEY:
+        if self.record_type == RecType.KEY:
             return
         if event.message in (WM_MOUSEWHEEL, WM_MOUSEHWHEEL):
             self._push(
                 {
-                    "e": "wheel",
+                    "e": Event.WHEEL,
                     "delta": int(event.data),
                     "horizontal": event.message == WM_MOUSEHWHEEL,
                 },
@@ -354,7 +380,7 @@ class Recorder:
         self._last_point = (event.x, event.y)
         self._push(
             {
-                "e": "mouse",
+                "e": Event.MOUSE,
                 "btn": button,
                 "down": down,
                 "x": event.x,
@@ -377,7 +403,7 @@ class Recorder:
         if current == self._last_window:
             return
         self._last_window = current
-        self._push({"e": "window", "class": current[0], "title": current[1]}, self._clock())
+        self._push({"e": Event.WINDOW, "class": current[0], "title": current[1]}, self._clock())
 
     def _push(self, event: dict, t: float) -> None:
         event["dt"] = self._gap_ms(t)
@@ -432,8 +458,8 @@ class Player:
 
     def play(self, events: Iterable[dict], repeat: int = 1) -> int:
         """Oynatilan olay sayisi. Kesilirse o ana kadarki sayi doner."""
-        key_delay = int(KEY_DELAY.get())
-        speed_up = float(SPEED_UP.get())
+        key_delay = KEY_DELAY.get()
+        speed_up = SPEED_UP.get()
         items = list(events)
         done = 0
         self.playing = True
@@ -453,22 +479,22 @@ class Player:
     def _apply(self, event: dict) -> bool:
         """Girdi gonderildiyse True (arkasina `keyDelay` girer)."""
         kind = event.get("e")
-        if kind == "key":
+        if kind == Event.KEY:
             vk = int(event.get("vk", 0))
             if event.get("down"):
                 self.sender.key_down(vk)
             else:
                 self.sender.key_up(vk)
             return True
-        if kind == "text":
+        if kind == Event.TEXT:
             self.sender.type_text(str(event.get("s", "")))
             return True
-        if kind == "mouse":
+        if kind == Event.MOUSE:
             return self._mouse(event)
-        if kind == "wheel":
+        if kind == Event.WHEEL:
             self.sender.wheel(int(event.get("delta", 0)), bool(event.get("horizontal")))
             return True
-        if kind == "window":
+        if kind == Event.WINDOW:
             return self._window(event)
         log.debug("makro: bilinmeyen olay atlandi: %r", kind)
         return False
@@ -480,12 +506,12 @@ class Player:
         window    o anki pencerenin sol-ustune goreli -- pencere tasinsa da tutar
         relative  bir onceki tiklamadan sapma -- imlecin bulundugu yere gore
         """
-        mode = str(MOUSE_MODE.get())
-        if mode == "relative":
+        mode = MOUSE_MODE.get()
+        if mode == MouseMode.RELATIVE:
             self.sender.move_relative(int(event.get("dx", 0)), int(event.get("dy", 0)))
         else:
             x, y = int(event.get("x", 0)), int(event.get("y", 0))
-            if mode == "window":
+            if mode == MouseMode.WINDOW:
                 left, top, _r, _b = self.rect()
                 x, y = left + int(event.get("wx", 0)), top + int(event.get("wy", 0))
             self.sender.set_cursor_pos(x, y)

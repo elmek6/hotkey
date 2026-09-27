@@ -8,6 +8,7 @@ kucuk tablolarini yaziyordu.
 
 from keypilot import keymap
 from keypilot.commands import Cmd
+from keypilot.core.hot_vectors import Cell
 from keypilot.win32.menu import COLUMN
 
 
@@ -28,8 +29,8 @@ def test_kaskadlar_ve_jestler_kurulur():
     assert (keymap.KEY_F13, Direction.UP) in gestures.defs
     assert (0x80, Direction.LEFT) in gestures.defs  # F17
     assert (0x81, Direction.LEFT) in gestures.defs  # F18
-    assert gestures.labels(0x81)["P"] == "Back"
-    assert gestures.labels(0x81)["S"] == "Home"
+    assert gestures.labels(0x81)[Cell.P] == "Back"
+    assert gestures.labels(0x81)[Cell.S] == "Home"
     assert keymap.memslots_defs()
     f19 = cascades[0x82]
     combo = f19.combo_for(0x04)

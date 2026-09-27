@@ -50,7 +50,7 @@ TODO(AHK): hot_vectors.ahk'nin `once` / `unlock` bayraklari port edilmedi
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 #: AHK: STEP_SIZE -- bir tetiklenme icin gereken piksel. AHK ile ayni deger:
 #: 60 px'te yavas hareket neredeyse hic kademe uretmiyordu.
@@ -60,9 +60,9 @@ DEFAULT_LOCK_PX = 8.0
 
 #: Kilit kipleri (`hotVector.lockMode`).
 #: Kimlik; ekranda gorunen adlari keymap.VECTOR_LOCK_MODE tasiyor.
-LOCK_AXIS = "axis"  # eksen kilitlenir, iki yon de canli (AHK bDir.upDown)
-LOCK_DIRECTION = "direction"  # ilk yon kilitlenir, ters yon jest boyunca olu
-LOCK_MODES = (LOCK_AXIS, LOCK_DIRECTION)
+class LockMode(StrEnum):
+    AXIS = "axis"  # eksen kilitlenir, iki yon de canli (AHK bDir.upDown)
+    DIRECTION = "direction"  # ilk yon kilitlenir, ters yon jest boyunca olu
 
 
 class Axis(IntEnum):
@@ -98,6 +98,36 @@ class Direction(IntEnum):
     @property
     def axis(self) -> Axis:
         return Axis.VERTICAL if self.vertical else Axis.HORIZONTAL
+
+    @property
+    def cell(self) -> Cell:
+        return Cell(self.name[0])
+
+
+class Cell(StrEnum):
+    """Jest overlay'inin alti hucresi -- etiket anahtari, faz ve yon.
+
+    Dort yon (`Direction.cell`) ve ortada basili tutma asamalari: `P` short
+    esigi gecti, `S` ikinci esik (long) gecti.
+    """
+
+    UP = "U"
+    DOWN = "D"
+    LEFT = "L"
+    RIGHT = "R"
+    P = "P"
+    S = "S"
+
+    @property
+    def is_direction(self) -> bool:
+        return self in _DIRECTION_CELLS
+
+    @property
+    def vertical(self) -> bool:
+        return self in (Cell.UP, Cell.DOWN)
+
+
+_DIRECTION_CELLS = frozenset({Cell.UP, Cell.DOWN, Cell.LEFT, Cell.RIGHT})
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +205,7 @@ class _Active:
     axis: Axis | None = None
     #: En son tetiklenen yon -- yalniz geri bildirim icin.
     direction: Direction | None = None
-    #: `LOCK_DIRECTION` kipinde kilitlenen yon; eksen kipinde None.
+    #: `LockMode.DIRECTION` kipinde kilitlenen yon; eksen kipinde None.
     locked_dir: Direction | None = None
     #: Jest BASLADI mi -- eksen kilitlendigi anda True. Onek tusu birakilinca
     #: menu acilmasin diye dispatch.py buna bakiyor.
@@ -195,14 +225,14 @@ class HotVectors:
     defs: dict[tuple[int, Direction], VectorDef] = field(default_factory=dict)
     step_px: float = DEFAULT_STEP_PX
     lock_px: float = DEFAULT_LOCK_PX
-    #: `LOCK_AXIS` -- eksen kilitlenir, iki yon de canli kalir (AHK
-    #: `bDir.upDown`). `LOCK_DIRECTION` -- ilk yon kilitlenir, ters yon
+    #: `LockMode.AXIS` -- eksen kilitlenir, iki yon de canli kalir (AHK
+    #: `bDir.upDown`). `LockMode.DIRECTION` -- ilk yon kilitlenir, ters yon
     #: jest bitene kadar hicbir sey yapmaz. Ayardan secilir
     #: (`hotVector.lockMode`): hangisinin dogru his verdigi kullanima bagli.
-    lock_mode: str = LOCK_AXIS
+    lock_mode: LockMode = LockMode.AXIS
     _active: dict[int, _Active] = field(default_factory=dict, init=False)
-    #: Ortadaki P/S kutularinin etiketleri (onek -> {"P": "...", "S": "..."}).
-    _center: dict[int, dict[str, str]] = field(default_factory=dict, init=False)
+    #: Ortadaki P/S kutularinin etiketleri (onek -> {Cell.P: "...", Cell.S: "..."}).
+    _center: dict[int, dict[Cell, str]] = field(default_factory=dict, init=False)
     #: Overlay acilsin mi (KeyBuilder.gestureVisible).
     _visible: dict[int, bool] = field(default_factory=dict, init=False)
 
@@ -224,11 +254,11 @@ class HotVectors:
 
     def center(self, prefix: int, p: str = "", s: str = "") -> HotVectors:
         """Overlay'deki P/S kutularinin yazisi (ornegin P=Back, S=Home)."""
-        labels: dict[str, str] = {}
+        labels: dict[Cell, str] = {}
         if p:
-            labels["P"] = p
+            labels[Cell.P] = p
         if s:
-            labels["S"] = s
+            labels[Cell.S] = s
         self._center[prefix] = labels
         return self
 
@@ -364,7 +394,7 @@ class HotVectors:
         if max(vertical, horizontal) < self.lock_px:
             return False
         state.axis = Axis.VERTICAL if vertical >= horizontal else Axis.HORIZONTAL
-        if self.lock_mode == LOCK_DIRECTION:
+        if self.lock_mode == LockMode.DIRECTION:
             if state.axis is Axis.VERTICAL:
                 state.locked_dir = Direction.DOWN if state.dy > 0 else Direction.UP
             else:
@@ -408,10 +438,10 @@ class HotVectors:
             locked_direction=locked_direction,
         )
 
-    def labels(self, prefix: int) -> dict[str, str]:
+    def labels(self, prefix: int) -> dict[Cell, str]:
         """Yon + merkez (P/S) etiketlerini kullaniciya gosterilecek bicimde verir."""
         out = {
-            direction.name[0]: definition.desc or direction.label
+            direction.cell: definition.desc or direction.label
             for (registered_prefix, direction), definition in self.defs.items()
             if registered_prefix == prefix
         }

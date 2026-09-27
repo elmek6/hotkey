@@ -69,13 +69,11 @@ class IncognitoBadge(QWidget):
 
         self.vlc = QCheckBox("VLC")
         self.vlc.setChecked(incognito.cover_vlc)
-        self.vlc.clicked.connect(lambda on: setattr(incognito, "cover_vlc", bool(on)))
+        self.vlc.clicked.connect(self._on_vlc)
 
         self.restore = QCheckBox("Kapanista geri yukle")
         self.restore.setChecked(incognito.restore_on_close)
-        self.restore.clicked.connect(
-            lambda on: setattr(incognito, "restore_on_close", bool(on))
-        )
+        self.restore.clicked.connect(self._on_restore)
 
         audit = QPushButton("🔍 Denetle")
         audit.clicked.connect(self._show_audit)
@@ -135,6 +133,12 @@ class IncognitoBadge(QWidget):
         # set_deep_mode mesgulken hicbir sey yapmaz; kutu gercek durumu gostersin.
         self.deep.setChecked(self.incognito.deep_mode)
         self.refresh()
+
+    def _on_vlc(self, on: bool) -> None:
+        self.incognito.cover_vlc = bool(on)
+
+    def _on_restore(self, on: bool) -> None:
+        self.incognito.restore_on_close = bool(on)
 
     def _show_audit(self) -> None:
         """AHK `_showAudit`. Kapsam HER ZAMAN yazilir: "iz yok" ile "zaten

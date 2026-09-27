@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 from keypilot.core.builder import CascadeDef, PressType, press_type
+from keypilot.core.hot_vectors import Cell
 
 VK_ESCAPE = 0x1B
 
@@ -69,7 +70,31 @@ class CloseMenu:
     pass
 
 
-Action = Run | Beep | OpenMenu | CloseMenu
+@dataclass(frozen=True, slots=True)
+class ShowGesture:
+    """Jest overlay'i acilir (dispatch.py). `phase`: `Cell.P` / `Cell.S`."""
+
+    key: int
+    phase: Cell | None
+    labels: dict[Cell, str]
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateGesture:
+    """Acik overlay'de faz / kilitli yon / adim sayisi degisti."""
+
+    key: int
+    phase: Cell | None = None
+    direction: Cell | None = None
+    steps: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class HideGesture:
+    pass
+
+
+Action = Run | Beep | OpenMenu | CloseMenu | ShowGesture | UpdateGesture | HideGesture
 
 
 @dataclass

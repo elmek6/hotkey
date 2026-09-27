@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 
 log = logging.getLogger(__name__)
 
@@ -31,27 +32,63 @@ def default_name() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-#: Kural sozlugu -- (kimlik, menude/listede gorunen ad). UI listeleri BU
-#: tablolardan uretiliyor: yeni bir islem/hedef eklemek tek satir.
-#:
-#: Kimlikler kisa ve makine okur cinsten: kural JSON'a `{"do": "ocr",
-#: "to": "file", ...}` diye gidecek ve Python tarafi ayni kimlikleri
-#: gorecek. Etiketler degisebilir, kimlikler degismez.
+#: Kural sozlugu. Kimlikler kisa ve makine okur cinsten: kural JSON'a
+#: `{"do": "ocr", "to": "file", ...}` diye gidecek ve Python tarafi ayni
+#: kimlikleri gorecek. Etiketler degisebilir, kimlikler degismez.
+
+
+class RuleDo(StrEnum):
+    """NE alinacak."""
+
+    SHOT = "shot"
+    OCR = "ocr"
+
+
+class RuleTo(StrEnum):
+    """NEREYE yazilacak."""
+
+    CLIP = "clip"
+    FILE = "file"
+    IMAGES = "images"
+    PY = "py"
+
+    @property
+    def needs_path(self) -> bool:
+        """Hedef klasor soran hedefler (oteki hedeflerde alan gizlenir)."""
+        return self in (RuleTo.FILE, RuleTo.PY)
+
+
+class RuleWhen(StrEnum):
+    """NE ZAMAN yazilacak -- tetik degil, suzgec (bkz. `Rule`)."""
+
+    ALWAYS = "always"
+    CHANGED = "changed"
+    CONTAINS = "contains"
+    MISSING = "missing"
+
+    @property
+    def needs_text(self) -> bool:
+        """Aranan metin isteyen sartlar."""
+        return self in (RuleWhen.CONTAINS, RuleWhen.MISSING)
+
+
+#: (kimlik, menude/listede gorunen ad). UI listeleri BU tablolardan
+#: uretiliyor: yeni bir islem/hedef eklemek tek satir.
 DO_CHOICES = (
-    ("shot", "Resim"),
-    ("ocr", "OCR"),
+    (RuleDo.SHOT, "Resim"),
+    (RuleDo.OCR, "OCR"),
 )
 TO_CHOICES = (
-    ("clip", "Panoya"),
-    ("file", "Dosyaya"),
-    ("images", "Gorsellere"),
-    ("py", "Python icin paketle"),
+    (RuleTo.CLIP, "Panoya"),
+    (RuleTo.FILE, "Dosyaya"),
+    (RuleTo.IMAGES, "Gorsellere"),
+    (RuleTo.PY, "Python icin paketle"),
 )
 WHEN_CHOICES = (
-    ("always", "Her seferinde"),
-    ("changed", "Resim degisince"),
-    ("contains", "Text bulununca"),
-    ("missing", "Text bulunmayinca"),
+    (RuleWhen.ALWAYS, "Her seferinde"),
+    (RuleWhen.CHANGED, "Resim degisince"),
+    (RuleWhen.CONTAINS, "Text bulununca"),
+    (RuleWhen.MISSING, "Text bulunmayinca"),
 )
 
 _LABELS = {key: label for table in (DO_CHOICES, TO_CHOICES, WHEN_CHOICES) for key, label in table}
@@ -70,15 +107,15 @@ class Rule:
     kisayolla gelen isin sonucuna konan sart.
     """
 
-    do: str = "ocr"
-    to: str = "clip"
+    do: RuleDo = RuleDo.OCR
+    to: RuleTo = RuleTo.CLIP
     #: Hedef KLASOR (dosyaya yaz / python paketi). Dosya ADI verilmiyor:
     #: her calisma kendi dosyasini `YYYYMMDD_HHmmss` damgasiyla aciyor --
     #: tek dosyaya yazmak eski sonucu ezerdi, adi kullaniciya sordurmak
     #: da otomasyonu her seferinde durdururdu.
     path: str = ""
-    when: str = "always"
-    #: "contains"/"missing" icin aranan metin.
+    when: RuleWhen = RuleWhen.ALWAYS
+    #: `RuleWhen.needs_text` icin aranan metin.
     text: str = ""
     #: Kisayol, `parse_hotkey` bicimi: "F4", "Ctrl+Shift+K". Bos = tus yok.
     key: str = ""
@@ -91,7 +128,7 @@ class Rule:
     def filename(self, when: datetime | None = None) -> str:
         """`20260901_143005` + isin uzantisi -- otomatik dosya adi."""
         stamp = (when or datetime.now()).strftime("%Y%m%d_%H%M%S")
-        return f"{stamp}.png" if self.do == "shot" else f"{stamp}.txt"
+        return f"{stamp}.png" if self.do == RuleDo.SHOT else f"{stamp}.txt"
 
     def label(self) -> str:
         """Listede gorunen tek satir: tetik · is → hedef (sart)."""
@@ -103,7 +140,7 @@ class Rule:
             f"{trigger} · {_LABELS.get(self.do, self.do)}",
             f"→ {_LABELS.get(self.to, self.to)}{target}",
         ]
-        if self.when != "always":
+        if self.when != RuleWhen.ALWAYS:
             suffix = f": {self.text}" if self.text else ""
             parts.append(f"[{_LABELS.get(self.when, self.when)}{suffix}]")
         return " ".join(parts)

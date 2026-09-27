@@ -271,7 +271,7 @@ def enabled() -> bool:
     """
     if OVERRIDE.mode is not None:
         return OVERRIDE.mode
-    return bool(DEV_MODE.get())
+    return DEV_MODE.get()
 
 
 def hook_watchdog_ms() -> int:
@@ -284,7 +284,7 @@ def hook_watchdog_ms() -> int:
         return 0
     if OVERRIDE.hook_ms is not None:
         return OVERRIDE.hook_ms
-    return int(HOOK_WATCHDOG_MS.get())
+    return HOOK_WATCHDOG_MS.get()
 
 
 def file_info() -> bool:
@@ -296,4 +296,4 @@ def file_info() -> bool:
     """
     from keypilot.logs import FILE_INFO
 
-    return enabled() and bool(FILE_INFO.get())
+    return enabled() and FILE_INFO.get()

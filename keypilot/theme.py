@@ -82,7 +82,7 @@ def system_is_dark() -> bool:
 
 def resolve(choice: str | None = None) -> bool:
     """Ayardan "koyu mu?" sonucunu cikarir."""
-    choice = choice if choice is not None else str(THEME.get())
+    choice = choice if choice is not None else THEME.get()
     if choice == DARK:
         return True
     if choice == LIGHT:

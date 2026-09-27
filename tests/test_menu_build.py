@@ -37,7 +37,7 @@ def test_kolon_ve_ikon_menuye_islenir():
     spec = (
         ("Bir", "a"),
         win32_menu.COLUMN,
-        ("Iki", "b", "res:243"),
+        ("Iki", "b", win32_menu.Icon.res(243)),
     )
     handle = win32_menu._build(spec, actions)
     try:
@@ -92,7 +92,8 @@ def test_tikli_ogeye_ikon_konmaz():
     """Tik ile ikon Win32'de ayni alani paylasir: ikon konursa tik silinir.
     Ikisi birden verilirse tik kazanmali."""
     actions: list[str] = []
-    handle = win32_menu._build((("Secili", "a", win32_menu.CHECKED, "res:243"),), actions)
+    spec = (("Secili", "a", win32_menu.CHECKED, win32_menu.Icon.res(243)),)
+    handle = win32_menu._build(spec, actions)
     try:
         assert _state(handle, 0) & MF_CHECKED
         assert not _item_info(handle, 0).hbmpItem

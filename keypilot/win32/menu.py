@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+from dataclasses import dataclass
+from enum import StrEnum
 
 from keypilot.win32.screen import BITMAPINFOHEADER, gdi32
 from keypilot.win32.structs import kernel32, user32
@@ -34,21 +36,55 @@ shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 #: Menu tanimlarinda "buradan sonrasi YENI KOLON" isareti (AHK: MENU_COL).
 COLUMN = "|"
 
-#: Ogenin ek alanlarina konursa o oge KALIN cizilir (Win32 "default item").
-#: Alt menunun eylem kimligi olmadigi icin isaret ogenin KENDISINDE tasinir;
-#: etiketle eslestirmek etiketi ikinci bir kimlik haline getiriyordu.
-DEFAULT = "<default>"
+class Mark(StrEnum):
+    """Ogenin ek alanlarina konan isaretler."""
 
-#: Ek alanlara konursa oge SOLUNDA TIK isareti cizilir (Win32 MF_CHECKED).
-#: Tik ile ikon ayni alani paylasir -- tikli ogeye ikon konmaz, konursa
-#: Windows ikonu cizip tiki yutar.
-CHECKED = "<checked>"
+    #: Oge KALIN cizilir (Win32 "default item"). Alt menunun eylem kimligi
+    #: olmadigi icin isaret ogenin KENDISINDE tasinir; etiketle eslestirmek
+    #: etiketi ikinci bir kimlik haline getiriyordu.
+    DEFAULT = "<default>"
+    #: Oge SOLUNDA TIK isareti cizilir (Win32 MF_CHECKED). Tik ile ikon ayni
+    #: alani paylasir -- tikli ogeye ikon konmaz, konursa Windows ikonu cizip
+    #: tiki yutar.
+    CHECKED = "<checked>"
+    #: Oge SOLUK ve TIKLANAMAZ olur (MF_GRAYED|MF_DISABLED). Ogeyi hic
+    #: koymamaktan farki: yerin BOS OLMADIGINI gosteriyor. "Profil ekle"
+    #: maddesi basliksiz pencerede tiklanabilir olsaydi hicbir sey yapmadan
+    #: kapanirdi; hic olmasaydi menu her pencerede baska boyda olurdu.
+    DISABLED = "<disabled>"
 
-#: Ek alanlara konursa oge SOLUK ve TIKLANAMAZ olur (MF_GRAYED|MF_DISABLED).
-#: Ogeyi hic koymamaktan farki: yerin BOS OLMADIGINI gosteriyor. "Profil
-#: ekle" maddesi basliksiz pencerede tiklanabilir olsaydi hicbir sey
-#: yapmadan kapanirdi; hic olmasaydi menu her pencerede baska boyda olurdu.
-DISABLED = "<disabled>"
+
+DEFAULT = Mark.DEFAULT
+CHECKED = Mark.CHECKED
+DISABLED = Mark.DISABLED
+
+
+class IconFile(StrEnum):
+    """Menu ikonlarinin geldigi DLL'ler -- AHK: ICO_SHELL / ICO_RES."""
+
+    SHELL = "shell32.dll"
+    RES = "imageres.dll"
+
+
+@dataclass(frozen=True, slots=True)
+class Icon:
+    """Ogenin ek alanindaki ikon: DLL + 1-TABANLI ikon sirasi.
+
+    AHK `menuIcon(menu, item, ICO_RES, 243)` ile ayni numaralar:
+    `Icon.res(243)`. Renkli ikonun tek yolu -- emoji klasik menude tek
+    renk cizilir.
+    """
+
+    file: IconFile
+    number: int
+
+    @classmethod
+    def res(cls, number: int) -> Icon:
+        return cls(IconFile.RES, number)
+
+    @classmethod
+    def shell(cls, number: int) -> Icon:
+        return cls(IconFile.SHELL, number)
 
 MF_STRING = 0x0000
 MF_POPUP = 0x0010
@@ -158,14 +194,8 @@ user32.SetMenuItemInfoW.argtypes = [
 ]
 user32.SetMenuItemInfoW.restype = wintypes.BOOL
 
-#: Menu ikonlarinin geldigi DLL'ler -- AHK: ICO_SHELL / ICO_RES.
-ICON_FILES = {
-    "shell": "shell32.dll",
-    "res": "imageres.dll",
-}
-
-#: `"res:243"` -> HBITMAP. Menu her acilisinda yeniden uretmemek icin.
-_icon_cache: dict[str, int] = {}
+#: `Icon` -> HBITMAP. Menu her acilisinda yeniden uretmemek icin.
+_icon_cache: dict[Icon, int] = {}
 
 _owner: int = 0
 
@@ -215,35 +245,30 @@ def force_foreground(hwnd: int) -> None:
         user32.AttachThreadInput(mine, target, False)
 
 
-def _icon_bitmap(name: str) -> int:
-    """`"res:243"` gibi bir ikon adini menuye konabilir HBITMAP'e cevirir.
+def _icon_bitmap(icon: Icon) -> int:
+    """Ikonu menuye konabilir HBITMAP'e cevirir.
 
-    AHK `menuIcon(menu, item, ICO_RES, 243)` ile ayni numaralar: sayi
-    DLL icindeki 1-TABANLI ikon sirasi. Menu 32 bit ARGB bitmap kabul
-    ediyor, o yuzden ikon bir DIB section'a `DrawIconEx` ile ciziliyor --
-    saydam kose ve golge korunuyor (klasik menu metni GDI ile cizildigi
-    icin emoji hep tek renk cikiyordu; ikon yolu renkli olanin tek yolu).
+    Menu 32 bit ARGB bitmap kabul ediyor, o yuzden ikon bir DIB section'a
+    `DrawIconEx` ile ciziliyor -- saydam kose ve golge korunuyor (klasik
+    menu metni GDI ile cizildigi icin emoji hep tek renk cikiyordu; ikon
+    yolu renkli olanin tek yolu).
 
     Ikon bulunamazsa 0 doner: menu ikonsuz acilir, hata vermez.
     """
-    if name in _icon_cache:
-        return _icon_cache[name]
-    kind, _, number = name.partition(":")
-    path = ICON_FILES.get(kind)
-    if path is None or not number.isdigit():
-        return 0
+    if icon in _icon_cache:
+        return _icon_cache[icon]
     bitmap = 0
-    icon = wintypes.HICON()
+    handle = wintypes.HICON()
     # SHDefExtractIcon: kucuk ikonu ISTENEN boyutta verir (ExtractIconEx
     # yalniz 32/16 sistem boyutunu verir ve yuksek DPI'da bulaniklasir).
     # Indeks 0 tabanli, AHK'nin numarasi 1 tabanli.
     result = shell32.SHDefExtractIconW(
-        ctypes.c_wchar_p(path), int(number) - 1, 0, ctypes.byref(icon), None, 16
+        ctypes.c_wchar_p(icon.file), icon.number - 1, 0, ctypes.byref(handle), None, 16
     )
-    if result == 0 and icon:
-        bitmap = _icon_to_bitmap(icon.value, 16)
-        user32.DestroyIcon(icon)
-    _icon_cache[name] = bitmap
+    if result == 0 and handle:
+        bitmap = _icon_to_bitmap(handle.value, 16)
+        user32.DestroyIcon(handle)
+    _icon_cache[icon] = bitmap
     return bitmap
 
 
@@ -271,9 +296,9 @@ def _icon_to_bitmap(icon: int, size: int) -> int:
     return bitmap or 0
 
 
-def _set_icon(handle: int, position: int, name: str) -> None:
+def _set_icon(handle: int, position: int, icon: Icon) -> None:
     """Ogeye ikon koyar. Ikon yoksa sessizce gecer -- menu yine acilmali."""
-    bitmap = _icon_bitmap(name)
+    bitmap = _icon_bitmap(icon)
     if not bitmap:
         return
     info = MENUITEMINFOW()
@@ -305,14 +330,7 @@ def _build(spec, actions: list[str]) -> int:
         label, target, *rest = entry
         checked = MF_CHECKED if CHECKED in rest else 0
         grayed = (MF_GRAYED | MF_DISABLED) if DISABLED in rest else 0
-        icon = next(
-            (
-                item
-                for item in rest
-                if item and item not in (DEFAULT, CHECKED, DISABLED)
-            ),
-            "",
-        )
+        icon = next((item for item in rest if isinstance(item, Icon)), None)
         if isinstance(target, tuple):
             sub = _build(target, actions)
             user32.AppendMenuW(
@@ -334,7 +352,7 @@ def _build(spec, actions: list[str]) -> int:
             )
             if DEFAULT in rest:
                 user32.SetMenuDefaultItem(handle, command, False)
-        if icon and not checked:
+        if icon is not None and not checked:
             _set_icon(handle, position, icon)
         column = 0
         position += 1

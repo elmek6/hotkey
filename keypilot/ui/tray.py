@@ -36,6 +36,7 @@ oldugunda yanar.
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import StrEnum
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPen, QPixmap
@@ -54,16 +55,30 @@ BAR = QColor("#ffffff")
 #: isaretini ORTERDI. Halka ayri bir kanal -- ikisi ayni anda gorunur.
 DEV_RING = QColor("#a371f7")
 
-#: Cift tiklama eylemleri. Ayara KIMLIK yazilir, menude ETIKET gorunur --
-#: menu metnini degistirmek kayitli secimi bozmasin.
+class TrayAction(StrEnum):
+    """Tepsi simgesi eylemleri. Ayara KIMLIK yazilir, menude ETIKET gorunur
+    -- menu metnini degistirmek kayitli secimi bozmasin."""
+
+    NONE = "none"
+    PAUSE = "pause"
+    RESTART = "restart"
+    RESTART_DEV_OFF = "restart_dev_off"
+    PAUSE_DIALOG = "pause_dialog"
+    SETTINGS = "settings"
+    MONITOR = "monitor"
+    COPY_ERROR = "copy_error"
+    SHOW_LOG = "show_log"
+
+
+#: Cift tiklamaya baglanabilen eylemler.
 DOUBLE_CLICK_LABELS = {
-    "pause": "Pause/Play",
-    "restart": "Reload",
-    "pause_dialog": "Pause menu",
-    "settings": "Settings",
-    "monitor": "Event monitor",
-    "copy_error": "Copy last error",
-    "show_log": "Show log",
+    TrayAction.PAUSE: "Pause/Play",
+    TrayAction.RESTART: "Reload",
+    TrayAction.PAUSE_DIALOG: "Pause menu",
+    TrayAction.SETTINGS: "Settings",
+    TrayAction.MONITOR: "Event monitor",
+    TrayAction.COPY_ERROR: "Copy last error",
+    TrayAction.SHOW_LOG: "Show log",
 }
 #: settings.json'da duran eski (metin) degerler.
 DOUBLE_CLICK_LEGACY = {label: name for name, label in DOUBLE_CLICK_LABELS.items()}
@@ -72,13 +87,13 @@ DOUBLE_CLICK_LEGACY = {label: name for name, label in DOUBLE_CLICK_LABELS.items(
 #: Varsayilan `none` cunku tek tik cift tiklamanin ilk yarisidir -- bir is
 #: baglanirsa cift tiklama ayarindaki eylem her seferinde ONCE tek tikin
 #: isini yapar. Ikisini birden kullanacak olan bunu bilerek seciyor.
-SINGLE_CLICK_LABELS = {"none": "Hicbir sey", **DOUBLE_CLICK_LABELS}
+SINGLE_CLICK_LABELS = {TrayAction.NONE: "Hicbir sey", **DOUBLE_CLICK_LABELS}
 SINGLE_CLICK_LEGACY = {label: name for name, label in SINGLE_CLICK_LABELS.items()}
 
 DOUBLE_CLICK = setting(
     "tray.doubleClick",
     "Tepsi simgesine cift tiklama",
-    default="pause",
+    default=TrayAction.PAUSE,
     choices=tuple(DOUBLE_CLICK_LABELS),
     labels=DOUBLE_CLICK_LABELS,
     legacy=DOUBLE_CLICK_LEGACY,
@@ -95,7 +110,7 @@ DOUBLE_CLICK = setting(
 SINGLE_CLICK = setting(
     "tray.singleClick",
     "Tepsi simgesine tek tiklama",
-    default="none",
+    default=TrayAction.NONE,
     choices=tuple(SINGLE_CLICK_LABELS),
     labels=SINGLE_CLICK_LABELS,
     legacy=SINGLE_CLICK_LEGACY,
@@ -235,15 +250,15 @@ class Tray(QSystemTrayIcon):
         #: Bunlarin kaci ERROR+ -- simgeyi KIRMIZI yapan sayi budur.
         self.severe_count = 0
 
-        self._handlers = {
-            "pause": on_toggle_pause,
-            "restart": on_restart,
-            "restart_dev_off": on_restart_dev_off,
-            "pause_dialog": on_pause_dialog,
-            "settings": on_settings,
-            "monitor": on_monitor,
-            "copy_error": on_copy_error,
-            "show_log": on_show_log,
+        self._handlers: dict[TrayAction, Callable[[], None]] = {
+            TrayAction.PAUSE: on_toggle_pause,
+            TrayAction.RESTART: on_restart,
+            TrayAction.RESTART_DEV_OFF: on_restart_dev_off,
+            TrayAction.PAUSE_DIALOG: on_pause_dialog,
+            TrayAction.SETTINGS: on_settings,
+            TrayAction.MONITOR: on_monitor,
+            TrayAction.COPY_ERROR: on_copy_error,
+            TrayAction.SHOW_LOG: on_show_log,
         }
         #: Simge KIRMIZI ya da SARI iken cift tiklama bunu cagirir -- cift
         #: tiklama ayarindan bagimsiz. Isaretli simgeye tiklayan "ne oldu"
@@ -310,18 +325,18 @@ class Tray(QSystemTrayIcon):
         aciklamasinda yaziyor).
         """
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            name = str(SINGLE_CLICK.get())
-            if name == "none":
+            name = SINGLE_CLICK.get()
+            if name == TrayAction.NONE:
                 return
         elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            name = str(DOUBLE_CLICK.get())
+            name = DOUBLE_CLICK.get()
         else:
             return
         # Isaretli simge her iki tiklamada da "ne oldu" demektir.
         if self.error_count:
             self._on_show_errors()
             return
-        self._handlers.get(name, self._handlers["pause"])()
+        self._handlers.get(name, self._handlers[TrayAction.PAUSE])()
 
     # ---- durum ----
 
@@ -396,11 +411,11 @@ class Tray(QSystemTrayIcon):
         # (bkz. `_on_activated`); ipucu o an ayardaki eylemi yazsaydi
         # tikladiginda baska sey olurdu.
         marked = bool(self.error_count)
-        log_label = DOUBLE_CLICK_LABELS["show_log"]
-        single = str(SINGLE_CLICK.get())
-        if single != "none":
+        log_label = DOUBLE_CLICK_LABELS[TrayAction.SHOW_LOG]
+        single = SINGLE_CLICK.get()
+        if single != TrayAction.NONE:
             parts.append(f"click = {log_label if marked else SINGLE_CLICK.label_for(single)}")
-        double = str(DOUBLE_CLICK.get())
+        double = DOUBLE_CLICK.get()
         parts.append(f"dbClick = {log_label if marked else DOUBLE_CLICK.label_for(double)}")
 
         if self.dev:

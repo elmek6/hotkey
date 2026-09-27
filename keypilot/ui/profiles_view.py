@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from keypilot import theme
-from keypilot.app_shorts import AppProfile, ShortCut, ShortcutStore, stroke_kind
+from keypilot.app_shorts import AppProfile, ShortCut, ShortcutStore, is_key_stroke
 from keypilot.ui.key_capture import KeyCapture
 from keypilot.ui.place import center_on_cursor_screen
 
@@ -367,7 +367,7 @@ class ProfilesView(QWidget):
             self.stroke_hint.setText("")
             return
         parts = [
-            f"`{stroke}` → {'kisayol' if stroke_kind(stroke) == 'key' else 'duz metin'}"
+            f"`{stroke}` → {'kisayol' if is_key_stroke(stroke) else 'duz metin'}"
             for stroke in strokes
         ]
         self.stroke_hint.setText("  ·  ".join(parts))

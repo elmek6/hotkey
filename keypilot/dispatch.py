@@ -26,10 +26,17 @@ import queue
 from collections.abc import Callable
 
 from keypilot.commands import Cmd
-from keypilot.core.cascade import CascadeMachine, Phase, Run
+from keypilot.core.cascade import (
+    CascadeMachine,
+    HideGesture,
+    Phase,
+    Run,
+    ShowGesture,
+    UpdateGesture,
+)
 from keypilot.core.combo import ComboTracker
-from keypilot.core.hot_vectors import HotVectors
-from keypilot.core.hotkey import HotkeyTable
+from keypilot.core.hot_vectors import Cell, HotVectors
+from keypilot.core.hotkey import Binding, HotkeyTable
 from keypilot.core.keynames import MODIFIER_VKS, key_name
 from keypilot.core.mouse import VK_MBUTTON, VK_RBUTTON, WM_MOUSEMOVE, MouseSeen, mouse_key
 from keypilot.core.prefix import Outcome, PrefixTracker
@@ -49,21 +56,6 @@ MOUSE_AS_MODIFIER: dict[int, int] = {
     VK_RBUTTON: VK_LCTRL,
     VK_MBUTTON: VK_LSHIFT,
 }
-
-
-def _overlay_direction(direction) -> str:
-    return {
-        "UP": "U",
-        "DOWN": "D",
-        "LEFT": "L",
-        "RIGHT": "R",
-    }.get(direction.name if direction is not None else "", "")
-
-
-def _overlay_labels(labels: dict[str, str]) -> str:
-    return ";".join(
-        f"{key}={value.replace(';', ',').replace('|', '/')}" for key, value in labels.items()
-    )
 
 
 # ARIZALI FARE FILTRESI (AHK: AutoHotkey.ahk `A_TimeSincePriorHotkey < 70`).
@@ -157,7 +149,7 @@ class Dispatcher:
         self.drag_px = 6
         self._prefix_at: tuple[int, int] | None = None
         self._tip_t = 0.0
-        self._gesture_phase: dict[int, str] = {}
+        self._gesture_phase: dict[int, Cell | None] = {}
         self._gesture_started: dict[int, float] = {}
         #: Overlay'i gosterdigimiz jest onekleri -- short esiginden once
         #: `show` gitmesin diye (AHK: normal tiklamada flash yok).
@@ -494,15 +486,15 @@ class Dispatcher:
                 else hold_ms * 2
             )
             if elapsed_ms >= second_ms:
-                phase = "S"
+                phase = Cell.S
             elif elapsed_ms >= hold_ms:
-                phase = "P"
+                phase = Cell.P
             else:
-                phase = ""
+                phase = None
             if phase != self._gesture_phase.get(prefix):
                 self._gesture_phase[prefix] = phase
                 # Bos faz: short henuz gecmedi -- overlay ACMA (AHK).
-                if phase:
+                if phase is not None:
                     self._show_gesture_overlay(prefix, phase=phase)
         # Cift basim penceresi doldu: bekletilen kisa basim eylemi calissin.
         for vk, (action, _desc, deadline) in list(self._pending_tap.items()):
@@ -642,7 +634,7 @@ class Dispatcher:
                 self._put(action)
         self._mod_lb_held = False
         self._put(Run(Cmd.Tip.HIDE))
-        self._put(Run(Cmd.Gesture.OVERLAY, desc="hide"))
+        self._put(HideGesture())
         self._prefix_at = None
         self._pending_tap.clear()
         self._passed_through.clear()
@@ -664,7 +656,7 @@ class Dispatcher:
         if vk in self.gestures.active:
             return
         self.gestures.start(vk)
-        self._gesture_phase[vk] = ""
+        self._gesture_phase[vk] = None
         self._gesture_started[vk] = t
         self._freeze_at = send.cursor_pos()
         self._gesture_at = self._freeze_at
@@ -673,31 +665,18 @@ class Dispatcher:
         self,
         vk: int,
         *,
-        phase: str = "",
-        direction: str = "",
-        steps: str = "",
+        phase: Cell | None = None,
+        direction: Cell | None = None,
+        steps: int = 0,
     ) -> None:
-        """Overlay'i ilk kez `show` ile acar, sonra `update` gonderir."""
+        """Overlay'i ilk kez `ShowGesture` ile acar, sonra `UpdateGesture` gonderir."""
         if not self.gestures.visible(vk):
             return
         if vk not in self._overlay_shown:
             self._overlay_shown.add(vk)
-            labels = _overlay_labels(self.gestures.labels(vk))
-            self._put(
-                Run(
-                    Cmd.Gesture.OVERLAY,
-                    key=vk,
-                    desc=f"show|{phase}|{direction}|{steps}|{labels}",
-                )
-            )
+            self._put(ShowGesture(vk, phase, self.gestures.labels(vk)))
             return
-        self._put(
-            Run(
-                Cmd.Gesture.OVERLAY,
-                key=vk,
-                desc=f"update|{phase}|{direction}|{steps}|",
-            )
-        )
+        self._put(UpdateGesture(vk, phase, direction, steps))
 
     def _cancel_gesture(self, vk: int) -> None:
         """Kombo / surukleme jesti iptal eder -- overlay kapanir."""
@@ -765,7 +744,7 @@ class Dispatcher:
         self._gesture_started.clear()
         self._overlay_shown.clear()
         self._put(Run(Cmd.Tip.HIDE))
-        self._put(Run(Cmd.Gesture.OVERLAY, desc="hide"))
+        self._put(HideGesture())
 
     def _gesture_tip(self, t: float) -> None:
         """Yon ve mesafe geri bildirimi. AHK jest sirasinda bunu yaziyordu.
@@ -782,14 +761,12 @@ class Dispatcher:
             # bir an gorunup kayboluyor ve okunamiyordu.
             if status is None or status.axis is None:
                 continue
-            direction = _overlay_direction(status.locked_direction or status.direction)
-            phase = "" if direction else self._gesture_phase.get(prefix, "")
+            locked = status.locked_direction or status.direction
+            direction = locked.cell if locked is not None else None
+            phase = None if direction is not None else self._gesture_phase.get(prefix)
             # Yon kilitlendi: short beklemeden overlay ac (kullanici jest yapiyor).
             self._show_gesture_overlay(
-                prefix,
-                phase=phase,
-                direction=direction,
-                steps=str(status.steps) if status.steps else "",
+                prefix, phase=phase, direction=direction, steps=status.steps
             )
 
     def _drag_check(self, event: MouseEvent) -> None:
@@ -956,7 +933,7 @@ class Dispatcher:
             return not keep, []
         return not keep, [Run(binding.action, key=vk, desc=binding.desc)]
 
-    def _rescue_match(self, vk: int, chord) -> tuple[object | None, int | None]:
+    def _rescue_match(self, vk: int, chord) -> tuple[Binding | None, int | None]:
         """Onek eslesmedi: basili DIGER tuslari da onek olarak dene.
 
         Chord'un onegi, basili tuslarin SIRASINDAKI ilki (core/combo.py).

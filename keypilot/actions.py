@@ -134,7 +134,7 @@ class ActionRunner:
         kaybediyordu.
         """
         held = send.held_modifiers()
-        delay = int(KEY_DELAY.get())
+        delay = KEY_DELAY.get()
         for index, part in enumerate(argument.split()):
             if index and delay:
                 time.sleep(delay / 1000.0)
@@ -165,4 +165,4 @@ class ActionRunner:
         if held is None:
             held = send.held_modifiers()
         modifiers = [group[0] for group in hotkey.mods if not held.intersection(group)]
-        send.tap(hotkey.vk, *modifiers, delay_ms=int(KEY_DELAY.get()))
+        send.tap(hotkey.vk, *modifiers, delay_ms=KEY_DELAY.get())

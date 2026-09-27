@@ -308,14 +308,14 @@ def test_slot_listesi_ayara_uyar(files_dir):
 
 def test_key_modunda_fare_kaydedilmez():
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.KEY)
+    rec.start(macro.RecType.KEY)
     rec.feed_mouse(FakeMouse(message=0x0201, x=10, y=20))
     assert rec.events == []
 
 
 def test_mouse_modunda_klavye_kaydedilmez():
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.MOUSE)
+    rec.start(macro.RecType.MOUSE)
     rec.feed_key(FakeKey(vk=65))
     rec.feed_mouse(FakeMouse(message=0x0201, x=10, y=20))
     assert [e["e"] for e in rec.events] == ["mouse"]
@@ -323,7 +323,7 @@ def test_mouse_modunda_klavye_kaydedilmez():
 
 def test_hybrid_modunda_ikisi_de_kaydedilir():
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.HYBRID)
+    rec.start(macro.RecType.HYBRID)
     rec.feed_key(FakeKey(vk=65))
     rec.feed_mouse(FakeMouse(message=0x0201, x=10, y=20))
     assert [e["e"] for e in rec.events] == ["key", "mouse"]
@@ -332,7 +332,7 @@ def test_hybrid_modunda_ikisi_de_kaydedilir():
 def test_mouse_modunda_esc_yine_durdurur():
     """Panik tusu kayit turunden bagimsiz olmali."""
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.MOUSE)
+    rec.start(macro.RecType.MOUSE)
     rec.feed_key(FakeKey(vk=macro.VK_ESCAPE))
     assert not rec.recording
 
@@ -343,7 +343,7 @@ def test_mouse_modunda_esc_yine_durdurur():
 def test_tiklama_uc_koordinatla_kaydedilir():
     """Mod degistiginde eski kayit bozulmasin diye ucu birden yazilir."""
     rec = macro.Recorder(rect=lambda: (100, 50, 900, 700))
-    rec.start(macro.HYBRID)
+    rec.start(macro.RecType.HYBRID)
     rec.feed_mouse(FakeMouse(message=0x0201, x=300, y=250))
     rec.feed_mouse(FakeMouse(message=0x0202, x=310, y=240))
     ilk, ikinci = rec.events
@@ -357,14 +357,14 @@ def test_tiklama_uc_koordinatla_kaydedilir():
 
 def test_xbutton_numarasiyla_ayrilir():
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.MOUSE)
+    rec.start(macro.RecType.MOUSE)
     rec.feed_mouse(FakeMouse(message=0x020B, data=2))
     assert rec.events[0]["btn"] == "x2"
 
 
 def test_tekerlek_kaydedilir():
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.MOUSE)
+    rec.start(macro.RecType.MOUSE)
     rec.feed_mouse(FakeMouse(message=0x020A, data=-120))
     assert rec.events[0] == {"e": "wheel", "delta": -120, "horizontal": False, "dt": 0}
 
@@ -372,14 +372,14 @@ def test_tekerlek_kaydedilir():
 def test_fare_hareketi_kaydedilmez():
     """Ara hareket dosyayi sisirir, oynatmada bir sey kazandirmaz."""
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.HYBRID)
+    rec.start(macro.RecType.HYBRID)
     rec.feed_mouse(FakeMouse(message=0x0200, x=5, y=5))
     assert rec.events == []
 
 
 def test_kendi_gonderdigimiz_tiklama_kaydedilmez():
     rec = macro.Recorder(rect=lambda: (0, 0, 0, 0))
-    rec.start(macro.HYBRID)
+    rec.start(macro.RecType.HYBRID)
     rec.feed_mouse(FakeMouse(message=0x0201, injected=True, ours=True))
     assert rec.events == []
 
@@ -404,7 +404,7 @@ def tiklama(**kwargs) -> dict:
     return event
 
 
-def oynat(mode: str, sender, **kwargs):
+def oynat(mode: macro.MouseMode, sender, **kwargs):
     macro.MOUSE_MODE.set(mode)
     macro.KEY_DELAY.set(0)
     try:
@@ -416,20 +416,20 @@ def oynat(mode: str, sender, **kwargs):
 
 def test_screen_modu_ekran_noktasini_kullanir():
     sender = FakeSender()
-    oynat("screen", sender)
+    oynat(macro.MouseMode.SCREEN, sender)
     assert sender.calls == [("pos", 300, 250), ("btn_down", 0x01)]
 
 
 def test_window_modu_o_anki_pencereye_gore_hesaplar():
     """Pencere tasinmis: kayittaki ekran noktasi degil, goreli nokta gecerli."""
     sender = FakeSender()
-    oynat("window", sender, rect=lambda: (500, 400, 1200, 900))
+    oynat(macro.MouseMode.WINDOW, sender, rect=lambda: (500, 400, 1200, 900))
     assert sender.calls == [("pos", 700, 600), ("btn_down", 0x01)]
 
 
 def test_relative_modu_sapma_gonderir():
     sender = FakeSender()
-    oynat("relative", sender)
+    oynat(macro.MouseMode.RELATIVE, sender)
     assert sender.calls == [("rel", 10, -10), ("btn_down", 0x01)]
 
 

@@ -2,6 +2,7 @@
 
 from keypilot.idle import (
     WORK_MINUTES,
+    Computer,
     clock_label,
     minutes_for,
     should_open_outlook,
@@ -27,10 +28,10 @@ def test_tur_yuvarlamasi():
 
 
 def test_is_acilisi_8_saat_ve_outlook():
-    assert startup_minutes("work") == WORK_MINUTES
-    assert startup_minutes("home") == 0
-    assert should_open_outlook("work") is True
-    assert should_open_outlook("home") is False
+    assert startup_minutes(Computer.WORK) == WORK_MINUTES
+    assert startup_minutes(Computer.HOME) == 0
+    assert should_open_outlook(Computer.WORK) is True
+    assert should_open_outlook(Computer.HOME) is False
 
 
 def test_outlook_simge_durumunda_shellexecute(monkeypatch):

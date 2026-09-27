@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import codecs
 
-from keypilot.app_shorts import ShortcutStore, stroke_kind
+from keypilot.app_shorts import ShortcutStore, is_key_stroke
 
 SAMPLE = (
     '{"projectName":"ProfileManager","profiles":['
@@ -72,8 +72,8 @@ def test_kisayol_indeksle_bulunur(tmp_path):
     assert store.shortcut("yok", 0) is None
 
 
-def test_stroke_kind():
+def test_is_key_stroke():
     """`^+t` kisayol, `abc` metin -- AHK'nin tek Send'inin ikiye ayrilmasi."""
-    assert stroke_kind("^+t") == "key"
-    assert stroke_kind("{Enter}") == "key"
-    assert stroke_kind("abc") == "text"
+    assert is_key_stroke("^+t")
+    assert is_key_stroke("{Enter}")
+    assert not is_key_stroke("abc")

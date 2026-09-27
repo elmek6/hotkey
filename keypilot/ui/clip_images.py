@@ -210,9 +210,9 @@ class ClipImages(QWidget):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([430, 620])
         # Elle oynatilan bolucu bir daha kendiliginden yerinden oynamasin.
-        splitter.splitterMoved.connect(lambda *_: setattr(self, "_user_split", True))
-        self._splitter = splitter
         self._user_split = False
+        splitter.splitterMoved.connect(self._on_split_moved)
+        self._splitter = splitter
 
         buttons = QHBoxLayout()
         for label, slot in (
@@ -299,6 +299,9 @@ class ClipImages(QWidget):
         self._restore_selection(selected)
         self._refresh_stats()
 
+    def _on_split_moved(self, *_args: object) -> None:
+        self._user_split = True
+
     def _fit_list_width(self) -> None:
         """Bolucuyu kolonlarin GERCEK genisligine cekiyor.
 
@@ -306,7 +309,7 @@ class ClipImages(QWidget):
         onizlemeye gitsin. Kullanici bolucuyu elle oynattiysa dokunulmuyor
         -- tazeleme onun ayarini geri almasin.
         """
-        if getattr(self, "_user_split", False):
+        if self._user_split:
             return
         header = self.list.header()
         # %15 pay: kolonlarin tam genisligi yatay kaydirma cubugu cikaracak

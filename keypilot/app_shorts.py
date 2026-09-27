@@ -45,7 +45,7 @@ from keypilot.store import backup_file
 log = logging.getLogger("keypilot.app_shorts")
 
 #: AHK Send sozdiziminde modifier isaretleri. Bir tus dizisi bunlardan
-#: biriyle BASLIYORSA kisayol, degilse duz metin sayilir (bkz. `stroke_kind`).
+#: biriyle BASLIYORSA kisayol, degilse duz metin sayilir (bkz. `is_key_stroke`).
 MODIFIER_CHARS = "^!+#"
 
 
@@ -80,17 +80,15 @@ class AppProfile:
         return not (self.title and self.title not in title)
 
 
-def stroke_kind(stroke: str) -> str:
-    """Bir dizinin "kisayol" mu "metin" mi oldugu.
+def is_key_stroke(stroke: str) -> bool:
+    """Dizi kisayol mu (True) yoksa duz metin mi (False).
 
     AHK'nin `Send`i tek bicimdi: `"^+t"` kisayol, `"abc"` harf harf metin.
     Bizde iki ayri yol var (`send_key` / `send_text`), o yuzden ayrimi
     burada yapiyoruz. Kural, AHK dosyalarindaki kullanimin karsiligi:
     modifier isaretiyle baslayan ya da `{...}` iceren dizi kisayoldur.
     """
-    if stroke.startswith(tuple(MODIFIER_CHARS)) or ("{" in stroke and "}" in stroke):
-        return "key"
-    return "text"
+    return stroke.startswith(tuple(MODIFIER_CHARS)) or ("{" in stroke and "}" in stroke)
 
 
 @dataclass
