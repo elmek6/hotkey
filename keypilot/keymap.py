@@ -137,9 +137,6 @@ VECTOR_STEP_PX = setting(
 #: gelsin" demek tek satirlik is olsun.
 SHORT_MS = 350  # bundan kisa basim KISA, uzunu ORTA (ya da "basili tut")
 LONG_MS = 800  # bundan uzunu UZUN (tanimliysa)
-#: Kopyala/yapistir tuslari (F19, F20, hafiza bloklarinin F1..F10'u) daha
-#: seri basiliyor: kisa basim siniri biraz daha dar.
-QUICK_SHORT_MS = 300
 
 #: F13 kisa basimda katman/menu ACILMADAN hemen once orta fare tusu
 #: gonderilir (tarayici yeni sekme, kaydirma-orta-tik, vb.). Genel bakis
@@ -449,7 +446,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .build(),
         # handleF19: kisa ^v, orta ^a^v, uzun MemSlots;
         # MButton: yapistir, sonra panoyu gecmisteki bir oncekine cek
-        KeyBuilder("F19", short=QUICK_SHORT_MS, long=LONG_MS)
+        KeyBuilder("F19", short=SHORT_MS, long=LONG_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^v"))
         .main_key(PressType.MEDIUM, Cmd.send_keys("^a", "^v"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
@@ -460,7 +457,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .named("F19")
         .build(),
         # handleF20: kisa ^c, orta ^x, uzun MemSlots
-        KeyBuilder("F20", short=QUICK_SHORT_MS, long=LONG_MS)
+        KeyBuilder("F20", short=SHORT_MS, long=LONG_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^c"))
         .main_key(PressType.MEDIUM, Cmd.send_key("^x"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
@@ -474,7 +471,7 @@ def build_cascades() -> dict[int, CascadeDef]:
     return {definition.key: definition for definition in defs}
 
 
-MEMSLOT_SHORT_MS = QUICK_SHORT_MS
+MEMSLOT_SHORT_MS = SHORT_MS
 MEMSLOT_LONG_MS = LONG_MS
 
 

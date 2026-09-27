@@ -539,6 +539,8 @@ class Incognito:
         self._clear_vlc_recents()
         self._clear_recent_lnk()
 
+    # KULLANILMIYOR (28-09-2026): hicbir yerden cagrilmiyor. Silinsin mi yoksa
+    # bir ayar/pencere uzerinden mi baglansin, karari kullaniciya birakildi.
     def add_extra_target(self, path: Path | str) -> None:
         """Uygulama-ici gecmis dosyasi ekle. Kilitlemek uygulamayi bozabildigi
         icin liste varsayilan BOS."""
@@ -633,6 +635,9 @@ class Incognito:
 
     # ---- tam temizlik ----
 
+    # KULLANILMIYOR (28-09-2026): hicbir tus/menu/pencere bu metodu cagirmiyor.
+    # Silinsin mi yoksa incognito penceresine bir dugme olarak mi baglansin,
+    # karari kullaniciya birakildi.
     def clean_now(self) -> int:
         """DIKKAT: geri donusu olmayan tek islem -- ESKI gecmisi de siler.
 
