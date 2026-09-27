@@ -12,7 +12,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton
 
-from keypilot.settings import Registry, Setting, between
+from keypilot.settings import Category, Registry, Setting, between
 from keypilot.ui import settings_dialog
 from keypilot.ui.settings_dialog import ALL_LABEL, SettingCard, SettingsDialog
 
@@ -51,8 +51,8 @@ def _kart(item: Setting) -> SettingCard:
 def test_tumu_en_sonda(qapp, defter):
     _kur(
         defter,
-        Setting("a.bir", "Bir", default=True, category="mouse"),
-        Setting("b.iki", "Iki", default=True, category="tray"),
+        Setting("a.bir", "Bir", default=True, category=Category.MOUSE),
+        Setting("b.iki", "Iki", default=True, category=Category.TRAY),
     )
     dialog = _dialog()
     rows = [dialog.categories.item(i).text() for i in range(dialog.categories.count())]
@@ -66,8 +66,8 @@ def test_tumu_en_sonda(qapp, defter):
 def test_gizli_ayar_listede_yok(qapp, defter):
     _kur(
         defter,
-        Setting("a.gorunur", "Gorunur", default=True, category="mouse"),
-        Setting("a.gizli", "Gizli", default=True, category="mouse", hidden=True),
+        Setting("a.gorunur", "Gorunur", default=True, category=Category.MOUSE),
+        Setting("a.gizli", "Gizli", default=True, category=Category.MOUSE, hidden=True),
     )
     dialog = _dialog()
     assert [card.item.key for card in dialog.cards] == ["a.gorunur"]
@@ -79,8 +79,8 @@ def test_gizli_ayar_listede_yok(qapp, defter):
 def test_tek_ayari_gizli_kategori_hic_listelenmez(qapp, defter):
     _kur(
         defter,
-        Setting("a.gorunur", "Gorunur", default=True, category="mouse"),
-        Setting("b.gizli", "Gizli", default=True, category="tray", hidden=True),
+        Setting("a.gorunur", "Gorunur", default=True, category=Category.MOUSE),
+        Setting("b.gizli", "Gizli", default=True, category=Category.TRAY, hidden=True),
     )
     dialog = _dialog()
     rows = [dialog.categories.item(i).text() for i in range(dialog.categories.count())]
@@ -88,7 +88,7 @@ def test_tek_ayari_gizli_kategori_hic_listelenmez(qapp, defter):
 
 
 def test_kartta_ad_deger_ve_aciklama_var(qapp):
-    item = Setting("a.bool", "Bool", default=False, category="mouse", desc="ne yapar")
+    item = Setting("a.bool", "Bool", default=False, category=Category.MOUSE, desc="ne yapar")
     card = _kart(item)
     assert card.name.text() == "Bool"
     assert card.desc.text() == "ne yapar"
@@ -97,7 +97,7 @@ def test_kartta_ad_deger_ve_aciklama_var(qapp):
 
 def test_acik_kapali_da_menuden_secilir(qapp):
     """bool ayri bir tip degil: iki elemanli bir secenek listesi gibi."""
-    item = Setting("a.bool", "Bool", default=False, category="mouse")
+    item = Setting("a.bool", "Bool", default=False, category=Category.MOUSE)
     card = _kart(item)
     assert card.value.text() == "kapali"
 
@@ -116,7 +116,7 @@ def test_enum_menusunde_secili_tikli_varsayilan_kalin(qapp):
         "a.enum",
         "Enum",
         default="bir",
-        category="mouse",
+        category=Category.MOUSE,
         choices=("bir", "iki", "uc"),
         labels={"bir": "Bir", "iki": "Iki", "uc": "Uc"},
     )
@@ -136,7 +136,7 @@ def test_enum_menusunde_secili_tikli_varsayilan_kalin(qapp):
 
 
 def test_sayi_kutuya_yazilarak_degisir(qapp):
-    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    item = Setting("a.sayi", "Sayi", default=10, category=Category.MOUSE)
     card = _kart(item)
     assert isinstance(card.value, QLineEdit)
 
@@ -149,22 +149,24 @@ def test_sayi_kutuya_yazilarak_degisir(qapp):
 def test_ortadaki_bilgi_gecerli_araligi_yazar(qapp):
     """Aralik dogrulayicidan turetiliyor, elle yazilmiyor."""
     card = _kart(
-        Setting("a.sayi", "Sayi", default=10, category="mouse", validate=between(0, 50, "px"))
+        Setting(
+            "a.sayi", "Sayi", default=10, category=Category.MOUSE, validate=between(0, 50, "px")
+        )
     )
     assert card.info.text() == "0 - 50 px".replace(" - ", "-")
     # Duz aralik olmayan ayarda kisa bilgi elle veriliyor.
     elle = _kart(
-        Setting("a.ms", "Ms", default=0, category="mouse", info="0=yok 500-60000ms")
+        Setting("a.ms", "Ms", default=0, category=Category.MOUSE, info="0=yok 500-60000ms")
     )
     assert elle.info.text() == "0=yok 500-60000ms"
     # Bilgisi olmayan ayarda hucre bos ara olarak duruyor.
-    assert _kart(Setting("a.duz", "Duz", default=1, category="mouse")).info.text() == ""
+    assert _kart(Setting("a.duz", "Duz", default=1, category=Category.MOUSE)).info.text() == ""
 
 
 def test_gecersiz_degerde_ayni_yazi_KIRMIZI_yanar(qapp):
     """Yazdigin yerinde kalir; ortadaki aralik kirmizi olur."""
     item = Setting(
-        "a.sayi", "Sayi", default=10, category="mouse", validate=between(1, 9)
+        "a.sayi", "Sayi", default=10, category=Category.MOUSE, validate=between(1, 9)
     )
     card = _kart(item)
     assert card.info.text() == "1-9"
@@ -190,7 +192,7 @@ def test_bilgisi_olmayan_ayarda_ret_gerekcesi_ortada_gorunur(qapp):
         "a.sayi",
         "Sayi",
         default=10,
-        category="mouse",
+        category=Category.MOUSE,
         validate=lambda value: "cok buyuk" if value > 100 else "",
     )
     card = _kart(item)
@@ -203,9 +205,9 @@ def test_bilgisi_olmayan_ayarda_ret_gerekcesi_ortada_gorunur(qapp):
 def test_uc_tip_de_ayni_satir_sablonunu_kullanir(qapp):
     """Sablon: ad | bilgi | deger. Deger sutunu tiplerde ayni yerde."""
     kartlar = [
-        _kart(Setting("a.bool", "Bool", default=True, category="mouse")),
-        _kart(Setting("a.enum", "Enum", default="x", choices=("x", "y"), category="mouse")),
-        _kart(Setting("a.sayi", "Sayi", default=1, category="mouse")),
+        _kart(Setting("a.bool", "Bool", default=True, category=Category.MOUSE)),
+        _kart(Setting("a.enum", "Enum", default="x", choices=("x", "y"), category=Category.MOUSE)),
+        _kart(Setting("a.sayi", "Sayi", default=1, category=Category.MOUSE)),
     ]
     for card in kartlar:
         assert card.info.parent() is card  # hucre HER tipte var
@@ -217,7 +219,7 @@ def test_uc_tip_de_ayni_satir_sablonunu_kullanir(qapp):
 def test_hicbir_yerde_ipucu_yok(qapp):
     """Tooltip katmani kaldirildi: gosterdigi her sey zaten ekranda."""
     item = Setting(
-        "a.sayi", "Sayi", default=10, category="mouse", validate=between(0, 50, "px")
+        "a.sayi", "Sayi", default=10, category=Category.MOUSE, validate=between(0, 50, "px")
     )
     card = _kart(item)
     assert card.value.toolTip() == ""
@@ -227,7 +229,7 @@ def test_hicbir_yerde_ipucu_yok(qapp):
 
 def test_varsayilan_disi_deger_kalin_yazilir(qapp, defter):
     """Isaret ADIN degil DEGERIN uzerinde: goz degerler sutununu tariyor."""
-    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    item = Setting("a.sayi", "Sayi", default=10, category=Category.MOUSE)
     _kur(defter, item)
     dialog = _dialog()
     card = dialog.cards[0]
@@ -246,7 +248,7 @@ def test_varsayilan_disi_deger_kalin_yazilir(qapp, defter):
 
 def test_kategorilerle_tumu_arasinda_ayirici_var(qapp, defter):
     """"Tümü" bir kategori DEGIL, suzgeci kaldirmak."""
-    _kur(defter, Setting("a.bir", "Bir", default=True, category="mouse"))
+    _kur(defter, Setting("a.bir", "Bir", default=True, category=Category.MOUSE))
     dialog = _dialog()
     rows = dialog.categories.count()
     assert rows == 3  # mouse + ayirici + Tümü
@@ -256,8 +258,8 @@ def test_kategorilerle_tumu_arasinda_ayirici_var(qapp, defter):
 
 
 def test_durum_satiri_degisen_sayisini_sayar(qapp, defter):
-    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
-    _kur(defter, item, Setting("a.bool", "Bool", default=True, category="mouse"))
+    item = Setting("a.sayi", "Sayi", default=10, category=Category.MOUSE)
+    _kur(defter, item, Setting("a.bool", "Bool", default=True, category=Category.MOUSE))
     dialog = _dialog()
     assert dialog.status.text() == "2 ayar, 0 degismis"
 
@@ -273,7 +275,7 @@ def test_durum_satiri_degisen_sayisini_sayar(qapp, defter):
 
 def test_sifirlama_dugmesi_kutunun_icinde_varsayilani_geri_yazar(qapp):
     """Kartin saginda ayri bir dugme hizayi bozuyordu; yeri kutunun ici."""
-    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    item = Setting("a.sayi", "Sayi", default=10, category=Category.MOUSE)
     card = _kart(item)
     # Hep gorunur ama varsayilandayken PASIF: dondurecek bir sey yok.
     assert card.reset_action.isEnabled() is False
@@ -291,7 +293,7 @@ def test_sifirlama_dugmesi_kutunun_icinde_varsayilani_geri_yazar(qapp):
 def test_kutuyu_bosaltmak_varsayilana_dondurur(qapp):
     """Bos = varsayilan. Kutu varsayilandayken zaten bos duruyor; yazdigini
     silmek gorunuse uyan bir geri alma olmali, ret mesaji degil."""
-    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    item = Setting("a.sayi", "Sayi", default=10, category=Category.MOUSE)
     card = _kart(item)
     card.value.setText("42")
     card.value.editingFinished.emit()
@@ -306,7 +308,7 @@ def test_kutuyu_bosaltmak_varsayilana_dondurur(qapp):
 
 def test_menu_dugmesinde_sifirlama_yok(qapp):
     """Yalniz yazi kutusunda: menude varsayilan zaten KALIN gorunuyor."""
-    card = _kart(Setting("a.bool", "Bool", default=True, category="mouse"))
+    card = _kart(Setting("a.bool", "Bool", default=True, category=Category.MOUSE))
     assert card.reset_action is None
     assert card.default is None
     assert card.box is card.value  # menulu tipte dugmenin kendisi kutudur
@@ -314,7 +316,7 @@ def test_menu_dugmesinde_sifirlama_yok(qapp):
 
 def test_kutuda_silik_varsayilan_yazili(qapp):
     """Sayi kutusunun ICINDE: deger | sifirlama | silik varsayilan."""
-    item = Setting("a.sayi", "Sayi", default=10, category="mouse")
+    item = Setting("a.sayi", "Sayi", default=10, category=Category.MOUSE)
     card = _kart(item)
     assert card.default.text() == "10"
     # Ucu de AYNI kutunun icinde -- sutun genisligi degismiyor.
@@ -332,14 +334,14 @@ def test_tumu_gorunumunde_kategori_basliklari_var(qapp, defter):
     bakarken ayni basligi tekrarlamak gurultu olurdu."""
     _kur(
         defter,
-        Setting("a.bir", "Bir", default=True, category="mouse"),
-        Setting("a.iki", "Iki", default=True, category="mouse"),
-        Setting("b.bir", "Uc", default=True, category="macro"),
+        Setting("a.bir", "Bir", default=True, category=Category.MOUSE),
+        Setting("a.iki", "Iki", default=True, category=Category.MOUSE),
+        Setting("b.bir", "Uc", default=True, category=Category.MACRO),
     )
     dialog = _dialog()
     adlar = [label.text() for label in dialog.holder.findChildren(QLabel, "group")]
     assert len(adlar) == 2  # iki kategori, her biri BIR kez
 
-    dialog._category = "mouse"
+    dialog._category = Category.MOUSE
     dialog._refresh()
     assert dialog.holder.findChildren(QLabel, "group") == []

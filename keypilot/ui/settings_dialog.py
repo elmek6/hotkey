@@ -75,7 +75,7 @@ from PySide6.QtWidgets import (
 )
 
 from keypilot import paths
-from keypilot.settings import SETTINGS, Category, Setting
+from keypilot.settings import SETTINGS, Category, Kind, Setting
 from keypilot.ui.place import center_on_cursor_screen
 
 ALL_LABEL = "Tümü"
@@ -86,7 +86,7 @@ INVALID_COLOR = "#da3633"
 
 #: Yerinde yazilan tipler. bool ve enum menuden seciliyor -- ikisi de
 #: metin girdisi degil, sayili secenek.
-TYPED_KINDS = ("int", "float", "str")
+TYPED_KINDS = (Kind.INT, Kind.FLOAT, Kind.STR)
 
 #: Deger nesnesinin genisligi -- tip ne olursa olsun AYNI, cunku hepsi
 #: satirin en saginda ayni sutunda duruyor.
@@ -262,10 +262,10 @@ class SettingCard(QFrame):
     def _choices(self) -> tuple:
         """Menude gorunecek degerler. bool'un da iki secenegi var: acik/kapali
         ayri bir tip degil, iki elemanli bir liste gibi davraniyor."""
-        return (True, False) if self.item.type_of() == "bool" else self.item.choices
+        return (True, False) if self.item.type_of() == Kind.BOOL else self.item.choices
 
     def _label(self, value) -> str:
-        if self.item.type_of() == "bool":
+        if self.item.type_of() == Kind.BOOL:
             return "acik" if value else "kapali"
         return self.item.label_for(value)
 
@@ -402,7 +402,7 @@ class SettingsDialog(QWidget):
         #: bunun uzerinden: `cards` yalnizca kartlari tuttugu icin basliklar
         #: kabin icinde birikip kalirdi.
         self._shown: list[QWidget] = []
-        self._category = ""  # "" = Tümü
+        self._category: Category | None = None  # None = Tümü
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("\U0001f50e ara (bosluk = ve)")
@@ -464,22 +464,22 @@ class SettingsDialog(QWidget):
         """
         self.categories.blockSignals(True)
         self.categories.clear()
-        #: Satir -> kategori kimligi. Ayrac ve "Tümü" icin bos dizge; sira
+        #: Satir -> kategori kimligi. Ayrac ve "Tümü" icin `None`; sira
         #: artik `SETTINGS.categories` ile birebir DEGIL.
-        self._category_rows: list[str] = []
+        self._category_rows: list[Category | None] = []
         gunluk = [name for name in SETTINGS.categories if name != Category.DEVELOPMENT]
         for name in gunluk:
             self._add_category(name)
         self._add_separator()
-        self._category_rows.append("")
+        self._category_rows.append(None)
         if Category.DEVELOPMENT in SETTINGS.categories:
             self._add_category(Category.DEVELOPMENT)
         self.categories.addItem(f"{ALL_LABEL} ({len(SETTINGS.visible)})")
-        self._category_rows.append("")
+        self._category_rows.append(None)
         self.categories.setCurrentRow(self._all_row)
         self.categories.blockSignals(False)
 
-    def _add_category(self, name: str) -> None:
+    def _add_category(self, name: Category) -> None:
         self.categories.addItem(f"{Category.label(name)} ({len(SETTINGS.visible_in(name))})")
         self._category_rows.append(name)
 
@@ -503,7 +503,7 @@ class SettingsDialog(QWidget):
 
     def _on_category(self, row: int) -> None:
         rows = self._category_rows
-        self._category = rows[row] if 0 <= row < len(rows) else ""
+        self._category = rows[row] if 0 <= row < len(rows) else None
         self._refresh()
 
     # ---- liste ----
@@ -515,8 +515,8 @@ class SettingsDialog(QWidget):
             self.categories.blockSignals(True)
             self.categories.setCurrentRow(self._all_row)
             self.categories.blockSignals(False)
-            self._category = ""
-        if self._category:
+            self._category = None
+        if self._category is not None:
             items = [item for item in items if item.category == self._category]
 
         self._rows = items
@@ -530,8 +530,8 @@ class SettingsDialog(QWidget):
         # ayni basligi kirk kez tekrarlamak gurultu, solda zaten secili
         # duruyor. Aramada da cikiyor -- arama kategori suzgecini devre
         # disi biraktigi icin sonuclar en cok orada karisik geliyor.
-        grouped = not self._category
-        seen = ""
+        grouped = self._category is None
+        seen: Category | None = None
         index = 0
         for item in items:
             if grouped and item.category != seen:
@@ -546,7 +546,7 @@ class SettingsDialog(QWidget):
         self.scroll.verticalScrollBar().setValue(0)
         self._update_status()
 
-    def _group_header(self, name: str) -> QLabel:
+    def _group_header(self, name: Category) -> QLabel:
         """Kartlarin arasindaki kategori basligi. Soldaki listedeki adin
         AYNISI: goz "Fare"ye tikladiginda hangi kartlarin geldigini ayni
         kelimeyle bulsun."""

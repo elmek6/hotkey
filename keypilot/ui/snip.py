@@ -70,6 +70,7 @@ from keypilot.areas import (
     Rule,
     default_name,
 )
+from keypilot.commands import Id
 from keypilot.ui.key_capture import KeyCapture
 from keypilot.win32 import menu as win32_menu
 from keypilot.win32.ocr import OCR_LANGUAGES
@@ -150,19 +151,32 @@ _CURSORS = {
 #: altinda toolbox aciliyor (ad/aciklama, X/Y/W/H). Ikisi tek cubuga
 #: sigmiyordu; ayni cerceve, iki takim alet.
 
-#: (etiket, eylem kimligi) -- app.py `done` sinyalinde bu kimligi alir.
-#: "ocr_adv" seciminde pencere KAPANMAZ, ayar fazinda kalir.
+class SnipAction(Id):
+    """Islem cubugu eylemleri -- app.py `done` sinyalinde bu kimligi alir.
+
+    Dil secili basit OCR parametreli: `SnipAction.OCR("de") == "ocr:de"`.
+    """
+
+    COPY = "copy"
+    SAVE = "save"
+    CLIP_IMAGE = "clip_image"
+    PAINT = "paint"
+    OCR = "ocr"
+    OCR_ADV = "ocr_adv"
+
+
+#: (etiket, eylem kimligi). OCR+ seciminde pencere KAPANMAZ, ayar fazinda kalir.
 ACTIONS = (
-    ("\U0001f4cb Kopyala", "copy"),
-    ("\U0001f4be Sakla", "save"),
-    ("\U0001f5bc️ Gorsellere ekle", "clip_image"),
-    ("\U0001f3a8 Paint", "paint"),
-    ("\U0001f524 OCR", "ocr"),
-    ("\U0001f9e0 OCR+", "ocr_adv"),
+    ("\U0001f4cb Kopyala", SnipAction.COPY),
+    ("\U0001f4be Sakla", SnipAction.SAVE),
+    ("\U0001f5bc️ Gorsellere ekle", SnipAction.CLIP_IMAGE),
+    ("\U0001f3a8 Paint", SnipAction.PAINT),
+    ("\U0001f524 OCR", SnipAction.OCR),
+    ("\U0001f9e0 OCR+", SnipAction.OCR_ADV),
 )
 
 #: Secildikten sonra secim cercevesinin acik kalacagi eylemler.
-KEEP_OPEN = frozenset({"ocr_adv"})
+KEEP_OPEN = frozenset({SnipAction.OCR_ADV})
 
 
 
@@ -228,7 +242,7 @@ class SnipOverlay(QWidget):
         #: kimlik). F13 menusundeki "OCR Gelismis / OCR Basit" boyle
         #: calisiyor: alan secilir secilmez OCR baslar, islem cubugundan
         #: dugmeye basmaya gerek kalmaz. Bir kez kullanilir, sonra silinir.
-        self.auto_action = ""
+        self.auto_action: SnipAction | None = None
         #: Kural penceresi acilirken hook'u susturan kanca (app.py verir):
         #: `set_ui_open(True/False)`. Verilmezse pencere yine acilir ama
         #: yakalanacak tus once kisayol olarak islenir.
@@ -296,7 +310,7 @@ class SnipOverlay(QWidget):
             button = QPushButton(label, self._bar)
             button.setCursor(Qt.CursorShape.ArrowCursor)
             button.clicked.connect(lambda _c=False, a=action: self._finish(a))
-            if action == "ocr":
+            if action == SnipAction.OCR:
                 self._ocr_button = button
                 button.setToolTip("Basit OCR: uzerine gelince secili alan okunur")
                 button.installEventFilter(self)
@@ -323,7 +337,7 @@ class SnipOverlay(QWidget):
             button.setFixedWidth(40)
             button.setToolTip(f"{label} OCR")
             button.clicked.connect(
-                lambda _checked=False, lang=language: self._finish(f"ocr:{lang}")
+                lambda _checked=False, lang=language: self._finish(SnipAction.OCR(lang))
             )
             language_column.addWidget(button)
         language_column.addStretch(1)
@@ -1010,8 +1024,8 @@ class SnipOverlay(QWidget):
         self._sync_toolbox()  # cift yon: cerceve -> kutular
         self.update()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
-        if self.auto_action:
-            action, self.auto_action = self.auto_action, ""
+        if self.auto_action is not None:
+            action, self.auto_action = self.auto_action, None
             self._finish(action)
 
     def repick(self, origin: tuple[int, int] | None = None) -> None:
@@ -1437,7 +1451,7 @@ class SnipOverlay(QWidget):
             and event.modifiers() == Qt.KeyboardModifier.ControlModifier
             and not self._rect.normalized().isEmpty()
         ):
-            self._finish("copy")
+            self._finish(SnipAction.COPY)
             return
         super().keyPressEvent(event)
 

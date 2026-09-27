@@ -10,7 +10,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
-from keypilot.ui.snip import Grip, SnipOverlay
+from keypilot.ui.snip import Grip, SnipAction, SnipOverlay
 
 
 def _ctrl_c(widget) -> None:
@@ -167,3 +167,9 @@ def test_kenar_tutamacina_tiklamak_kipi_secer(qapp):
     _click(snip, QPoint(rect.left(), rect.center().y()))
     assert snip._selected_grip == Grip.LEFT
     snip.close()
+
+
+def test_eylem_kimligi_bicimi():
+    """app.py `_on_snip_done` dil secili OCR'yi `partition(":")` ile ayiriyor."""
+    assert SnipAction.COPY == "copy"
+    assert SnipAction.OCR("de") == "ocr:de"

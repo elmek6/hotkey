@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from keypilot.commands import Cmd
+
 #: Dizilim 1: tusun kendi harfi -> uzun basimda yazilacak Turkce harf.
 #: AHK: `$c:: _HandleTurkish("c", "c", "c", "C")` satirlari.
 LONG_PRESS = {
@@ -99,7 +101,7 @@ class TurkishLayout:
             return False, []
         if not down:
             return True, []  # basimi yuttuk, birakmasi da yutulmali
-        return True, [f"send_text:{pair[1] if upper else pair[0]}"]
+        return True, [Cmd.send_text(pair[1] if upper else pair[0])]
 
     # ---- dizilim 1: uzun basim ----
 
@@ -113,7 +115,7 @@ class TurkishLayout:
             if char in self._held:
                 return True, []  # Windows'un tus tekrari: harf bir kez yazilir
             self._held[char] = (t, upper)
-            return True, [f"send_text:{char.upper() if upper else char}"]
+            return True, [Cmd.send_text(char.upper() if upper else char)]
 
         start = self._held.pop(char, None)
         if start is None:
@@ -122,4 +124,4 @@ class TurkishLayout:
         if (t - began) * 1000.0 < LONG_MS:
             return True, []  # kisa basim: yazilan harf dogru, is bitti
         # Uzun basim: yazdigimiz harfi geri al, yerine Turkcesini koy.
-        return True, ["send_key:Backspace", f"send_text:{pair[1] if was_upper else pair[0]}"]
+        return True, [Cmd.send_key("Backspace"), Cmd.send_text(pair[1] if was_upper else pair[0])]

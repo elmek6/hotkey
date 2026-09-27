@@ -37,7 +37,7 @@ KEY_DELAY = setting(
 )
 
 
-def command(*names: str | Id):
+def command(*names: Id):
     """Metodu eylem kimligiyle isaretler -- kaydi `ActionRunner.adopt` yapar.
 
     Amac: kimlik, aciklama ve gercek is AYNI yerde dursun. Onceden kimlik
@@ -92,7 +92,7 @@ class ActionRunner:
         dx, _, dy = argument.partition(",")
         send.move_relative(int(dx or 0), int(dy or 0))
 
-    def register(self, name: str, handler: Callable[[str], None]) -> None:
+    def register(self, name: Id, handler: Callable[[str], None]) -> None:
         self._commands[name] = handler
 
     def adopt(self, *owners: object) -> None:

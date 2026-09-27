@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from enum import StrEnum
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
@@ -73,7 +74,7 @@ from keypilot.ui.qr_view import QrDialog
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
 from keypilot.ui.repository_view import RepositoryView
 from keypilot.ui.settings_dialog import SettingsDialog
-from keypilot.ui.snip import SnipOverlay
+from keypilot.ui.snip import SnipAction, SnipOverlay
 from keypilot.ui.tip import Tip
 from keypilot.ui.tray import Tray
 from keypilot.version import VERSION, build_stamp, full_version
@@ -172,11 +173,19 @@ class _ErrorBridge(QObject):
     raised = Signal(str, str)
 
 
+class OcrMode(StrEnum):
+    """OCR sonucunun nereye gidecegi -- `_OcrBridge` sinyaliyle geri doner."""
+
+    SIMPLE = "ocr"  # metin dogrudan panoya
+    ADVANCED = "ocr_adv"  # kelime kutulari OCR+ paneline
+    PREVIEW = "ocr_preview"  # secim cubugundaki hover ipucu
+
+
 class _OcrBridge(QObject):
     """OCR ayri thread'de kosuyor (bloklayici, bkz. win32/ocr.py); sonuc
     Qt sinyaliyle ana thread'e doner -- baska thread'den arayuze dokunulmaz."""
 
-    finished = Signal(str, object)  # mod ("ocr" / "ocr_adv" / "ocr_preview"), ocr.Result
+    finished = Signal(str, object)  # OcrMode, ocr.Result
     failed = Signal(str, str)
 
 
@@ -440,8 +449,10 @@ class KeyPilot:
         self.snip.release_rules = self._release_area_rules
         # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
         # App.ScreenOcr.snipInteractive / snip("plain") idi).
-        self.runner.register(Cmd.Select.OCR, lambda _: self.show_snip_auto("ocr"))
-        self.runner.register(Cmd.Select.OCR_ADV, lambda _: self.show_snip_auto("ocr_adv"))
+        self.runner.register(Cmd.Select.OCR, lambda _: self.show_snip_auto(SnipAction.OCR))
+        self.runner.register(
+            Cmd.Select.OCR_ADV, lambda _: self.show_snip_auto(SnipAction.OCR_ADV)
+        )
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
         self.runner.register(Cmd.Magnifier.TOGGLE, lambda _: self.magnifier.toggle())
         self.runner.register(Cmd.Magnifier.RESET, lambda _: self.magnifier.reset())
@@ -744,7 +755,7 @@ class KeyPilot:
         self.dispatcher.watch(0)
         self.snip.start_rect(screens[number][1])
 
-    def show_snip_auto(self, action: str) -> None:
+    def show_snip_auto(self, action: SnipAction) -> None:
         """Secim aracini "bitince su eylemi calistir" diyerek acar."""
         self.snip.auto_action = action
         self.show_snip("")
@@ -771,8 +782,9 @@ class KeyPilot:
         self._ocr_image = None
 
     def _on_snip_done(self, action: str, image: QImage) -> None:
-        """Secim bitti: eylem kimligi ui/snip.py ACTIONS tablosundan gelir."""
-        if action == "copy":
+        """Secim bitti: eylem kimligi ui/snip.py `SnipAction`dan gelir."""
+        name, _, language = action.partition(":")
+        if name == SnipAction.COPY:
             # Ipucunu BIZ gostermiyoruz. Panoya resim koyunca pano
             # dinleyicisi zaten uyaniyor (clip_ctl.on_other): gorseli
             # gecmise yaziyor ve KUCUK RESIMLI ipucunu kendisi cikariyor.
@@ -780,32 +792,31 @@ class KeyPilot:
             # duz metin, oteki resimli. Resimli olan hem olcuyu veriyor hem
             # neyi kopyaladigini gosteriyor; buradaki yalnizca fazlaligi.
             QGuiApplication.clipboard().setImage(image)
-        elif action == "save":
+        elif name == SnipAction.SAVE:
             self.save_capture(image)
-        elif action == "clip_image":
+        elif name == SnipAction.CLIP_IMAGE:
             # Secilen alani gorsel gecmisine koy ve pencereyi ac.
             if self.clip.save_image(image) < 0:
                 self.tip.show_html("⚠️ <b>gorsel kaydedilemedi</b>", 1500)
                 return
             self.clip.show_images()
-        elif action == "paint":
+        elif name == SnipAction.PAINT:
             self.paint_capture(image)
-        elif action == "ocr" or action.startswith("ocr:"):
-            language = action.partition(":")[2] or self._ocr_language
-            self._start_ocr("ocr", image, language)
-        elif action == "ocr_adv":
-            self._start_ocr(action, image, self._ocr_language)
+        elif name == SnipAction.OCR:
+            self._start_ocr(OcrMode.SIMPLE, image, language or self._ocr_language)
+        elif name == SnipAction.OCR_ADV:
+            self._start_ocr(OcrMode.ADVANCED, image, self._ocr_language)
 
     def _on_snip_rect_changed(self, image: QImage) -> None:
         """OCR+ acikken alan yeniden ayarlandi: taze kirpimla tekrar oku."""
-        self._start_ocr("ocr_adv", image, self._ocr_language)
+        self._start_ocr(OcrMode.ADVANCED, image, self._ocr_language)
 
     def _on_snip_ocr_preview(self, image: QImage) -> None:
         """Basit OCR dugmesi hover ipucu: panoya dokunmadan sessizce oku."""
         if not ocr.available():
             self.snip.set_ocr_preview("OCR paketi kurulu degil (winrt)")
             return
-        self._run_ocr("ocr_preview", image, ocr.DEFAULT_SCALE, True, self._ocr_language)
+        self._run_ocr(OcrMode.PREVIEW, image, ocr.DEFAULT_SCALE, True, self._ocr_language)
 
     def paint_capture(self, image: QImage) -> None:
         """Secimi gecici bir PNG'ye yazip Paint'te acar.
@@ -842,14 +853,14 @@ class KeyPilot:
         else:
             self.tip.show_html("⚠️ <b>goruntu kaydedilemedi</b>", 1800)
 
-    def _start_ocr(self, mode: str, image: QImage, language: str = "") -> None:
+    def _start_ocr(self, mode: OcrMode, image: QImage, language: str = "") -> None:
         if not ocr.available():
             self.tip.show_html("⚠️ <b>OCR paketi kurulu degil</b> (winrt)", 2000)
             return
         self._ocr_image = image
         self._ocr_language = language
         self.ocr_view.select_language(language)
-        if mode == "ocr_adv":
+        if mode == OcrMode.ADVANCED:
             self.ocr_view.busy()
             scale = self.ocr_view.scale
         else:
@@ -861,16 +872,16 @@ class KeyPilot:
         """Panelde olcek degisti: ekran TEKRAR CEKILMEZ, elimizdeki kirpim
         yeniden okunur (AHK: cache'li bitmap uzerinden)."""
         if self._ocr_image is not None:
-            self._run_ocr("ocr_adv", self._ocr_image, scale, True, self._ocr_language)
+            self._run_ocr(OcrMode.ADVANCED, self._ocr_image, scale, True, self._ocr_language)
 
     def _on_ocr_language(self, language: str) -> None:
         """OCR+ dil dugmesi: ayni kirpimi secilen dilde tekrar oku."""
         self._ocr_language = language
         if self._ocr_image is not None:
-            self._run_ocr("ocr_adv", self._ocr_image, self.ocr_view.scale, True, language)
+            self._run_ocr(OcrMode.ADVANCED, self._ocr_image, self.ocr_view.scale, True, language)
 
     def _run_ocr(
-        self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
+        self, mode: OcrMode, image: QImage, scale: int, grayscale: bool, language: str
     ) -> None:
         threading.Thread(
             target=self._ocr_work,
@@ -880,7 +891,7 @@ class KeyPilot:
         ).start()
 
     def _ocr_work(
-        self, mode: str, image: QImage, scale: int, grayscale: bool, language: str
+        self, mode: OcrMode, image: QImage, scale: int, grayscale: bool, language: str
     ) -> None:
         """OCR thread'i: motoru bekler, sonucu sinyalle ana thread'e verir."""
         try:
@@ -891,10 +902,10 @@ class KeyPilot:
             self._ocr_bridge.failed.emit(mode, str(exc))
 
     def _on_ocr_done(self, mode: str, result) -> None:
-        if mode == "ocr_preview":
+        if mode == OcrMode.PREVIEW:
             self.snip.set_ocr_preview(shorten(result.text, 500) if result.lines else "")
             return
-        if mode == "ocr":
+        if mode == OcrMode.SIMPLE:
             # Basit OCR: metin dogrudan panoya (ve oradan gecmise) gider.
             if not result.lines:
                 self.tip.show_html("\U0001f524 <b>metin bulunamadi</b>", 1500)
@@ -905,7 +916,7 @@ class KeyPilot:
         self.ocr_view.show_result(result.words, result.lines, result.ms)
 
     def _on_ocr_failed(self, mode: str, message: str) -> None:
-        if mode == "ocr_preview":
+        if mode == OcrMode.PREVIEW:
             self.snip.set_ocr_preview(f"OCR hatasi: {shorten(message, 80)}")
             return
         self.tip.show_html(f"⚠️ <b>OCR hatasi</b><br>{html.escape(shorten(message, 80))}", 2500)

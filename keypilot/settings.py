@@ -62,7 +62,7 @@ class Category(StrEnum):
     DEVELOPMENT = "development"
 
     @classmethod
-    def label(cls, category: str) -> str:
+    def label(cls, category: Category) -> str:
         return _CATEGORY_LABELS.get(category, category)
 
 
@@ -80,6 +80,19 @@ _CATEGORY_LABELS = {
 }
 
 
+class Kind(StrEnum):
+    """Ayar degerinin tipi -- `coerce` ve ayar ekranindaki girdi bunu secer.
+
+    Verilmezse `Setting.type_of` varsayilandan cikarir.
+    """
+
+    BOOL = "bool"
+    ENUM = "enum"
+    INT = "int"
+    FLOAT = "float"
+    STR = "str"
+
+
 class Setting:
     """Tek bir ayar. `get`/`set`, degisince aboneleri uyarir."""
 
@@ -88,8 +101,8 @@ class Setting:
         key: str,
         name: str,
         default,
-        category: str = Category.GENERAL,
-        kind: str = "",
+        category: Category = Category.GENERAL,
+        kind: Kind | None = None,
         tags: str = "",
         desc: str = "",
         choices: tuple = (),
@@ -144,19 +157,19 @@ class Setting:
         """enum kimliginin ekranda gorunen adi."""
         return self.labels.get(value, str(value))
 
-    def type_of(self) -> str:
-        """"bool" | "enum" | "int" | "float" | "str" -- verilmemisse cikarilir."""
-        if self.kind:
+    def type_of(self) -> Kind:
+        """`kind` verilmemisse varsayilandan cikarilir."""
+        if self.kind is not None:
             return self.kind
         if self.choices:
-            return "enum"
+            return Kind.ENUM
         if isinstance(self.default, bool):
-            return "bool"
+            return Kind.BOOL
         if isinstance(self.default, int):
-            return "int"
+            return Kind.INT
         if isinstance(self.default, float):
-            return "float"
-        return "str"
+            return Kind.FLOAT
+        return Kind.STR
 
     def get(self) -> Any:
         """Ayarin o anki degeri.
@@ -213,23 +226,23 @@ class Setting:
     def coerce(self, value) -> tuple[object, bool]:
         """Elle duzenlenmis json'a karsi: tip tutmuyorsa (varsayilan, False)."""
         kind = self.type_of()
-        if kind == "bool":
+        if kind == Kind.BOOL:
             if isinstance(value, bool):
                 return value, True
             if value in (0, 1, "0", "1", "true", "false", "True", "False"):
                 return value in (1, "1", "true", "True"), True
             return self.default, False
-        if kind == "int":
+        if kind == Kind.INT:
             try:
                 return int(value), True
             except (TypeError, ValueError):
                 return self.default, False
-        if kind == "float":
+        if kind == Kind.FLOAT:
             try:
                 return float(value), True
             except (TypeError, ValueError):
                 return self.default, False
-        if kind == "enum":
+        if kind == Kind.ENUM:
             value = self.legacy.get(value, value)
             return (value, True) if value in self.choices else (self.default, False)
         return str(value), True
@@ -241,7 +254,7 @@ class Registry:
     def __init__(self) -> None:
         self.all: list[Setting] = []
         self.by_key: dict[str, Setting] = {}
-        self.tree: dict[str, list[Setting]] = {}
+        self.tree: dict[Category, list[Setting]] = {}
         self.dirty = False
         #: Tanimi yuklu olmayan anahtarlar -- geri yazilsinlar diye duruyor.
         self.orphans: dict[str, object] = {}
@@ -255,7 +268,7 @@ class Registry:
         return item
 
     @property
-    def categories(self) -> list[str]:
+    def categories(self) -> list[Category]:
         """Tanim sirasi -- alfabetik degil (AHK: catOrder).
 
         GORUNUR ayari olmayan kategori hic listelenmiyor: bir kategorinin
@@ -268,7 +281,7 @@ class Registry:
         """Ayar ekraninda gosterilecekler (bkz. `Setting.hidden`)."""
         return [item for item in self.all if not item.hidden]
 
-    def visible_in(self, category: str) -> list[Setting]:
+    def visible_in(self, category: Category) -> list[Setting]:
         return [item for item in self.tree.get(category, ()) if not item.hidden]
 
     def get(self, key: str, fallback=None):
