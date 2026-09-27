@@ -396,6 +396,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F15", short=350)
         .main_key(PressType.SHORT, Cmd.send_key("^y"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Escape"))
+        .combo("F16", "genel bakis (shorts + pano + slot)", Cmd.Menu.OVERVIEW)
         .show_menu(False)
         .named("F15")
         .build(),
@@ -403,6 +404,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F16", short=350)
         .main_key(PressType.SHORT, Cmd.send_key("^z"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Enter"))
+        .combo("F15", "genel bakis (shorts + pano + slot)", Cmd.Menu.OVERVIEW)
         .show_menu(False)
         .named("F16")
         .build(),

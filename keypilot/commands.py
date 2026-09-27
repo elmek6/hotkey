@@ -76,6 +76,7 @@ class Cmd:
         F13 = auto()
         SYS = auto()
         QUICK = auto()
+        OVERVIEW = auto()
         SLOTS = auto()
         SCROLLLOCK = auto()
         CLOSE = auto()

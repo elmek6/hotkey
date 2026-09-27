@@ -76,6 +76,8 @@ from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
 from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
+from keypilot.ui.overview import MAX_CLIPS as OVERVIEW_CLIPS
+from keypilot.ui.overview import OverviewPanel
 from keypilot.ui.pause import PauseDialog
 from keypilot.ui.preview import preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
@@ -470,6 +472,9 @@ class KeyPilot:
         # veri kaynagi YOK: sekmeler slot / yan grup / pano gecmisinin ayni
         # eylem kimliklerini gosterir, panel yalnizca cizer.
         self._quick: QuickPanel | None = None
+        # F15 + F16 genel bakis katmani (ui/overview.py): app shorts + pano
+        # + slot ayni anda. Veri hizli panelin saglayicilarindan geliyor.
+        self._overview: OverviewPanel | None = None
 
         # AHK: App.AppShorts (app_shorts.ahk). On plandaki pencereye gore
         # F13 menusune ekstra kisayol maddeleri girer.
@@ -1485,6 +1490,41 @@ class KeyPilot:
             self._quick.chosen.connect(self.runner.run)
             self._quick.qr_requested.connect(self.show_qr_text)
         self._quick.open(self._quick.tab_index(argument))
+
+    @command(Cmd.Menu.OVERVIEW)
+    def show_overview(self, _argument: str = "") -> None:
+        """F15 + F16 -- app shorts, pano gecmisi ve slotlar tek ekranda.
+
+        App shorts katman ACILMADAN okunuyor: acildiktan sonra on plandaki
+        pencere katmanin kendisi olur ve profil bulunamaz.
+        """
+        hwnd = foreground_window()
+        profile = self.shorts.find(window_class(hwnd), window_title(hwnd))
+        shorts = (
+            tuple(
+                QuickItem(
+                    # Kompakt: satirda yalniz ad; aciklama ve tuslar ipucunda.
+                    content="\n".join(
+                        filter(None, (shortcut.description, " ".join(shortcut.strokes)))
+                    ),
+                    action=Cmd.Shorts.PLAY(f"{profile.name}/{index}"),
+                    label=shortcut.name,
+                )
+                for index, shortcut in enumerate(profile.shortcuts)
+            )
+            if profile is not None
+            else ()
+        )
+        title = f"App shorts ({profile.name})" if profile is not None else "App shorts"
+        if self._overview is None:
+            self._overview = OverviewPanel()
+            self._overview.chosen.connect(self.runner.run)
+        self._overview.open(
+            title,
+            shorts,
+            self._clip_items()[:OVERVIEW_CLIPS],
+            self._slot_items(""),
+        )
 
     @command(Cmd.Qr.SHOW)
     def show_qr(self, _argument: str = "") -> None:
