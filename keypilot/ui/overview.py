@@ -27,7 +27,7 @@ katmanin kendisi olurdu.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal, SignalInstance
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal, SignalInstance
 from PySide6.QtGui import QColor, QCursor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -358,8 +358,8 @@ class _HoverButton(QPushButton):
 
 
 class _CloseButton(QToolButton):
-    """Kartin sag ustundeki kirmizi ✕: ustune GELINCE katmani kapatir,
-    tiklamak gerekmiyor."""
+    """Kartin sag ustundeki kirmizi ✕: ustune GELINCE katmani kapatir.
+    Tiklama baglantisi yok -- tiklamaya firsat kalmadan zaten kapaniyor."""
 
     def __init__(self, target: QWidget) -> None:
         super().__init__()
@@ -371,7 +371,6 @@ class _CloseButton(QToolButton):
             "QToolButton { background: #D93025; color: white; border: none;"
             " border-radius: 4px; font-weight: bold; padding: 2px 7px; }"
         )
-        self.clicked.connect(target.close)
 
     def enterEvent(self, event) -> None:
         self._target.close()
@@ -543,6 +542,7 @@ class OverviewPanel(QWidget):
         columns.addWidget(_equal(right), 1)
         self.close_button = _CloseButton(self)
         columns.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignTop)
+        self._top_columns = columns  # ✕ imlecten kacarken buradan cikiyor
         top_layout.addLayout(columns)
 
         # ---- sol / sag ----
@@ -652,6 +652,16 @@ class OverviewPanel(QWidget):
         # snip.py ile ayni cozum.
         force_foreground(int(self.winId()))
         self.setFocus()
+        self._dodge_cursor(QCursor.pos())
+
+    def _dodge_cursor(self, pos: QPoint) -> None:
+        """Katman acildiginda imlec ✕'in USTUNDEYSE, ✕ alt siradaki ⚙️
+        dugmesinin yanina tasinir -- yoksa katman acilir acilmaz kapanirdi."""
+        button = self.close_button
+        if not button.rect().contains(button.mapFromGlobal(pos)):
+            return
+        self._top_columns.removeWidget(button)
+        self._windows.addWidget(button)
 
     # ---- ic ----
 

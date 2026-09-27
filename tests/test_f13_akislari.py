@@ -24,6 +24,7 @@ import logging
 import time
 
 import pytest
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox, QPushButton
 
 from keypilot import actions as actions_module
@@ -320,6 +321,20 @@ def test_genel_bakis_kapat_dugmesi_ustune_gelince_kapatir(rig):
     panel.close_button.enterEvent(QEnterEvent(point, point, point))
     assert not panel.isVisible(), "kapat dugmesi ustune gelince katman kapanmadi"
     rig.assert_idle()
+
+
+def test_imlec_kapat_dugmesinin_ustundeyse_dugme_ayarlarin_yanina_kacar(rig):
+    _short_f13(rig)
+    panel = rig.pilot._overview
+    button = panel.close_button
+    assert button.width() > 0, "acilista yerlesim henuz kurulmamis"
+    panel._dodge_cursor(button.mapToGlobal(button.rect().topLeft()) + QPoint(900, 900))
+    assert panel._windows.indexOf(button) == -1, "imlec uzaktayken dugme tasindi"
+    panel._dodge_cursor(button.mapToGlobal(button.rect().center()))
+    assert panel._windows.indexOf(button) == panel._windows.count() - 1, (
+        "imlec ustundeyken dugme ayarlarin yanina gecmedi"
+    )
+    assert panel.isVisible()
 
 
 # ---- basili F13: pano menusu -----------------------------------------------
