@@ -1,4 +1,4 @@
-"""Genel bakis -- F15 + F16 birlikte basilinca acilan tam ekran katman.
+"""Genel bakis -- kisa F13 ile acilan tam ekran katman.
 
 Uc liste AYNI ANDA ekranda:
 
@@ -23,23 +23,29 @@ katmanin kendisi olurdu.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal, SignalInstance
+from PySide6.QtGui import QColor, QCursor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListView,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from keypilot.ui.preview import shorten
 from keypilot.ui.quick_panel import QuickItem
+from keypilot.win32.menu import COLUMN, Icon, Mark, destroy_icon, force_foreground, icon_handle
 
 #: Arka plan ortusu -- "hafif saydam": arkadaki pencere secilir, yazilar
 #: okunmaz.
@@ -51,17 +57,24 @@ ITEM_HOVER = "rgba(83, 155, 245, 0.18)"
 SEPARATOR = "rgba(61, 68, 77, 0.6)"  # ogeler arasi ince cizgi
 #: App shorts seridinde yan yana kac kisayol. Her oge hucresinin TAMAMINI
 #: kaplar: fare yazinin ustune gelmeden, hucreye girince vurgulanir.
-SHORTS_COLUMNS = 3
+SHORTS_COLUMNS = 2  # ust kutunun SOL yarisinda
 #: Kart ORTUNUN ortasinda sabit olculu durur; ekrani doldurmaz.
-CARD_WIDTH = 640
+CARD_WIDTH = 760
 LIST_HEIGHT = 230  # pano ve slot listelerinin boyu, piksel
 SHORTS_ROWS = 3  # seritte en fazla bu kadar kisayol satiri; fazlasi kayar
 LABEL_CHARS = 40  # satirda gosterilen en fazla karakter
-FONT_PT = 9
+FONT_PT = 10
+LEAVE_POLL_MS = 120  # acik menude imlec yoklama araligi (fare cikti mi)
 TOOLTIP_CHARS = 600  # ipucunda gosterilen en fazla karakter
 #: Pano gecmisi binlerce oge olabilir; katman bakip secmek icin, en
 #: yenilerin bu kadari yeter.
 MAX_CLIPS = 30
+
+#: Satir verisinde ikinci eylem (hover dugmesi) ve arama metni.
+ALT_ROLE = Qt.ItemDataRole.UserRole + 1
+SEARCH_ROLE = Qt.ItemDataRole.UserRole + 2
+HOVER_ICON = "Tt"  # "bicimsiz metin" -- stil yok, yalniz harf
+HOVER_TIP = "Unformatted paste (Ctrl+Shift+V)"
 
 LIST_STYLE = (
     f"QListWidget {{ border: none; background: transparent; color: #e6edf3;"
@@ -69,6 +82,8 @@ LIST_STYLE = (
     # Ogeler arasinda ince ayrac: satirlar birbirine karismasin.
     f"QListWidget::item {{ padding: 1px 4px; border-bottom: 1px solid {SEPARATOR}; }}"
     f"QListWidget::item:hover {{ background: {ITEM_HOVER}; }}"
+    # Klavyeyle secili oge (ok tuslari / Tab) fareyle ustune gelinmis gibi.
+    f"QListWidget::item:selected {{ background: {ITEM_HOVER}; color: #e6edf3; }}"
     "QListWidget::item:disabled { color: #6e7681; }"
     # Ince, koyu kaydirma cubugu -- varsayilan beyaz cubuk kartta siritiyordu.
     "QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }"
@@ -78,9 +93,51 @@ LIST_STYLE = (
     "QScrollBar::add-page, QScrollBar::sub-page { background: none; }"
 )
 
+BUTTON_STYLE = (
+    f"QPushButton {{ background: {PANEL_BG}; color: #e6edf3; border: 1px solid {PANEL_BORDER};"
+    f" border-radius: 5px; padding: 3px 8px; font-size: {FONT_PT}pt; }}"
+    f"QPushButton:checked {{ border-color: {TITLE_COLOR}; color: {TITLE_COLOR}; }}"
+    f"QPushButton:hover {{ background: {ITEM_HOVER}; border-color: {TITLE_COLOR}; }}"
+)
+MENU_STYLE = (
+    f"QMenu {{ background: #1c2128; color: #e6edf3; border: 1px solid {PANEL_BORDER};"
+    f" font-size: {FONT_PT}pt; }}"
+    f"QMenu::item {{ padding: 4px 18px; }}"
+    f"QMenu::item:selected {{ background: {ITEM_HOVER}; }}"
+    "QMenu::item:disabled { color: #6e7681; }"
+    f"QMenu::separator {{ height: 1px; background: {PANEL_BORDER}; margin: 3px 6px; }}"
+)
+HOVER_BUTTON_STYLE = (
+    f"QToolButton {{ background: {PANEL_BG}; color: {TITLE_COLOR}; border: 1px solid {TITLE_COLOR};"
+    f" border-radius: 4px; font-size: {FONT_PT - 2}pt; font-weight: bold; padding: 0; }}"
+    f"QToolButton:hover {{ background: {TITLE_COLOR}; color: {PANEL_BG}; }}"
+)
+SEARCH_STYLE = (
+    f"QLineEdit {{ background: transparent; color: #e6edf3; border: 1px solid {PANEL_BORDER};"
+    f" border-radius: 4px; padding: 0 4px; font-size: {FONT_PT - 1}pt; }}"
+    f"QLineEdit:focus {{ border-color: {TITLE_COLOR}; }}"
+)
+
+
+def _clear(layout: QHBoxLayout | QVBoxLayout) -> None:
+    """Seridi bosaltir; dugmeler her acilista yeniden kuruluyor. Ic ice
+    satirlar (alt kutunun sira duzenleri) da bosaltilip atilir."""
+    while layout.count():
+        item = layout.takeAt(0)
+        if item is None:
+            continue
+        if isinstance(inner := item.layout(), (QHBoxLayout, QVBoxLayout)):
+            _clear(inner)
+            inner.deleteLater()
+        elif (child := item.widget()) is not None:
+            child.deleteLater()
+
 
 class _Section(QFrame):
     """Baslikli, yuvarlak koseli bir kutu + icinde liste."""
+
+    #: Satirin hover dugmesi tiklandi -- eylem kimligi (bkz. `fill` alts).
+    alt_chosen = Signal(str)
 
     def __init__(self, title: str, flow: bool = False) -> None:
         super().__init__()
@@ -98,7 +155,7 @@ class _Section(QFrame):
         self.list = QListWidget()
         self.list.setStyleSheet(LIST_STYLE)
         self.list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.list.setWordWrap(False)
         self.list.setMouseTracking(True)  # hover boyasi icin
@@ -113,19 +170,40 @@ class _Section(QFrame):
             # Kaydirma cubugu hucre enini yiyip satirda bir kisayol eksiltiyordu;
             # serit zaten butun satirlari gosterecek boyda (bkz. fill).
             self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self.list.viewport().installEventFilter(self)
+
+        #: Baslik satiri: baslik + (varsa) arama kutusu, dugmeler.
+        self.head = _row()
+        self.head.addWidget(self.title)
+
+        #: Satirin SAGINDA, fare ustundeyken beliren ikinci eylem dugmesi
+        #: (pano: bicimsiz yapistir). Tek dugme, fareyle satirdan satira tasinir.
+        self.hover_button = QToolButton(self.list.viewport())
+        self.hover_button.setText(HOVER_ICON)
+        self.hover_button.setStyleSheet(HOVER_BUTTON_STYLE)
+        self.hover_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hover_button.hide()
+        self.hover_button.clicked.connect(self._on_hover_click)
+        self._hover_action = ""
+        self.list.viewport().installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 6)
         layout.setSpacing(2)
-        layout.addWidget(self.title)
+        layout.addLayout(self.head)
         layout.addWidget(self.list, 1)
 
-    def fill(self, items: tuple[QuickItem, ...], empty: str) -> None:
+    def fill(
+        self, items: tuple[QuickItem, ...], empty: str, alts: tuple[str, ...] = ()
+    ) -> None:
+        """`alts`: ogeyle AYNI sirada ikinci eylem (hover dugmesi); bossa
+        dugme o listede hic cikmaz."""
         self.list.clear()
-        for item in items:
+        self.hover_button.hide()
+        for index, item in enumerate(items):
             row = QListWidgetItem(shorten(item.text, LABEL_CHARS))
             row.setData(Qt.ItemDataRole.UserRole, item.action)
+            row.setData(ALT_ROLE, alts[index] if index < len(alts) else "")
+            row.setData(SEARCH_ROLE, f"{item.text}\n{item.content}".casefold())
             row.setToolTip(item.content[:TOOLTIP_CHARS])
             self.list.addItem(row)
         if not items:
@@ -153,9 +231,48 @@ class _Section(QFrame):
         rows = max(1, min(SHORTS_ROWS, -(-self.list.count() // SHORTS_COLUMNS)))
         self.list.setFixedHeight(rows * (cell.height() + spacing * 2) + 2)
 
+    def filter(self, text: str) -> None:
+        """Yazilani ICEREN satirlar kalir (buyuk/kucuk harf fark etmez)."""
+        needle = text.strip().casefold()
+        for index in range(self.list.count()):
+            row = self.list.item(index)
+            haystack = row.data(SEARCH_ROLE)
+            row.setHidden(bool(needle) and not (haystack and needle in haystack))
+        self.hover_button.hide()
+
+    def _place_hover(self, pos) -> None:
+        """Fare hangi satirdaysa, satirin ikinci eylemi varsa dugmeyi o
+        satirin sag ucuna koyar."""
+        row = self.list.itemAt(pos)
+        action = row.data(ALT_ROLE) if row is not None else ""
+        if row is None or not action:
+            self.hover_button.hide()
+            return
+        rect = self.list.visualItemRect(row)
+        size = rect.height() - 4
+        self.hover_button.setFixedSize(size, size)
+        self.hover_button.move(rect.right() - size - 4, rect.top() + 2)
+        self.hover_button.setToolTip(HOVER_TIP)
+        self._hover_action = str(action)
+        self.hover_button.show()
+
+    def _on_hover_click(self) -> None:
+        if self._hover_action:
+            self.alt_chosen.emit(self._hover_action)
+
     def eventFilter(self, watched, event):
-        if watched is self.list.viewport() and event.type() == QEvent.Type.Resize:
-            self._fit_cells()
+        if watched is self.list.viewport():
+            kind = event.type()
+            if kind == QEvent.Type.Resize and self._flow:
+                self._fit_cells()
+            elif kind == QEvent.Type.MouseMove:
+                self._place_hover(event.position().toPoint())
+            elif kind == QEvent.Type.Leave:
+                # Dugmenin kendisine gecmek de viewport'tan "cikis" sayilir.
+                if not self.hover_button.underMouse():
+                    self.hover_button.hide()
+            elif kind == QEvent.Type.Wheel:
+                self.hover_button.hide()  # kayan satirda eski yerde kalmasin
         return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event) -> None:
@@ -164,8 +281,164 @@ class _Section(QFrame):
         event.accept()
 
 
+def _build_menu(menu: QMenu, spec: tuple, chosen: SignalInstance) -> None:
+    """ui/menu.py'nin tanim bicimini (label, eylem|alt tanim, ek...) QMenu'ye
+    cevirir -- F13 menusunu besleyen fonksiyonlar oldugu gibi kullanilsin,
+    ikinci bir veri kopyasi tutulmasin. Ikonlar (Win32 DLL numarasi) atlanir."""
+    for entry in spec:
+        if entry is None:
+            menu.addSeparator()
+            continue
+        if entry == COLUMN:
+            continue
+        label, target, *extras = entry
+        marks = {extra for extra in extras if isinstance(extra, Mark)}
+        if isinstance(target, tuple):
+            sub = menu.addMenu(label)
+            _build_menu(sub, target, chosen)
+            node = sub.menuAction()
+        else:
+            node = menu.addAction(label)
+            if target:
+                node.triggered.connect(lambda _=False, a=str(target): chosen.emit(a))
+        if Mark.DISABLED in marks or not target:
+            node.setEnabled(False)
+        if Mark.CHECKED in marks:
+            node.setCheckable(True)
+            node.setChecked(True)
+        if Mark.DEFAULT in marks:
+            font = node.font()
+            font.setBold(True)
+            node.setFont(font)
+
+
+class _HoverButton(QPushButton):
+    """Ustune GELINCE hemen altinda menu acan dugme (tiklamak da acar).
+    Bekleme ve acilis animasyonu yok -- ikisi de zaman kaybiydi."""
+
+    def __init__(self, label: str, spec: tuple, chosen: SignalInstance) -> None:
+        super().__init__(f"{label} ▾")
+        self.setStyleSheet(BUTTON_STYLE)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # tuslar katmana gelsin
+        self._menu = QMenu(self)
+        self._menu.setStyleSheet(MENU_STYLE)
+        _build_menu(self._menu, spec, chosen)
+        self.clicked.connect(self._popup)
+        # QMenu yalniz DISARIYA TIKLANINCA kapanir; fare menuden cikinca da
+        # kapansin diye acikken imlec yoklaniyor. Olay tabanli yol yok:
+        # menu fareyi yakaladigi icin dugmenin leaveEvent'i gelmiyor.
+        self._watch = QTimer(self, interval=LEAVE_POLL_MS)
+        self._watch.timeout.connect(self._check_leave)
+        self._menu.aboutToHide.connect(self._watch.stop)
+
+    def enterEvent(self, event) -> None:
+        self._popup()
+        super().enterEvent(event)
+
+    def _popup(self) -> None:
+        if not self._menu.isVisible():
+            self._menu.popup(self.mapToGlobal(self.rect().bottomLeft()))
+            self._watch.start()
+
+    def _check_leave(self) -> None:
+        """Imlec dugmenin, menunun ve acik alt menulerin HICBIRINDE degilse
+        menuyu kapatir. Aralarda gecis icin birkac piksel pay var."""
+        pos = QCursor.pos()
+        if self.rect().adjusted(-4, -4, 4, 8).contains(self.mapFromGlobal(pos)):
+            return
+        menus = [self._menu, *self._menu.findChildren(QMenu)]
+        if any(m.isVisible() and m.geometry().adjusted(-4, -4, 4, 4).contains(pos) for m in menus):
+            return
+        self._menu.close()
+
+
+def _box() -> tuple[QFrame, QVBoxLayout]:
+    """Ust ve alt parcanin cercevesi -- `_Section` ile ayni gorunum."""
+    frame = QFrame()
+    frame.setObjectName("section")
+    frame.setStyleSheet(
+        f"QFrame#section {{ background: {PANEL_BG}; border: 1px solid {PANEL_BORDER};"
+        " border-radius: 6px; }"
+    )
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(8, 6, 8, 6)
+    layout.setSpacing(6)
+    return frame, layout
+
+
+_icons: dict[Icon, QIcon] = {}
+
+
+def _qicon(icon: Icon) -> QIcon:
+    """F13/F14 menusundeki Win32 ikonunun (DLL + numara) Qt karsiligi."""
+    if icon not in _icons:
+        handle = icon_handle(icon, 32)
+        image = QImage.fromHICON(handle) if handle else QImage()
+        if handle:
+            destroy_icon(handle)
+        _icons[icon] = QIcon(QPixmap.fromImage(image))
+    return _icons[icon]
+
+
+def _step(widget: QListWidget, row: int, step: int) -> int | None:
+    """`row`dan `step` yonunde ilk GORUNUR ve tiklanabilir satir (suzgecin
+    gizledigini atlar); yoksa None. Izgarada `step` bir satir kadar hucre."""
+    index = row + step
+    while 0 <= index < widget.count():
+        item = widget.item(index)
+        if item is not None and not item.isHidden() and item.flags() & Qt.ItemFlag.ItemIsEnabled:
+            return index
+        index += step
+    return None
+
+
+def _vline() -> QFrame:
+    """Ust kutunun iki kolonunu ayiran ince dikey cizgi."""
+    line = QFrame()
+    line.setFixedWidth(1)
+    line.setStyleSheet(f"background: {PANEL_BORDER};")
+    return line
+
+
+def _hline() -> QFrame:
+    """Alt kutudaki iki sirayi ayiran ince cizgi."""
+    line = QFrame()
+    line.setFixedHeight(1)
+    line.setStyleSheet(f"background: {SEPARATOR};")
+    return line
+
+
+def _equal(widget: QWidget) -> QWidget:
+    """Yatay olcuyu ICERIGE degil yerlesime birakir: ayni `stretch` verilen
+    kardesler tam esit en alir. Varsayilan politikada en uzun etiket kendi
+    tarafini genisletiyordu (pano / slot yarilari esit durmuyordu)."""
+    policy = widget.sizePolicy()
+    policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+    widget.setSizePolicy(policy)
+    return widget
+
+
+def _row() -> QHBoxLayout:
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(6)
+    return row
+
+
 class OverviewPanel(QWidget):
-    """Tam ekran, yari saydam katman. Secim `chosen(eylem)` ile disari cikar."""
+    """Tam ekran, yari saydam katman. Secim `chosen(eylem)` ile disari cikar.
+
+    Dort parca:
+
+        +-- UST ---------------------------------------------+
+        | App shorts (kisayollar)            | Profil ▾      |
+        | Hep ustte: [pencere] [pencere] ...                 |
+        +----------------------------------------------------+
+        +-- SOL: Pano -----------+  +-- SAG: Slot -----------+
+        +------------------------+  +------------------------+
+        +-- ALT: [dugme] [dugme] [dugme] ... ----------------+
+    """
 
     chosen = Signal(str)
 
@@ -177,21 +450,94 @@ class OverviewPanel(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint,
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        # Kapaninca silinir; app her acilista YENI katman kurar (hover icin,
+        # bkz. KeyPilot.show_overview).
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        # Acilir menuler animasyonsuz: kayarak acilmasi bekleme kadar zaman
+        # kaybi. Ayar uygulama geneli; diger QMenu'ler de ani acilir.
+        QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateMenu, False)
+        # Her secim -- liste, dugme ya da ustteki menu -- katmani kapatir.
+        self.chosen.connect(lambda _action: self.close())
 
         self.shorts = _Section("App shorts", flow=True)
+        # Ust kutunun ICINDE: kendi cercevesi ikinci bir kenar cizmesin.
+        self.shorts.setStyleSheet("QFrame#section { background: transparent; border: none; }")
+        if (shorts_layout := self.shorts.layout()) is not None:
+            shorts_layout.setContentsMargins(0, 0, 0, 0)
         self.clips = _Section("Pano")
         self.slots = _Section("Slot")
-
         for section in (self.shorts, self.clips, self.slots):
             section.list.itemClicked.connect(self._on_click)
-
+            section.alt_chosen.connect(self._fire)
         self.clips.setFixedHeight(LIST_HEIGHT)
         self.slots.setFixedHeight(LIST_HEIGHT)
 
-        bottom = QHBoxLayout()
-        bottom.setSpacing(8)
-        bottom.addWidget(self.clips, 1)
-        bottom.addWidget(self.slots, 1)
+        # Pano basliginda: yazdikca listeyi suzen kutu + arama penceresi
+        # (array filter) dugmesi. Harfe basmak da kutuya yazar (keyPressEvent).
+        self.search = QLineEdit()
+        self.search.setStyleSheet(SEARCH_STYLE)
+        self.search.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.search.textChanged.connect(self.clips.filter)
+        self.search.installEventFilter(self)
+        self.clips.head.addWidget(self.search, 1)
+        self._filter_button = QToolButton()
+        self._filter_button.setText("🔍")
+        self._filter_button.setStyleSheet(BUTTON_STYLE.replace("QPushButton", "QToolButton"))
+        self._filter_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._filter_button.clicked.connect(lambda: self._fire(self._filter_action))
+        self._filter_action = ""
+        self.clips.head.addWidget(self._filter_button)
+        # Slot basligi Pano basligi kadar yuksek: iki liste AYNI hizadan baslasin
+        # (arama kutusu ve dugme Pano basligini uzatiyor).
+        self.slots.title.setFixedHeight(self._filter_button.sizeHint().height())
+
+        # ---- ust: IKI ESIT kolon, arada dikey cizgi ----
+        #   sol: "App shorts" ... Profil ▾   +  kisayol izgarasi
+        #   sag: "Hep ustte" [pencere] [pencere] ...
+        top, top_layout = _box()
+        columns = _row()
+        columns.setSpacing(8)
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(2)
+        #: Sol baslik satiri: baslik, bosluk, menu dugmeleri (acilista kurulur).
+        self._header = _row()
+        left_layout.addLayout(self._header)
+        left_layout.addWidget(self.shorts)
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        #: Hep-ustte basligi + pencere dugmeleri (acilista kurulur).
+        self._pins = _row()
+        right_layout.addLayout(self._pins)
+        right_layout.addStretch(1)
+        columns.addWidget(_equal(left), 1)
+        columns.addWidget(_vline())
+        columns.addWidget(_equal(right), 1)
+        top_layout.addLayout(columns)
+
+        # ---- sol / sag ----
+        middle = _row()
+        # Esit yari: icerik (uzun etiket) ene karismasin.
+        _equal(self.clips)
+        _equal(self.slots)
+        middle.setSpacing(8)
+        middle.addWidget(self.clips, 1)
+        middle.addWidget(self.slots, 1)
+
+        # ---- alt: iki TEK satir -- ustte tuslar, altta pencereler ----
+        foot, foot_layout = _box()
+        self._keys = _row()
+        self._windows = _row()
+        foot_layout.addLayout(self._keys)
+        foot_layout.addWidget(_hline())
+        foot_layout.addLayout(self._windows)
+
+        #: Klavyeyle gezilen listeler, Tab sirasi. Ok tuslari ETKIN listede.
+        self._sections = (self.shorts, self.clips, self.slots)
+        self._active = 1  # acilista pano
 
         # Kart: sabit enli, ortunun ORTASINDA. Ortu yine butun ekrani
         # kapliyor -- disariya tiklamak kapatsin diye.
@@ -200,8 +546,9 @@ class OverviewPanel(QWidget):
         inner = QVBoxLayout(card)
         inner.setContentsMargins(0, 0, 0, 0)
         inner.setSpacing(8)
-        inner.addWidget(self.shorts)
-        inner.addLayout(bottom)
+        inner.addWidget(top)
+        inner.addLayout(middle)
+        inner.addWidget(foot)
 
         layout = QVBoxLayout(self)
         layout.addWidget(card, 0, Qt.AlignmentFlag.AlignCenter)
@@ -214,18 +561,106 @@ class OverviewPanel(QWidget):
         shorts: tuple[QuickItem, ...],
         clips: tuple[QuickItem, ...],
         slots: tuple[QuickItem, ...],
+        menus: tuple = (),
+        pins: tuple = (),
+        keys: tuple = (),
+        buttons: tuple = (),
+        clip_alts: tuple[str, ...] = (),
+        filter_action: str = "",
+        filter_tip: str = "",
     ) -> None:
-        """Listeleri doldurur, imlecin ekranini kaplayarak acar."""
+        """Listeleri doldurur, imlecin ekranini kaplayarak acar.
+
+        `menus`: (etiket, alt tanim) -- baslik satirinda, ustune gelince acilir.
+        `pins`: (etiket, eylem, ek...) -- baslik satirinin sonu; CHECKED isaretli
+        olan sabitli, tiklamak degistirir.
+        `keys`: (etiket, eylem, ek...) -- alt kutunun UST sirasi, tus gonderir.
+        `buttons`: (etiket, eylem, ek...) -- alt kutunun ALT sirasi, pencere acar.
+        Hepsi menu tanim bicimi (ui/menu.py).
+        `clip_alts`: pano satirlarinin hover dugmesi eylemleri, ayni sirada.
+        `filter_action`: Pano basligindaki 🔍 dugmesi (arama penceresi).
+        """
+        # Baslik kalici; _clear dugmelerle birlikte onu da silerdi.
+        self._header.removeWidget(self.shorts.title)
+        _clear(self._header)
+        self._header.addWidget(self.shorts.title)
+        self._header.addStretch(1)
+        for label, spec in menus:
+            self._header.addWidget(_HoverButton(label, spec, self.chosen))
+
+        _clear(self._pins)
+        caption = QLabel("Hep ustte")
+        caption.setStyleSheet(
+            f"color: {TITLE_COLOR}; font-weight: bold; font-size: {FONT_PT - 1}pt;"
+        )
+        self._pins.addWidget(caption)
+        for label, action, *extras in pins:
+            button = self._button(label, str(action))
+            button.setCheckable(True)
+            button.setChecked(Mark.CHECKED in extras)
+            self._pins.addWidget(button)
+        self._pins.addStretch(1)
+
+        self._filter_action = filter_action
+        self._filter_button.setToolTip(filter_tip)
+        self._filter_button.setVisible(bool(filter_action))
+
+        self._fill_row(self._keys, keys, equal=True)
+        self._fill_row(self._windows, buttons)
+
         self.shorts.title.setText(shorts_title)
         self.shorts.fill(shorts, "(bu pencere icin profil yok)")
-        self.clips.fill(clips, "(pano gecmisi bos)")
+        self.search.clear()
+        self.clips.fill(clips, "(pano gecmisi bos)", clip_alts)
         self.slots.fill(slots, "(slot yok)")
+        # Acilista HICBIR sey secili degil -- fareyle gelen kullanici icin ilk
+        # satir "secilmis" gibi duruyordu. Ilk ok / Tab basimi secimi baslatir.
+        self._activate(1 if clips else 2 if slots else 0, -1)
         self._cover_cursor_screen()
         self.show()
         self.raise_()
         self.activateWindow()
+        # Katman bir TUS KANCASINDAN aciliyor; Windows'un on plan kilidi
+        # activateWindow'u yutuyor ve pencere tuslari (Esc) hic almiyordu.
+        # snip.py ile ayni cozum.
+        force_foreground(int(self.winId()))
+        self.setFocus()
 
     # ---- ic ----
+
+    def _button(self, label: str, action: str) -> QPushButton:
+        button = QPushButton(label)
+        button.setStyleSheet(BUTTON_STYLE)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Esc pencereye gelsin
+        button.clicked.connect(lambda _=False, a=action: self._fire(a))
+        return button
+
+    def _fill_row(self, row: QHBoxLayout, spec: tuple, equal: bool = False) -> None:
+        """Dugmeleri TEK satira dizer ve satiri BOYDAN BOYA doldurur (sola
+        yigilip sagda bosluk birakmasin). `equal`: hepsi ayni en -- kisa
+        etiketli tus satiri icin; yoksa artan yer etikete oranla dagilir.
+        Ek alanlar: `Icon` dugmenin ikonu, bos olmayan dizgi ipucu (kisa
+        etiketli tuslarin uzun adi).
+        Menu tanimindaki `None` (ayrac) atlanir."""
+        _clear(row)
+        for entry in spec:
+            if entry is None or entry == COLUMN:
+                continue
+            label, action, *extras = entry
+            button = self._button(label, str(action))
+            for extra in extras:
+                if isinstance(extra, Icon):
+                    button.setIcon(_qicon(extra))
+                elif isinstance(extra, str) and extra and not isinstance(extra, Mark):
+                    button.setToolTip(extra)
+            if equal:
+                _equal(button)
+            else:
+                button.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, button.sizePolicy().verticalPolicy()
+                )
+            row.addWidget(button, 1)
 
     def _cover_cursor_screen(self) -> None:
         app = QApplication.instance()
@@ -240,8 +675,10 @@ class OverviewPanel(QWidget):
         action = row.data(Qt.ItemDataRole.UserRole)
         if not action:
             return
-        self.close()
-        self.chosen.emit(str(action))
+        self._fire(str(action))
+
+    def _fire(self, action: str) -> None:
+        self.chosen.emit(action)  # katmani `chosen` baglantisi kapatir
 
     # ---- olaylar ----
 
@@ -254,14 +691,137 @@ class OverviewPanel(QWidget):
         self.close()
         event.accept()
 
-    def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            self.close()
+    # ---- klavye ----
+
+    def _activate(self, index: int, row: int = 0) -> None:
+        """`index` listesini etkin yapar, `row` satirini secer; digerlerinin
+        secimini siler -- ekranda tek bir secili oge olsun."""
+        self._active = index % len(self._sections)
+        for position, section in enumerate(self._sections):
+            if position != self._active:
+                section.list.clearSelection()
+                section.list.setCurrentRow(-1)
+        self._select(row)
+
+    def _select(self, row: int) -> None:
+        widget = self._sections[self._active].list
+        if row < 0:
+            widget.clearSelection()
+            widget.setCurrentRow(-1)
             return
-        super().keyPressEvent(event)
+        count = widget.count()
+        item = widget.item(max(0, min(row, count - 1))) if count else None
+        # "(slot yok)" gibi tiklanamaz satir secilmez.
+        if item is None or not item.flags() & Qt.ItemFlag.ItemIsEnabled:
+            widget.setCurrentRow(-1)
+            return
+        widget.setCurrentItem(item)
+        widget.scrollToItem(item)
+
+    def _next_section(self, step: int) -> None:
+        """Tab: sonraki DOLU liste (bos listeye girmek bir tus bosa harcatir)."""
+        for offset in range(1, len(self._sections) + 1):
+            index = (self._active + step * offset) % len(self._sections)
+            first = _step(self._sections[index].list, -1, 1)
+            if first is not None:
+                self._activate(index, first)
+                return
+
+    def keyPressEvent(self, event) -> None:
+        """Esc kapatir. Tab / Shift+Tab listeler arasi, ok tuslari liste
+        icinde, Enter secili ogeyi calistirir.
+
+        App shorts izgara: sag/sol bir hucre, yukari/asagi bir satir; ilk
+        satirdan yukari yok. Pano ve slotta sag/sol iki liste arasi gecis --
+        tek kolonda yatay okun baska isi yok. Slotun ustunden yukari
+        App shorts'a cikar.
+        """
+        key = event.key()
+        widget = self._sections[self._active].list
+        row = widget.currentRow()
+        grid = self._active == 0
+        if key == Qt.Key.Key_Escape:
+            self.close()
+        elif row < 0 and key in (
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+        ):
+            # henuz secim yok: ilk ok etkin listenin (suzgecten gecen) basina
+            self._select(_step(widget, -1, 1) or 0)
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            item = widget.currentItem()
+            # Aramaya yazip dogrudan Enter: suzgecten gecen ILK pano kaydi.
+            if item is None and self.search.text():
+                first = _step(self.clips.list, -1, 1)
+                item = self.clips.list.item(first) if first is not None else None
+            if item is not None:
+                self._on_click(item)
+        elif key == Qt.Key.Key_Tab:
+            self._next_section(1)
+        elif key == Qt.Key.Key_Backtab:
+            self._next_section(-1)
+        elif key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            step = (SHORTS_COLUMNS if grid else 1) * (-1 if key == Qt.Key.Key_Up else 1)
+            target = _step(widget, row, step)
+            if target is not None:
+                self._select(target)
+            elif step < 0 and not grid:
+                self._activate(0, _step(self.shorts.list, -1, 1) or 0)  # ustten App shorts
+            elif step > 0 and grid:
+                self._activate(1, _step(self.clips.list, -1, 1) or 0)  # alttan Pano
+        elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            step = -1 if key == Qt.Key.Key_Left else 1
+            if grid:
+                self._select(max(0, row + step))
+            else:
+                self._activate(1 if step < 0 else 2, max(0, row))
+        elif event.text().isprintable() and event.text() and not (
+            event.modifiers()
+            & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        ):
+            # Harf / rakam: Pano aramasina yazilir (odak kutuya gecer).
+            self.search.setFocus()
+            QApplication.sendEvent(self.search, event)
+        else:
+            super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event):
+        """Arama kutusu odaktayken gezinme tuslari yine PANELE gider: kutu
+        Tab'i odak degistirmeye, Esc/Enter'i kendine alirdi. Sag/sol yalniz
+        kutu BOSKEN panele -- yazi varken imleci gezdirmek dogal olan."""
+        if watched is self.search and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            panel_keys = (
+                Qt.Key.Key_Up,
+                Qt.Key.Key_Down,
+                Qt.Key.Key_Tab,
+                Qt.Key.Key_Backtab,
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+                Qt.Key.Key_Escape,
+            )
+            sideways = key in (Qt.Key.Key_Left, Qt.Key.Key_Right) and not self.search.text()
+            if key in panel_keys or sideways:
+                self.keyPressEvent(event)
+                return True
+        return super().eventFilter(watched, event)
 
     def event(self, event):
-        """Odak baska pencereye gecince kapanir -- menu gibi davransin."""
-        if event.type() == event.Type.WindowDeactivate and self.isVisible():
+        """Odak baska pencereye gecince kapanir -- menu gibi davransin.
+        Ust seritin acilir menusu de odagi aliyor; o acikken kapanmaz."""
+        # Tab Qt'da odak gezintisine gidiyor, keyPressEvent'e hic dusmuyordu.
+        if event.type() == QEvent.Type.KeyPress and event.key() in (
+            Qt.Key.Key_Tab,
+            Qt.Key.Key_Backtab,
+        ):
+            self.keyPressEvent(event)
+            return True
+        if (
+            event.type() == event.Type.WindowDeactivate
+            and self.isVisible()
+            and not isinstance(QApplication.activePopupWidget(), QMenu)
+        ):
             self.close()
         return super().event(event)

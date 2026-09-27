@@ -32,6 +32,7 @@ import time
 from datetime import datetime
 from enum import StrEnum
 
+import shiboken6
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -73,7 +74,7 @@ from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.key_map_view import KeyMapView
 from keypilot.ui.log_view import LogView
 from keypilot.ui.mem_slots import MemSlots
-from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, PopupMenu
+from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, Icon, PopupMenu
 from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
 from keypilot.ui.overview import MAX_CLIPS as OVERVIEW_CLIPS
@@ -1492,12 +1493,17 @@ class KeyPilot:
         self._quick.open(self._quick.tab_index(argument))
 
     @command(Cmd.Menu.OVERVIEW)
-    def show_overview(self, _argument: str = "") -> None:
-        """F15 + F16 -- app shorts, pano gecmisi ve slotlar tek ekranda.
+    def show_overview(self, argument: str = "") -> None:
+        """F13 (kisa) -- app shorts, pano, slotlar tek ekranda.
 
         App shorts katman ACILMADAN okunuyor: acildiktan sonra on plandaki
         pencere katmanin kendisi olur ve profil bulunamaz.
+
+        `f13` argumani: eski F13 menusu gibi once orta tik (bkz.
+        keymap.F13_SHORT_MIDDLE_CLICK).
         """
+        if argument == "f13" and keymap.F13_SHORT_MIDDLE_CLICK:
+            send.click("middle")
         hwnd = foreground_window()
         profile = self.shorts.find(window_class(hwnd), window_title(hwnd))
         shorts = (
@@ -1516,14 +1522,54 @@ class KeyPilot:
             else ()
         )
         title = f"App shorts ({profile.name})" if profile is not None else "App shorts"
-        if self._overview is None:
-            self._overview = OverviewPanel()
-            self._overview.chosen.connect(self.runner.run)
+        # Her acilista YENI katman (kapaninca kendini siler). Ayni pencereyi
+        # yeniden gostermek hover'i bozuyordu: katman butun ekrani kapladigi
+        # icin fare pencereden hic cikmiyor ve Qt ikinci gosterimde "fare
+        # girdi" olayini uretmiyor -- `:hover` boyasi olu kaliyordu.
+        if self._overview is not None and shiboken6.isValid(self._overview):
+            self._overview.close()
+        self._overview = OverviewPanel()
+        self._overview.chosen.connect(self.runner.run)
+        clips = self._clip_items()[:OVERVIEW_CLIPS]
         self._overview.open(
             title,
             shorts,
-            self._clip_items()[:OVERVIEW_CLIPS],
+            clips,
             self._slot_items(""),
+            menus=self._overview_menus(),
+            pins=self._pin_menu_items(),
+            # Ust sira: F14 "Special keys" kisa etiketlerle -- fareyle
+            # calisirken klavyeye uzanmadan Enter / Del / hepsini sec...
+            keys=keymap.OVERVIEW_KEYS,
+            buttons=self._overview_buttons(),
+            # Pano satirinin hover ikonu: ayni kayit, bicimsiz yapistir.
+            # `_clip_items` 1 tabanli sira veriyor; ayni sirayla eslesiyor.
+            clip_alts=tuple(
+                Cmd.Clip.PASTE_PLAIN(index) for index in range(1, len(clips) + 1)
+            ),
+            filter_action=Cmd.Clip.FILTER,
+            filter_tip="Search on history (array filter)",
+        )
+
+    def _overview_menus(self) -> tuple:
+        """Ust serit: F13 menusunun alt menuleri, AYNI fonksiyonlardan.
+        Pencereye bagli olanlar (profil, hep ustte) katman acilmadan okunuyor."""
+        profile_title, profile_rows = self._shortcut_manager_item()
+        return ((profile_title, profile_rows),)
+
+    def _overview_buttons(self) -> tuple:
+        """Alt kutunun alt sirasi: pencere acan maddeler. F13 menusunun tek
+        tik maddeleri + F14/`´` sistem menusunden sik acilan pencereler."""
+        # "Search on history" burada DEGIL: Pano basligindaki 🔍 dugmesi.
+        # Win+V tus satirinda (keymap.OVERVIEW_KEYS).
+        return (
+            ("Hafiza", Cmd.Memslots.START, Icon.res(30), "Hafiza bloklari"),
+            ("Makro", Cmd.Macro.RECORDER, "Macro recorder"),
+            # F14 ile ayni ad ve ikon.
+            ("Clipboard images", Cmd.Clip.IMAGES, Icon.res(109)),
+            ("📚 Repository", Cmd.Repository.OPEN),
+            self._incognito_menu_item(),
+            ("⚙️", Cmd.App.SETTINGS, "Ayarlar"),
         )
 
     @command(Cmd.Qr.SHOW)

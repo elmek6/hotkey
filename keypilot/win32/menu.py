@@ -245,6 +245,21 @@ def force_foreground(hwnd: int) -> None:
         user32.AttachThreadInput(mine, target, False)
 
 
+def icon_handle(icon: Icon, size: int = 16) -> int:
+    """Ikonun HICON'u, istenen boyutta; bulunamazsa 0. Cagiran
+    `destroy_icon` ile birakir. Qt tarafi (ui/overview.py) ayni ikonlari
+    dugmelerde gostermek icin kullaniyor."""
+    handle = wintypes.HICON()
+    result = shell32.SHDefExtractIconW(
+        ctypes.c_wchar_p(icon.file), icon.number - 1, 0, ctypes.byref(handle), None, size
+    )
+    return handle.value or 0 if result == 0 else 0
+
+
+def destroy_icon(handle: int) -> None:
+    user32.DestroyIcon(handle)
+
+
 def _icon_bitmap(icon: Icon) -> int:
     """Ikonu menuye konabilir HBITMAP'e cevirir.
 

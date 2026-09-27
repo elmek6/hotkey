@@ -90,6 +90,7 @@ class Cmd:
         FILTER = auto()
         PASTE = auto()
         PASTE_PREV = auto()
+        PASTE_PLAIN = auto()
         IMAGES = auto()
 
     class Slots(Id):

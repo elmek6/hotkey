@@ -10,7 +10,7 @@ Ileride JSON'a tasinacak yer de burasi (builder.def_from_dict hazir).
 
 Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
 
-    F13              kisa: [orta tik] + acilir menu     basili tut: pano hizli menusu
+    F13              kisa: [orta tik] + genel bakis      basili tut: pano hizli menusu
     F14              kisa: slot menusu     surukle: ekran alani sec
     ^ (Caret)        kisa: `^` yazilir     basili tut: hizli panel (Slot sekmesi)
     Tab              kisa: Tab yazilir     basili tut: yan grup slotlari
@@ -274,6 +274,20 @@ SPECIAL_KEYS_MENU = (
 )
 
 
+#: Genel bakis katmaninin (ui/overview.py) tus satiri: SPECIAL_KEYS_MENU'nun
+#: KISA etiketli hali + Win+V. Tek satira sigmali; uzun ad ipucunda.
+OVERVIEW_KEYS = (
+    ("Enter", Cmd.send_key("Enter")),
+    ("Back", Cmd.send_key("Backspace"), "Backspace"),
+    ("Del", Cmd.send_key("Delete"), "Delete"),
+    ("Esc", Cmd.send_key("Escape")),
+    ("^A ^X", Cmd.send_keys("^a", "^x"), "Hepsini sec + kes"),
+    ("^A ^C", Cmd.send_keys("^a", "^c"), "Hepsini sec + kopyala"),
+    ("^⇧V", Cmd.send_key("^+v"), "Bicimsiz yapistir"),
+    ("Win+V", Cmd.send_key("#v"), "Clipboard history win"),
+)
+
+
 def screen_menu() -> tuple:
     """F14 menusundeki "Area" alt menusu -- monitorun TAMAMINI secer.
 
@@ -396,7 +410,6 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F15", short=350)
         .main_key(PressType.SHORT, Cmd.send_key("^y"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Escape"))
-        .combo("F16", "genel bakis (shorts + pano + slot)", Cmd.Menu.OVERVIEW)
         .show_menu(False)
         .named("F15")
         .build(),
@@ -404,7 +417,6 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F16", short=350)
         .main_key(PressType.SHORT, Cmd.send_key("^z"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Enter"))
-        .combo("F15", "genel bakis (shorts + pano + slot)", Cmd.Menu.OVERVIEW)
         .show_menu(False)
         .named("F16")
         .build(),
@@ -504,7 +516,9 @@ def build_hotkeys() -> HotkeyTable:
     # --- F13: kisa basim menu, basili tutma pano hizli menusu ---
     # AHK handleF13: pt1 showF13menu, pt2 showQuickHistoryMenu. Kisa basim
     # tablodan, basili tutma prefix tanimindan geliyor.
-    table.add("F13", Cmd.Menu.F13, "kisa: orta tik + menu")
+    # Kisa F13 genel bakis katmanini acar (ui/overview.py); eski Win32 menu
+    # `´` sistem menusunde "7: F13 menu" olarak duruyor.
+    table.add("F13", Cmd.Menu.OVERVIEW("f13"), "kisa: orta tik + genel bakis")
     # AHK handleF13: pt1 menu, pt2 pano menusu, pt4 (CIFT basim) gecmiste
     # arama -- `EM.enableDoubleClick()`. Cift basim tanimli oldugu icin kisa
     # basim eylemi bir sure BEKLETILIR (bkz. core/prefix.py).

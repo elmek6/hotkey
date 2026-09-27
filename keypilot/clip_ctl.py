@@ -74,6 +74,7 @@ class ClipController:
         runner.register(Cmd.Clip.SHOW, lambda _: self.show_history())
         runner.register(Cmd.Clip.FILTER, lambda _: self.show_filter())
         runner.register(Cmd.Clip.PASTE, self.paste_history)
+        runner.register(Cmd.Clip.PASTE_PLAIN, self.paste_history_plain)
         runner.register(Cmd.Clip.PASTE_PREV, lambda _: self.paste_then_previous())
         runner.register(Cmd.Menu.CLIP, lambda _: self.show_menu())
         runner.register(Cmd.Clip.IMAGES, lambda _: self.show_images())
@@ -215,6 +216,17 @@ class ClipController:
         # kacinci kaydi istedigini biliyor, gormek istedigi sey ne geldigi.
         self._tip(preview_html(entry.text), 1200)
         self.paste_text(entry.text)
+
+    def paste_history_plain(self, argument: str) -> None:
+        """`clip.paste_plain:3` -- gecmisin 3. kaydi, BICIMSIZ yapistir
+        (Ctrl+Shift+V). Genel bakis katmaninda pano satirinin hover ikonu.
+        Kayit zaten duz metin; fark hedef uygulamada: Ctrl+Shift+V orada
+        "hedefin stiline uy" demek (Word, tarayici editorleri)."""
+        entry = self.history.get(int(argument)) if argument.isdigit() else None
+        if entry is None or not entry.text:
+            return
+        self.watcher.set_text(entry.text)
+        QTimer.singleShot(60, lambda: self._send_key(Cmd.send_key("^+v")))
 
     def older_clip(self, current: str) -> str | None:
         """Panodaki metnin gecmisteki bir onceki (daha eski) kaydi.
