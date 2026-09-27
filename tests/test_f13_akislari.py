@@ -310,6 +310,18 @@ def test_genel_bakis_esc_ile_kapanir_ve_ikinci_acilis_yeni_katman(rig):
     rig.assert_idle()
 
 
+def test_genel_bakis_kapat_dugmesi_ustune_gelince_kapatir(rig):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QEnterEvent
+
+    _short_f13(rig)
+    panel = rig.pilot._overview
+    point = QPointF(1, 1)
+    panel.close_button.enterEvent(QEnterEvent(point, point, point))
+    assert not panel.isVisible(), "kapat dugmesi ustune gelince katman kapanmadi"
+    rig.assert_idle()
+
+
 # ---- basili F13: pano menusu -----------------------------------------------
 
 

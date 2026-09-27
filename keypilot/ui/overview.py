@@ -357,6 +357,27 @@ class _HoverButton(QPushButton):
         self._menu.close()
 
 
+class _CloseButton(QToolButton):
+    """Kartin sag ustundeki kirmizi ✕: ustune GELINCE katmani kapatir,
+    tiklamak gerekmiyor."""
+
+    def __init__(self, target: QWidget) -> None:
+        super().__init__()
+        self._target = target
+        self.setText("✕")
+        self.setToolTip("Kapat")
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # tuslar katmana gelsin
+        self.setStyleSheet(
+            "QToolButton { background: #D93025; color: white; border: none;"
+            " border-radius: 4px; font-weight: bold; padding: 2px 7px; }"
+        )
+        self.clicked.connect(target.close)
+
+    def enterEvent(self, event) -> None:
+        self._target.close()
+        super().enterEvent(event)
+
+
 def _box() -> tuple[QFrame, QVBoxLayout]:
     """Ust ve alt parcanin cercevesi -- `_Section` ile ayni gorunum."""
     frame = QFrame()
@@ -520,6 +541,8 @@ class OverviewPanel(QWidget):
         columns.addWidget(_equal(left), 1)
         columns.addWidget(_vline())
         columns.addWidget(_equal(right), 1)
+        self.close_button = _CloseButton(self)
+        columns.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignTop)
         top_layout.addLayout(columns)
 
         # ---- sol / sag ----
