@@ -132,11 +132,19 @@ VECTOR_STEP_PX = setting(
     validate=between(1, 400, "px"),
 )
 
-KEY_F13 = 0x7C  # jest tanimlari / testler icin; keynames tablosuyla ayni deger
+#: Basim esikleri (ms) -- kaskadlar ve basili tutulan onekler ayni
+#: sinirlarla calisiyor. Tek yerde duruyor ki "orta basim biraz erken
+#: gelsin" demek tek satirlik is olsun.
+SHORT_MS = 350  # bundan kisa basim KISA, uzunu ORTA (ya da "basili tut")
+LONG_MS = 800  # bundan uzunu UZUN (tanimliysa)
+#: Kopyala/yapistir tuslari (F19, F20, hafiza bloklarinin F1..F10'u) daha
+#: seri basiliyor: kisa basim siniri biraz daha dar.
+QUICK_SHORT_MS = 300
 
-#: F13 kisa basimda menu ACILMADAN hemen once orta fare tusu gonderilir
-#: (tarayici yeni sekme, kaydirma-orta-tik, vb.). Kapatmak icin `False`
-#: ya da asagidaki satiri ve `show_f13_menu` icindeki cagriyi yorumla.
+#: F13 kisa basimda katman/menu ACILMADAN hemen once orta fare tusu
+#: gonderilir (tarayici yeni sekme, kaydirma-orta-tik, vb.). Genel bakis
+#: (`app.show_overview`) de eski F13 menusu (`app.show_f13_menu`) de buna
+#: bakiyor; kapatmak icin `False`.
 F13_SHORT_MIDDLE_CLICK = True
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
@@ -328,24 +336,19 @@ F13_MENU = (
     COLUMN,
 )
 """AHK: showF13menu()'nun 1. KOLONU. Oge basina bir kod satiri degil, tek
-veri tablosu. Isimlendirme, sira ve ikon numaralari AHK ile ayni; port
-edilmemis ogeler (Repository GUI, Macro recorder) `´` menusunde `--` isaretli."""
+veri tablosu. Isimlendirme, sira ve ikon numaralari AHK ile ayni. 2. kolonu
+app.py o anki pencereye gore kuruyor: uygulama profili + kisayollari (AHK
+menuAppProfile) ve hep-ustte listesi (AHK menuAlwaysOnTop).
 
-F13_MENU_TAIL: tuple = ()
-"""2. kolonun SONU. Arasina app.py o anki pencereye bagli bloklari koyar:
-uygulama profili + kisayollari (AHK menuAppProfile) ve hep-ustte listesi
-(AHK menuAlwaysOnTop). Special keys ve System AHK'de de yalniz F14'te.
-
-"""
+Kisa F13 artik genel bakis katmanini aciyor; bu menu `´` > "7: F13 menu"."""
 
 # AHK: sysCommands() -- `´` tusu (SC00D / VK 0xDD). Kaskad menusu olarak
 # degil acilir menu olarak veriliyor: icerigi uzun ve fare ile de secilecek.
-# Port edilmemis olanlarin basinda `--` var, tiklanabilirler ama uyari verir.
 SYS_COMMANDS_MENU = (
     ("1: Reload script", Cmd.App.RESTART),
     ("2: Show stats", Cmd.Errors.SHOW),
-    # app_shorts.ahk portu: profiller Files/profiles.json'dan okunuyor,
-    # duzenleme dosyanin kendisinden (AHK'nin yonetici GUI'si port edilmedi).
+    # app_shorts.ahk portu: profiller Files/profiles.json'da, yonetici
+    # penceresi ui/profiles_view.py.
     ("3: Profile manager", Cmd.Shorts.MANAGE),
     ("4: Key history", Cmd.App.MONITOR),
     ("k: Kisayol haritasi", Cmd.Keys.MAP),
@@ -358,9 +361,8 @@ SYS_COMMANDS_MENU = (
     # duraklat + yeniden baslat + kaydetmeden yeniden baslat + cikis.
     ("p: Pause menu...", Cmd.App.PAUSE_DIALOG),
     ("0: Exit script", Cmd.App.EXIT),
-    # repository.ahk'nin veri yarisi port edildi (keypilot/repository.py);
-    # yonetici GUI'si degil -- duzenleme dosyanin kendisinden.
-    ("r. Repository (repository.md)", Cmd.Repository.OPEN),
+    # repository.ahk: veri Files/repository.md, pencere ui/repository_view.py.
+    ("r: Repository", Cmd.Repository.OPEN),
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
     ("i: Incognito", Cmd.Incognito.OPEN),
     ("a: TrayTip test", Cmd.Run.NOTIFY("Mesaj icerigi")),
@@ -392,13 +394,13 @@ def build_cascades() -> dict[int, CascadeDef]:
 
     F13: jest tanimi burada (tek yer). Basim/hold/cift HotkeyTable prefix'te
     kalir; `run_cascade=False` ile CascadeMachine'e girmez (F13 & F15 akoru
-    bozulmasin). F14 jesti sonraki adimda.
+    bozulmasin).
 
     F15..F20: kisa/orta/uzun + kombo -- CascadeMachine.
     """
     defs: list[CascadeDef] = [
         # handleF13 jestleri -- tek kayit yeri.
-        KeyBuilder("F13", short=350)
+        KeyBuilder("F13", short=SHORT_MS)
         .gesture(Direction.UP, "Zoom+", Cmd.send_key("#NumpadAdd"))
         .gesture(Direction.DOWN, "Zoom-", Cmd.send_key("#NumpadSub"))
         .gesture(Direction.RIGHT, "Vol +", Cmd.send_key("Volume_Up"))
@@ -407,21 +409,21 @@ def build_cascades() -> dict[int, CascadeDef]:
         .run_cascade(False)
         .build(),
         # handleF15: kisa ^y (yinele), orta Escape
-        KeyBuilder("F15", short=350)
+        KeyBuilder("F15", short=SHORT_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^y"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Escape"))
         .show_menu(False)
         .named("F15")
         .build(),
         # handleF16: kisa ^z (geri al), orta Enter
-        KeyBuilder("F16", short=350)
+        KeyBuilder("F16", short=SHORT_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^z"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Enter"))
         .show_menu(False)
         .named("F16")
         .build(),
         # handleF17: kisa Alt+Sag, orta Delete, uzun End + yatay jest
-        KeyBuilder("F17", short=350, long=800)
+        KeyBuilder("F17", short=SHORT_MS, long=LONG_MS)
         .main_key(PressType.SHORT, Cmd.send_key("!Right"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Delete"), "Del")
         .main_key(PressType.LONG, Cmd.send_key("End"), "End")
@@ -433,7 +435,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .named("F17")
         .build(),
         # handleF18: kisa Alt+Sol, orta Backspace, uzun Home + jest
-        KeyBuilder("F18", short=350, long=800)
+        KeyBuilder("F18", short=SHORT_MS, long=LONG_MS)
         .main_key(PressType.SHORT, Cmd.send_key("!Left"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Backspace"), "Back")
         .main_key(PressType.LONG, Cmd.send_key("Home"), "Home")
@@ -447,7 +449,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .build(),
         # handleF19: kisa ^v, orta ^a^v, uzun MemSlots;
         # MButton: yapistir, sonra panoyu gecmisteki bir oncekine cek
-        KeyBuilder("F19", short=300, long=800)
+        KeyBuilder("F19", short=QUICK_SHORT_MS, long=LONG_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^v"))
         .main_key(PressType.MEDIUM, Cmd.send_keys("^a", "^v"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
@@ -458,7 +460,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         .named("F19")
         .build(),
         # handleF20: kisa ^c, orta ^x, uzun MemSlots
-        KeyBuilder("F20", short=300, long=800)
+        KeyBuilder("F20", short=QUICK_SHORT_MS, long=LONG_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^c"))
         .main_key(PressType.MEDIUM, Cmd.send_key("^x"))
         .main_key(PressType.LONG, Cmd.Memslots.START)
@@ -472,8 +474,8 @@ def build_cascades() -> dict[int, CascadeDef]:
     return {definition.key: definition for definition in defs}
 
 
-MEMSLOT_SHORT_MS = 300.0
-MEMSLOT_LONG_MS = 800.0
+MEMSLOT_SHORT_MS = QUICK_SHORT_MS
+MEMSLOT_LONG_MS = LONG_MS
 
 
 def memslots_defs() -> dict[int, CascadeDef]:
@@ -543,7 +545,11 @@ def build_hotkeys() -> HotkeyTable:
     # dikdortgen buyur, birakilinca secim biter (ui/snip.py). Argumansiz
     # birakilirsa secim sol fare tusuna kalirdi -- F14 ile secmek isterken
     # bir de fareye basmak gerekiyordu.
-    table.prefix("F14", drag_action=Cmd.Select.START("F14@{x},{y}"), desc="surukle: ekran alani sec")
+    table.prefix(
+        "F14",
+        drag_action=Cmd.Select.START("F14@{x},{y}"),
+        desc="surukle: ekran alani sec",
+    )
 
     # --- F13 & F15..F20: slots.json'daki slotlardan yapistir. AHK
     # handleF14'un slot kombolari (F14 secim tusu olunca F13'e tasindi).
@@ -682,9 +688,9 @@ def build_hotkeys() -> HotkeyTable:
         "~MButton",
         passthrough=True,
         hold_action=Cmd.Mbutton.PASTE_ENTER,
-        hold_ms=350,
+        hold_ms=SHORT_MS,
         long_action=Cmd.Mbutton.SELECT_PASTE,
-        long_ms=800,
+        long_ms=LONG_MS,
         desc="hareketsiz tut: yapistir+enter / uzun: hepsini sec",
     )
     table.add("~Insert", Cmd.Memslots.PASTE, "memslots: akilli yapistir")

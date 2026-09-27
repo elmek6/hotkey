@@ -1,7 +1,8 @@
 """Ekran koruyucu engelleyici -- sure hesabi.
 
-Tur araligi 5 dakika. Is profili 8 saatlik butceyle acilir; ev 0 (kapali).
-Kullanici backtick menusunden dakikayi degistirir, etiket saat:dakika gosterir.
+Tur araligi 5 dakika. Is bilgisayari 8 saatlik butceyle acilir, ev
+bilgisayari 0 (kapali). Kullanici `´` menusunden ("t: Zamanlayici...")
+dakikayi degistirir, etiket saat:dakika gosterir.
 """
 
 from __future__ import annotations

@@ -15,7 +15,6 @@ from keypilot.core.state import ClipboardMode
 class Recorder:
     def __init__(self) -> None:
         self.tips: list[str] = []
-        self.tip_menus: list[tuple] = []
         self.menus: list[tuple] = []
         self.filters: list[tuple] = []
         self.keys: list[str] = []
@@ -27,7 +26,6 @@ def clip(qapp, tmp_path):
     log = Recorder()
     ctl = ClipController(
         tip_html=lambda body, ms, image=None: log.tips.append(body),
-        tip_menu=lambda title, items, footer="", ms=0: log.tip_menus.append((title, items)),
         show_menu=log.menus.append,
         show_filter=lambda items, title: log.filters.append((items, title)),
         send_key=log.keys.append,
@@ -105,10 +103,8 @@ def test_empty_history_opens_no_list(clip):
     ctl, log = clip
     ctl.show_filter()
     ctl.show_menu()
-    ctl.show_history()
     assert not log.filters
     assert not log.menus
-    assert not log.tip_menus
     assert all("bos" in tip for tip in log.tips)
 
 

@@ -24,6 +24,8 @@ class FakeHook:
         self.reinstalls = 0
         self.max_callback_ms = 0.0
         self.dropped = 0
+        self.errors = 0
+        self.last_error = ""
         self.last_event = 0.0
         #: Gercek HookThread'de nobetcinin karar GEREKCESI burada durur ve
         #: uyari satirina basilir (bkz. win32/hook.looks_dead).

@@ -329,11 +329,3 @@ class WindowPins:
         for hwnd in self._pins:
             set_always_on_top(hwnd, False)
         self._pins.clear()
-
-
-# TODO(AHK): menus.ahk `setMenuDefault` sirali kalin-oge secimi port edilmedi.
-#     AHK'de menude tek bir kalin oge vardi ve adaylar oncelik siralaniyordu
-#     (1 sabitlenmis aktif pencere, 2 profilsiz pencerede "Ekle", 3 bos "Add").
-#     Bizde menude sabit bir varsayilan var (PopupMenu `default`).
-# TODO(AHK): script_state.ahk WindowModule'un `getClass`/`isClass` kismi
-#     port edilmedi -- yalnizca app_shorts profil eslestirmesinde kullaniliyordu.

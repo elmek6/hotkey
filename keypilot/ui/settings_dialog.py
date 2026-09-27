@@ -425,7 +425,8 @@ class SettingsDialog(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.holder)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll = scroll
+        # `scroll` ADI QWidget.scroll(dx, dy) metodunu golgelerdi.
+        self.scroll_area = scroll
 
         self.status = QLabel()
 
@@ -543,7 +544,7 @@ class SettingsDialog(QWidget):
             index += 1
             self.cards.append(card)
             self._shown.append(card)
-        self.scroll.verticalScrollBar().setValue(0)
+        self.scroll_area.verticalScrollBar().setValue(0)
         self._update_status()
 
     def _group_header(self, name: Category) -> QLabel:

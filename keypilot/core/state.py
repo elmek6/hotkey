@@ -12,11 +12,11 @@ bagimsiz alt sistemin (makro oynatici, incognito, OCR) ayni anda kaskadlari
 kilitlemesi gerekirse buraya kilit sahibinin adini tutan atomik bir
 `claim(caller) -> bool` / `release()` ciftini geri koymak dogru yer olur.
 
-TODO(AHK): script_state.ahk'nin diger modulleri de port edilmedi --
-ScriptModule (calisma suresi, istatistik), MouseState (tekerlek kisitlama),
-WindowModule (hep ustte tutma) ve IdleModule. Son ikisi Win32 cagrisi
-gerektirir, core'un "Win32 import'u yasak" kurali geregi buraya degil
-win32/ altina yazilmalilar.
+script_state.ahk'nin Win32 gerektiren modulleri buraya degil kendi
+yerlerine tasindi (core'da Win32 import'u yasak): WindowModule ->
+win32/window.py `WindowPins`, IdleModule -> idle.py + app.py `_idle_tick`.
+ScriptModule (calisma suresi, istatistik) ve MouseState (tekerlek
+kisitlama) port edilmedi.
 """
 
 from __future__ import annotations

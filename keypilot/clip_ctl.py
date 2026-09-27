@@ -32,7 +32,7 @@ from keypilot.imgstore import THUMB_SIZE, ClipImageStore
 from keypilot.store import ClipStore
 from keypilot.ui.clip_images import ClipImages
 from keypilot.ui.clipboard import ClipboardWatcher
-from keypilot.ui.preview import preview_html, shorten
+from keypilot.ui.preview import dim, preview_html, shorten
 
 log = logging.getLogger("keypilot.clip")
 
@@ -42,7 +42,6 @@ class ClipController:
         self,
         *,
         tip_html: Callable[..., None],  # (html, ms, image=None) -- bkz. ui/tip.py
-        tip_menu: Callable[..., None],
         show_menu: Callable[[tuple], None],
         show_filter: Callable[[tuple, str], None],
         send_key: Callable[[str], None],
@@ -50,7 +49,6 @@ class ClipController:
         directory: Path | None = None,  # test icin; varsayilan Files/
     ) -> None:
         self._tip = tip_html
-        self._tip_menu = tip_menu
         self._menu = show_menu
         self._filter = show_filter
         self._send_key = send_key
@@ -71,7 +69,6 @@ class ClipController:
         self.watcher.other_copied.connect(self.on_other)
 
     def register(self, runner) -> None:
-        runner.register(Cmd.Clip.SHOW, lambda _: self.show_history())
         runner.register(Cmd.Clip.FILTER, lambda _: self.show_filter())
         runner.register(Cmd.Clip.PASTE, self.paste_history)
         runner.register(Cmd.Clip.PASTE_PLAIN, self.paste_history_plain)
@@ -109,7 +106,7 @@ class ClipController:
         """
         image = QGuiApplication.clipboard().image()
         if image.isNull():
-            self._tip("⛵ <span style='color:#8b949e;'>metin disi kopya</span>", 900)
+            self._tip(f"⛵ {dim('metin disi kopya')}", 900)
             return
         slot = self.save_image(image)
         if slot < 0:
@@ -199,18 +196,14 @@ class ClipController:
             QGuiApplication.clipboard().setText(text)
 
     def paste_history(self, argument: str) -> None:
-        """`^ & 1` -> gecmisin 1. kaydi. 1 tabanli, AHK ile ayni."""
+        """`CapsLock & 1` -> gecmisin 1. kaydi. 1 tabanli, AHK ile ayni."""
         try:
             index = int(argument)
         except ValueError:
             return
         entry = self.history.get(index)
         if entry is None:
-            self._tip(
-                f"\U0001f4cb <b>{index}.</b> "
-                "<span style='color:#8b949e;'>kayit yok</span>",
-                1200,
-            )
+            self._tip(f"\U0001f4cb <b>{index}.</b> {dim('kayit yok')}", 1200)
             return
         # Sira numarasi YOK, yalniz icerik -- CapsLock & 3'e basan zaten
         # kacinci kaydi istedigini biliyor, gormek istedigi sey ne geldigi.
@@ -312,30 +305,6 @@ class ClipController:
             for index, entry in enumerate(entries, start=1)
         )
         self._menu((*spec, None, ("\U0001f50d Ara...", Cmd.Clip.FILTER)))
-
-    def show_history(self) -> None:
-        entries = self.history.entries[:9]
-        if not entries:
-            self._tip("\U0001f4cb <b>pano gecmisi bos</b>", 1500)
-            return
-        items = tuple(
-            (
-                str(index),
-                html.escape(shorten(entry.preview))
-                + (
-                    f" <span style='color:#8b949e;'>x{entry.count}</span>"
-                    if entry.count > 1
-                    else ""
-                ),
-            )
-            for index, entry in enumerate(entries, start=1)
-        )
-        self._tip_menu(
-            f"\U0001f4cb Pano gecmisi ({len(self.history)})",
-            items,
-            footer="",
-            ms=4000,
-        )
 
     def menu_items(self) -> tuple:
         """AHK `ClipHist.buildHistoryMenu()`: arama, son 30 kayit, temizle.

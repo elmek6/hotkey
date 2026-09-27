@@ -22,6 +22,7 @@ modunu acik birakmissa Qt "acik" der ve HAKLIDIR; bu yuzden ayara elle
 from __future__ import annotations
 
 import logging
+from enum import StrEnum
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPalette
@@ -31,21 +32,26 @@ from keypilot.settings import Category, setting
 
 log = logging.getLogger("keypilot.theme")
 
-SYSTEM = "system"
-LIGHT = "light"
-DARK = "dark"
+
+class ThemeMode(StrEnum):
+    """`app.theme` ayarinin degerleri -- settings.json'a bu dizgiler yazilir."""
+
+    SYSTEM = "system"
+    LIGHT = "light"
+    DARK = "dark"
+
 
 THEME_LABELS = {
-    SYSTEM: "Sistem",
-    LIGHT: "Acik",
-    DARK: "Koyu",
+    ThemeMode.SYSTEM: "Sistem",
+    ThemeMode.LIGHT: "Acik",
+    ThemeMode.DARK: "Koyu",
 }
 
 THEME = setting(
     "app.theme",
     "Tema",
-    default=SYSTEM,
-    choices=(SYSTEM, LIGHT, DARK),
+    default=ThemeMode.SYSTEM,
+    choices=tuple(ThemeMode),
     labels=THEME_LABELS,
     category=Category.GENERAL,
     tags="tema renk koyu acik dark light gorunum",
@@ -80,12 +86,12 @@ def system_is_dark() -> bool:
     return QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
 
 
-def resolve(choice: str | None = None) -> bool:
+def resolve(choice: ThemeMode | None = None) -> bool:
     """Ayardan "koyu mu?" sonucunu cikarir."""
     choice = choice if choice is not None else THEME.get()
-    if choice == DARK:
+    if choice == ThemeMode.DARK:
         return True
-    if choice == LIGHT:
+    if choice == ThemeMode.LIGHT:
         return False
     return system_is_dark()
 
@@ -164,5 +170,5 @@ def install() -> None:
     canli guncelle. `SETTINGS.apply_all()` acilista `apply`i zaten cagirir."""
     THEME.subscribe(apply)
     QGuiApplication.styleHints().colorSchemeChanged.connect(
-        lambda _scheme: apply() if THEME.get() == SYSTEM else None
+        lambda _scheme: apply() if THEME.get() == ThemeMode.SYSTEM else None
     )

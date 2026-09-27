@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
 
@@ -67,6 +68,7 @@ from keypilot.repository import Repository
 from keypilot.settings import SETTINGS
 from keypilot.slots_ctl import SlotController
 from keypilot.store import SlotStore, slot_display
+from keypilot.ui import key_capture
 from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.gesture_overlay import GestureOverlay
 from keypilot.ui.idle import IdleDialog
@@ -80,7 +82,7 @@ from keypilot.ui.ocr_view import OcrView
 from keypilot.ui.overview import MAX_CLIPS as OVERVIEW_CLIPS
 from keypilot.ui.overview import OverviewPanel
 from keypilot.ui.pause import PauseDialog
-from keypilot.ui.preview import preview_html, shorten
+from keypilot.ui.preview import dim, preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
 from keypilot.ui.qr_view import QrDialog
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
@@ -126,7 +128,7 @@ EXIT_RESTART = 3
 #: IKI gozetmen birden yasiyordu -- ikisi de ayni konsol gunlugunu yazmak
 #: isteyince cmd "dosya kullanimda" deyip cocugu HIC baslatmiyordu. Iki
 #: bekci zaten gereksizdi: tek program calistiriyoruz, basinda tek bekci
-#: olmali. Bayrak yoksa (VSCode F5 / dogrudan python) eski yol geceli:
+#: olmali. Bayrak yoksa (VSCode F5 / dogrudan python) eski yol gecerli:
 #: cocugu kendimiz baslatiyoruz, yoksa "yeniden baslat" cikis olurdu.
 SUPERVISED_FLAG = "--supervised"
 
@@ -170,13 +172,11 @@ def mod_down(name: str) -> None:
 
 
 def mod_up(name: str) -> None:
-    """`mod_up:LCtrl` -- sanal modifier birak."""
+    """`mod_up:LCtrl` -- sanal modifier birak. `send.key_up` birakma anini
+    isaretliyor: bir sonraki gonderim onu "kullanici tutuyor" sanmaz."""
     vk = vk_from_name(name)
     if vk is not None:
         send.key_up(vk)
-        # held_modifiers: kendi biraktigimiz modifier'i "kullanici tutuyor"
-        # sanmasin (bkz. send.held_modifiers / STALE_MS).
-        send._injected_release[vk] = send.time.perf_counter()
 
 
 class _ErrorBridge(QObject):
@@ -260,7 +260,6 @@ class KeyPilot:
         # Hafiza bloklari moduna dusen metni buradan alip pencereye veriyoruz.
         self.clip = ClipController(
             tip_html=self.tip.show_html,
-            tip_menu=self.tip.show_menu,
             show_menu=lambda spec: self.menu.show(spec),
             show_filter=self.show_filter_items,
             send_key=self.runner.run,
@@ -447,12 +446,10 @@ class KeyPilot:
         self.snip.set_ui_open = self._set_ui_open
         self.snip.bind_rule = self._bind_area_rule
         self.snip.release_rules = self._release_area_rules
-        # F13 menusu: alan secilir secilmez OCR baslasin (AHK'de bu iki oge
-        # App.ScreenOcr.snipInteractive / snip("plain") idi).
-        self.runner.register(Cmd.Select.OCR, lambda _: self.show_snip_auto(SnipAction.OCR))
-        self.runner.register(
-            Cmd.Select.OCR_ADV, lambda _: self.show_snip_auto(SnipAction.OCR_ADV)
-        )
+        # Kisayol yakalama kutulari (profil penceresi, alan kurali) tus
+        # beklerken hook sussun: F13 / `^` gibi onekler kisayol olarak
+        # islenmeden kutuya ulassin.
+        key_capture.silence = self._set_ui_open
         # AHK magnifier.ahk. Islemler ayri thread'de kosuyor: icinde uyku var.
         self.runner.register(Cmd.Magnifier.TOGGLE, lambda _: self.magnifier.toggle())
         self.runner.register(Cmd.Magnifier.RESET, lambda _: self.magnifier.reset())
@@ -483,9 +480,8 @@ class KeyPilot:
         self.profiles_view = ProfilesView(self.shorts)
         self.profiles_view.keys_changed = self.bind_profile_keys
 
-        # repository.ahk'nin VERI yarisi (keypilot/repository.py). Yonetici
-        # GUI'si henuz yok; profillerde oldugu gibi duzenleme dosyanin
-        # kendisinden -- bicim zaten bunun icin metin (bkz. repository.py).
+        # repository.ahk: veri keypilot/repository.py'de (duz metin dosya),
+        # pencere ui/repository_view.py'de.
         self.repository = Repository(paths.REPOSITORY)
         self.repository.load()
         self.repository_view = RepositoryView(self.repository)
@@ -682,8 +678,8 @@ class KeyPilot:
             return
         self.tip.show_html(
             f"⚡ <b>{html.escape(name)}</b><br>"
-            f"<span style='color:#8b949e;'>{html.escape(rule.label())}</span><br>"
-            "<span style='color:#8b949e;'>kural motoru henuz yok</span>",
+            f"{dim(html.escape(rule.label()))}<br>"
+            f"{dim('kural motoru henuz yok')}",
             2500,
         )
 
@@ -769,19 +765,14 @@ class KeyPilot:
         self.dispatcher.watch(0)
         self.snip.start_rect(screens[number][1])
 
-    def show_snip_auto(self, action: SnipAction) -> None:
-        """Secim aracini "bitince su eylemi calistir" diyerek acar."""
-        self.snip.auto_action = action
-        self.show_snip("")
-
-    def _hide_over_snip(self):
+    def _hide_over_snip(self) -> Callable[[], None]:
         """Secimin ustunde durabilecek kendi pencerelerimizi gizler.
 
         Geri gosteren cagrilabilir doner -- yeniden yakalama bitince
         cagriliyor. Gorunmeyen pencere listeye girmez ki kapali bir panel
         yakalama sonrasi kendiliginden acilmasin.
         """
-        hidden = [w for w in (self.ocr_view,) if w is not None and w.isVisible()]
+        hidden = [w for w in (self.ocr_view,) if w.isVisible()]
         for panel in hidden:
             panel.hide()
 
@@ -1135,24 +1126,6 @@ class KeyPilot:
             else:
                 send.type_text(stroke)
 
-    @command(Cmd.Shorts.EDIT)
-    def edit_shortcuts(self, _argument: str = "") -> None:
-        """Profil dosyasini Notepad ile acar (AHK: yonetici GUI'si).
-
-        Dosya yoksa AHK bicimiyle bos bir iskelet yazilir -- bos Notepad
-        acmak "neyi nasil yazacagim" sorusunu birakiyordu.
-        """
-        path = self.shorts.path
-        if not path.exists():
-            paths.ensure_files_dir()
-            path.write_bytes(b'{"projectName": "ProfileManager", "profiles": []}\n')
-        subprocess.Popen(["notepad.exe", str(path)])  # noqa: S603,S607
-        self.tip.show_html(
-            "\U0001f4dd <b>profiles.json</b><br>"
-            "<span style='color:#8b949e;'>kaydettikten sonra yeniden baslat</span>",
-            2500,
-        )
-
     # ---- hafiza slotlari ----
 
     @command(Cmd.Memslots.PASTE_ENTER)
@@ -1215,14 +1188,6 @@ class KeyPilot:
 
     # ---- buyutec ----
 
-    @command(Cmd.Magnifier.ZOOM)
-    def zoom(self, argument: str) -> None:
-        """`magnifier.zoom:+` / `magnifier.zoom:-`"""
-        if argument.startswith("-"):
-            self.magnifier.zoom_out()
-        else:
-            self.magnifier.zoom_in()
-
     @command(Cmd.Magnifier.PANIC)
     def panic(self, _argument: str = "") -> None:
         """AHK: `(App.Magnifier.reset(), WinMinimize("A"))` -- buyutec %100'e
@@ -1266,6 +1231,12 @@ class KeyPilot:
         return [
             ("hook: en uzun callback", f"{self.hook.max_callback_ms:.3f} ms (sinir 300)"),
             ("hook: dusen olay", str(self.hook.dropped)),
+            (
+                "hook: yutulan hata",
+                f"{self.hook.errors} ({self.hook.last_error})"
+                if self.hook.errors
+                else "0",
+            ),
             ("hook: yeniden kurulum", f"{self.hook.reinstalls} kez"),
             ("hayalet tus", f"{self.dispatcher.phantom_drops} dusuruldu"),
             ("pano kaydi", str(len(self.clip.history))),
@@ -1409,15 +1380,18 @@ class KeyPilot:
 
     @command(Cmd.Menu.F13)
     def show_f13_menu(self, _argument: str = "") -> None:
-        """AHK: showF13menu() -- statik tablo + o anki pencere durumu."""
-        # Kisa F13: menu oncesi orta tik. Enjekte (SendInput) -- kancamiz
-        # LLMHF_INJECTED olayi yutmaz; ~MButton eylemlerimiz tetiklenmez.
-        # Kapat: keymap.F13_SHORT_MIDDLE_CLICK = False (veya bu blogu yorumla).
+        """AHK: showF13menu() -- statik tablo + o anki pencere durumu.
+
+        Kisa F13 artik genel bakisi aciyor (`show_overview`); bu menu `´`
+        menusundeki "7: F13 menu" maddesinden aciliyor.
+        """
+        # Menu oncesi orta tik (keymap.F13_SHORT_MIDDLE_CLICK). Bizim
+        # gonderdigimiz tik `ours` isaretli: kanca onu yutmaz, `~MButton`
+        # eylemlerimiz de tetiklenmez.
         if keymap.F13_SHORT_MIDDLE_CLICK:
             send.click("middle")
-        # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolonun basi o
-        # anki pencereye bagli bloklar, sonu sabit kuyruk -- sira AHK
-        # showF13menu ile ayni.
+        # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolon o anki
+        # pencereye bagli bloklar -- sira AHK showF13menu ile ayni.
         spec: tuple = (("Clipboard history", self.clip.menu_items()),)
         spec += keymap.F13_MENU
         spec += (*self._shortcut_menu_items(), self._shortcut_manager_item())
@@ -1431,8 +1405,6 @@ class KeyPilot:
         pins = self._pin_menu_items()
         if pins:
             spec += (None, *pins)
-        if keymap.F13_MENU_TAIL:
-            spec += (None, *keymap.F13_MENU_TAIL)
         # Kalin ogeler (AHK menuAppProfile / menuAlwaysOnTop) ogenin kendi
         # DEFAULT isaretiyle geliyor; bkz. ui/menu.py.
         self.menu.show(spec)
@@ -1578,7 +1550,7 @@ class KeyPilot:
         self.show_qr_text(QGuiApplication.clipboard().text() or "")
 
     def show_qr_text(self, text: str) -> None:
-        """Verilen metinle QR penceresi. Hizli panelde Alt+q buraya gelir:
+        """Verilen metinle QR penceresi. Hizli panelde Ctrl+q buraya gelir:
         orada QR'i gorulmek istenen sey PANODAKI degil SECILI ogedir."""
         if self._qr_view is not None:
             self._qr_view.close()
@@ -1586,15 +1558,6 @@ class KeyPilot:
         self._qr_view.show()
         self._qr_view.raise_()
         self._qr_view.activateWindow()
-
-    @command(Cmd.Run.YOK)
-    def not_ported(self, module: str) -> None:
-        """Menude `--` ile isaretli ogeler buraya duser."""
-        self.tip.show_html(
-            f"\U0001f6a7 <b>henuz port edilmedi</b><br>"
-            f"<span style='color:#8b949e;'>{html.escape(module)}</span>",
-            2000,
-        )
 
     @command(Cmd.Run.CLICK_THEN)
     def click_then(self, keys: str, times: int = 1) -> None:
@@ -1642,9 +1605,8 @@ class KeyPilot:
             self._incognito_timer.start(Incognito.WATCH_PERIOD_MS)
             kademe = "core + deep" if result.deep else "core"
             self.tip.show_html(
-                f"🏴‍☠️ <b>incognito ACIK</b><br>"
-                f"<span style='color:#8b949e;'>{result.stores} depo ({kademe}) &nbsp;·&nbsp; "
-                f"{result.locked} dosya dondu</span>",
+                "🏴‍☠️ <b>incognito ACIK</b><br>"
+                + dim(f"{result.stores} depo ({kademe}) &nbsp;·&nbsp; {result.locked} dosya dondu"),
                 2000,
             )
         if self._incognito_badge is None:
@@ -1667,7 +1629,7 @@ class KeyPilot:
             else "geri yukleme KAPALI, izler kaldi"
         )
         self.tip.show_html(
-            f"\U0001f441️ <b>incognito kapali</b><br><span style='color:#8b949e;'>{detay}</span>",
+            f"\U0001f441️ <b>incognito kapali</b><br>{dim(detay)}",
             2000,
         )
 
@@ -1783,8 +1745,7 @@ class KeyPilot:
             self.hook.verdict,
         )
         self.tip.show_html(
-            "🔁 <b>hook yeniden kuruldu</b><br>"
-            "<span style='color:#8b949e;'>Windows dusurmustu; tuslar geri geldi</span>",
+            "🔁 <b>hook yeniden kuruldu</b><br>" + dim("Windows dusurmustu; tuslar geri geldi"),
             2500,
         )
 
@@ -1830,8 +1791,7 @@ class KeyPilot:
         self.tray.set_paused(state)
         if state:
             self.tip.show_html(
-                "⏸️ <b>duraklatildi</b><br>"
-                "<span style='color:#8b949e;'>tuslar dokunulmadan geciyor</span>",
+                "⏸️ <b>duraklatildi</b><br>" + dim("tuslar dokunulmadan geciyor"),
                 1600,
             )
         else:
@@ -1854,19 +1814,13 @@ class KeyPilot:
             900,
         )
 
-    @command(Cmd.Turkish.LAYOUT)
-    def switch_turkish_layout(self, _argument: str = "") -> None:
-        """ScrollLock basili tutma -- AHK: dizilim 1 <-> 2."""
-        self.dispatcher.turkish.switch_layout()
-        self.switch_turkish_layout_tip()
-
     @command(Cmd.Turkish.SET)
     def set_turkish_layout(self, arg: str) -> None:
         """Menudeki radyo grubu -- `turkish.set:0|1|2`.
 
         0 kapatir, 1 ve 2 hem ACAR hem dizilimi atar: menude "kapali" ayri
         bir secenek oldugu icin dizilim secmek "ac" demek. Sirayla ceviren
-        `turkish.toggle`/`turkish.layout` aksine burada ne secildiyse o olur.
+        `turkish.toggle`in aksine burada ne secildiyse o olur.
         """
         want = arg.strip()
         if want == "0":
@@ -1885,7 +1839,7 @@ class KeyPilot:
         layout = self.dispatcher.turkish.layout
         note = "uzun basim (c s i g)" if layout == 1 else "dogrudan remap"
         self.tip.show_html(
-            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br><span style='color:#8b949e;'>{note}</span>",
+            f"🇹🇷 <b>Turkce dizilim: {layout}</b><br>{dim(note)}",
             1200,
         )
 
@@ -1940,11 +1894,7 @@ class KeyPilot:
         on = keymap.VIRTUAL_MOUSE.get()
         self.tip.show_html(
             f"🖱️ <b>WASD sanal fare: {'acik' if on else 'kapali'}</b><br>"
-            + (
-                "<span style='color:#8b949e;'>Win+WASD imlec, Q/E tik, Y Enter</span>"
-                if on
-                else "<span style='color:#8b949e;'>Win+D / Win+E serbest</span>"
-            ),
+            + dim(keymap.VIRTUAL_MOUSE_NOTE if on else "Win+D / Win+E serbest"),
             1400,
         )
 
@@ -2022,8 +1972,8 @@ class KeyPilot:
         # kaydi, uygulama profili) burada yok, log'a zaten yaziliyorlar.
         card = (
             f"✅ <b>KeyPilot</b> &nbsp;·&nbsp; {label}<br>"
-            f"<span style='color:#8b949e;'>version</span> {VERSION}<br>"
-            f"<span style='color:#8b949e;'>build</span> {build_stamp()}"
+            f"{dim('version')} {VERSION}<br>"
+            f"{dim('build')} {build_stamp()}"
         )
         # Onceki oturumdan (ya da baska programdan) ustte kalmis pencereler.
         # Acilista bir kez soyleniyor: bizim sozlugumuz her baslangicta bos,
@@ -2031,10 +1981,7 @@ class KeyPilot:
         stray = len(topmost_windows())
         if stray:
             log.info("%d pencere ustte sabitli (Windows taramasi)", stray)
-            card += (
-                f"<br><span style='color:#8b949e;'>ustte sabitli</span> "
-                f"{stray} pencere &nbsp;·&nbsp; F13 menusu"
-            )
+            card += f"<br>{dim('ustte sabitli')} {stray} pencere &nbsp;·&nbsp; F13 > Hep ustte"
         self.tip.show_html(card, 4000)
 
     def _idle_tick(self) -> None:
@@ -2121,8 +2068,6 @@ class KeyPilot:
         if self.incognito.active:
             self.incognito.disable()
         SETTINGS.save(paths.SETTINGS)  # AHK ExitSettings: Settings.save()
-        # AHK: ExitSettings -> _save(). Yazma basarisizsa (veri kaybi
-        # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.
         # AHK ExitSettings: State.Window.clearAllOnTop() -- program kapaninca
         # sabitledigimiz pencereler ustte asili kalmasin.
         # Yeniden baslatmada sabitler BIRAKILMIYOR: reload kullanicinin
@@ -2130,6 +2075,8 @@ class KeyPilot:
         # birakiliyor ki ekranda sahipsiz asili pencere kalmasin.
         if self._release_pins_on_exit:
             self.pins.clear_all()
+        # AHK: ExitSettings -> _save(). Yazma basarisizsa (veri kaybi
+        # korumasi ya da disk hatasi) log'da izi kalir, kapanis engellenmez.
         saved = self.clip.save() if self.save_on_exit else False
         # SAYI DISKTEN: `clip.history` bellek listesi ve tavani 50
         # (ClipHistory.MAX_ITEMS), yani bu satir her kapanista "50 pano
@@ -2302,6 +2249,8 @@ class KeyPilot:
         # ONCE abonelikten cik: kapanirken dusen bir hata olu pencereleri
         # canlandirmasin (kritik hata penceresi acmaya calisirdi).
         logs.errors.unsubscribe(self._error_sub)
+        if key_capture.silence == self._set_ui_open:
+            key_capture.silence = None
         self._drain_timer.stop()
         self._tick_timer.stop()
         self._watchdog_timer.stop()
@@ -2312,8 +2261,19 @@ class KeyPilot:
         self.ocr_view.close()
         self.mem_slots.close()
         self.repository_view.close()
-        if self._qr_view is not None:
-            self._qr_view.close()
+        # Ilk istendiginde kurulan pencereler: hic acilmadiysa None.
+        # `_overview` kapaninca kendini siliyor, olu sarmalayiciya dokunulmaz.
+        for window in (
+            self._qr_view,
+            self._quick,
+            self._key_map_view,
+            self._settings_dialog,
+            self._incognito_badge,
+        ):
+            if window is not None:
+                window.close()
+        if self._overview is not None and shiboken6.isValid(self._overview):
+            self._overview.close()
         self.profiles_view.close()
         self.macro.shutdown()
         self.macro.view.close()

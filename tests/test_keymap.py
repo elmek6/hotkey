@@ -26,7 +26,7 @@ def test_kaskadlar_ve_jestler_kurulur():
     assert 0x7C in cascades and cascades[0x7C].run_cascade is False
     gestures = keymap.build_gestures()
     assert gestures.defs
-    assert (keymap.KEY_F13, Direction.UP) in gestures.defs
+    assert (0x7C, Direction.UP) in gestures.defs  # F13
     assert (0x80, Direction.LEFT) in gestures.defs  # F17
     assert (0x81, Direction.LEFT) in gestures.defs  # F18
     assert gestures.labels(0x81)[Cell.P] == "Back"
@@ -62,7 +62,6 @@ def test_menu_tablolari_bicimli():
     seen: list[str] = []
     for spec in (
         keymap.F13_MENU,
-        keymap.F13_MENU_TAIL,
         keymap.SYS_COMMANDS_MENU,
         keymap.SPECIAL_KEYS_MENU,
         keymap.SYSTEM_MENU,

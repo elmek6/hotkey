@@ -8,9 +8,10 @@ Duzen AHK ile ayni, uc kolon:
 
 AHK'DEN AYRILAN YERLER:
 
-  * `Record Macro` dugmesi YOK. `macro_recorder.ahk` port edilmedi; calisan
+  * `Record Macro` dugmesi YOK. Makro kaydedicinin kaydi dosyaya yazmadan
+    tus dizisi olarak donduren kipi (AHK `isStrokeOnlyMode`) yok; calisan
     bir butona benzeyip hicbir sey yapmayan dugme koymaktansa hic koymuyoruz.
-  * Liste secimi ADLA degil KONUMLA eslenmiyor, `UserRole`da profilin
+  * Liste secimi ADLA degil KONUMLA esleniyor: `UserRole`da profilin
     konumu duruyor. AHK'de listeye 'Sort' konulmamasinin sebebi tam da
     buydu (kod icinde yazili): sirali gorunum index'i kaydirip yanlis
     profili sectiriyordu. Konumu veriyle tasiyinca sorun kokten kalkiyor.
@@ -23,6 +24,7 @@ yerinde degistirerek degil `replace` ile YENISINI kurarak yapiliyor. Bu,
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 from PySide6.QtCore import Qt
@@ -58,7 +60,7 @@ class ProfilesView(QWidget):
         self.store = store
         #: Kaydettikten sonra cagrilan kanca (app.py verir): atanan
         #: kisayollari kayit defterine yeniden tutturur.
-        self.keys_changed = None
+        self.keys_changed: Callable[[], None] | None = None
         self._profile_index = YENI
         self._action_index = YENI
 
@@ -119,7 +121,9 @@ class ProfilesView(QWidget):
         self.action_name = QLineEdit()
         self.action_desc = QLineEdit()
         self.strokes_edit = QPlainTextEdit()
-        self.strokes_edit.setPlaceholderText("her satir bir tus dizisi:\n^+t\nmerhaba\n^ ctrl   ! alt   + shift   # win")
+        self.strokes_edit.setPlaceholderText(
+            "her satir bir tus dizisi:\n^+t\nmerhaba\n^ ctrl   ! alt   + shift   # win"
+        )
 
         # Kisayol: aksiyonu menuye girmeden calistiran tus. Kutuya
         # tiklayip tusa basiliyor (ui/key_capture.py) -- elle "Ctrl+Alt+T"

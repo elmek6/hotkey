@@ -37,7 +37,6 @@ AHK'den AYRILAN iki yer, ikisi de mimari yuzunden:
    gonderilir, gelen ILK metin bekleyen bloga yazilir (`_pending_slot`).
 
 Pencere panoyu kendisi yazmaz, sinyal gonderir -- ArrayFilter'daki kural.
-
 """
 
 from __future__ import annotations
@@ -167,12 +166,8 @@ class MemSlots(QWidget):
             header.setCursor(Qt.CursorShape.PointingHandCursor)
             header.installEventFilter(self)
 
-        # Slot tablosunda UC sutun: AHK slotlarin ADINI da tutuyor
-        # (clip_slot.ahk "Slot 1" / "fan ow" gibi), o ad dosyada duruyor ve
-        # burada gorunmezse kullanici neyin ne oldugunu bilemez.
-        # AHK'de slot tablosunda ad sutunu YOK: slot numarasi ve icerik.
-        # Ad hala dosyada duruyor ve F14 menusunden ("Rename ^ slot")
-        # degistiriliyor -- burada yer kaplamasinin bir faydasi yoktu.
+        # Iki sutun: blok numarasi (F-tusu) ve icerik. Bloklarin adi yok --
+        # adli slotlar slots.json'daki ayri bir kavram (bkz. dosya basi).
         self.slot_table = self._make_table(("Blok", "Icerik"), mono, self._slot)
         self.slot_table.itemSelectionChanged.connect(self._on_slot_selected)
         self.slot_table.doubleClicked.connect(lambda _index: self._slot_double())
@@ -226,10 +221,10 @@ class MemSlots(QWidget):
         Bloklar 10 tane kalir (F1..F10). Gecmis tablosu `HIST_COUNT` (50):
         F-tuslari yine ilk ona gider, gerisi fareyle secilir.
 
-        Slotlarin ICERIGI KORUNUR: dosyadan gelen (ya da onceki acilista
-        doldurulan) kayitlar yerinde kalir -- pencereyi kapatip acmak
-        kullanicinin doldurdugu slotlari silmemeli. Temizlemek isteyen
-        "Slotlari temizle" dugmesini kullanir.
+        Bloklarin ICERIGI KORUNUR: onceki acilista doldurulan kayitlar
+        yerinde kalir (bloklar yalniz bellekte, oturum boyunca) --
+        pencereyi kapatip acmak kullanicinin doldurdugu bloklari silmemeli.
+        Temizlemek isteyen "Slotlari temizle" dugmesini kullanir.
         """
         self.history = list(history)[:HIST_COUNT]
         self._fill_history()

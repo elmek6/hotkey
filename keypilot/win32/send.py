@@ -101,6 +101,10 @@ def key_down(vk: int) -> None:
 def key_up(vk: int) -> None:
     scan, ext = scancode_for(vk)
     _send([_key_input(scan, ext, up=True)])
+    # Kendi biraktigimiz modifier'i bir sonraki okuma "kullanici tutuyor"
+    # sanmasin (bkz. held_modifiers).
+    if vk in MODIFIER_VKS:
+        _injected_release[vk] = time.perf_counter()
 
 
 #: Kendi enjekte ettigimiz modifier'in BIRAKILDIGI an (perf_counter).

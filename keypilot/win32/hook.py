@@ -138,14 +138,22 @@ class HookThread:
 
         self.max_callback_ms = 0.0
         self.dropped = 0
+        #: Karar fonksiyonundan kacan hatalar. Callback'ten disari sizan hata
+        #: hook'u dusurtur, o yuzden YUTULUYOR -- ama sessiz kalmasin diye
+        #: sayiliyor ve sonuncusu saklaniyor (tani ekrani: app._diagnostics).
+        #: Log'a burada yazilmiyor: dosya G/C'si callback'in icinde olurdu.
+        self.errors = 0
+        self.last_error = ""
         #: Callback'in EN SON calistigi an (perf_counter). Enjekte olaylar
         #: da sayilir: soru "hook ayakta mi", "kullanici ne yapti" degil.
         self.last_event = time.perf_counter()
         #: Nobetcinin kac kez hook'u yeniden kurdugu (tani ekraninda).
         self.reinstalls = 0
         #: Yeniden kurulumda eski callback nesneleri: takilan bir thread
-        #: hala onlara bakiyor olabilir, GC'ye yem edilemezler.
-        self._retired: list[HOOKPROC] = []
+        #: hala onlara bakiyor olabilir, GC'ye yem edilemezler. (Tipler
+        #: `object`: HOOKPROC calisma aninda uretilen bir ctypes sinifi,
+        #: tip ifadesinde kullanilamiyor.)
+        self._retired: list[object] = []
 
         self._thread: threading.Thread | None = None
         self._thread_id = 0
@@ -153,8 +161,8 @@ class HookThread:
         self._error: BaseException | None = None
 
         # GC'ye yem olmamalari icin ornek uzerinde tutuluyor.
-        self._kb_proc: HOOKPROC | None = None
-        self._ms_proc: HOOKPROC | None = None
+        self._kb_proc: object | None = None
+        self._ms_proc: object | None = None
         self._kb_hook = None
         self._ms_hook = None
         #: Nobetcinin son kararinin GEREKCESI -- "hook dusmustu" satiri
@@ -185,7 +193,8 @@ class HookThread:
                 )
                 swallow = self.key_filter(event)
                 self._emit(event)
-        except Exception:
+        except Exception as exc:
+            self._note_error(exc)
             swallow = PASS
         finally:
             elapsed = (time.perf_counter() - t0) * 1000.0
@@ -201,10 +210,9 @@ class HookThread:
         # Nobetci damgasi hareket ELENMEDEN once: GetLastInputInfo fare
         # hareketini de sayiyor, biz saymasak "sistem girdi gordu, biz
         # gormedik" der ve saglam hook'u durup dururken yeniden kurardik.
-        self.last_event = time.perf_counter()
+        t0 = self.last_event = time.perf_counter()
         if wparam == C.WM_MOUSEMOVE and not self.watch_mouse_move:
             return user32.CallNextHookEx(None, ncode, wparam, lparam)
-        t0 = time.perf_counter()
         swallow = PASS
         try:
             ms = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
@@ -225,7 +233,8 @@ class HookThread:
             )
             swallow = self.mouse_filter(event)
             self._emit(event)
-        except Exception:
+        except Exception as exc:
+            self._note_error(exc)
             swallow = PASS
         finally:
             elapsed = (time.perf_counter() - t0) * 1000.0
@@ -234,6 +243,11 @@ class HookThread:
         if swallow:
             return 1
         return user32.CallNextHookEx(None, ncode, wparam, lparam)
+
+    def _note_error(self, exc: Exception) -> None:
+        """Yutulan hatanin izi -- sayac + son hatanin kisa metni (bkz. `errors`)."""
+        self.errors += 1
+        self.last_error = f"{type(exc).__name__}: {exc}"
 
     def _emit(self, event) -> None:
         """Ham olayi kuyruga birakir -- kuyruk VERILMISSE.

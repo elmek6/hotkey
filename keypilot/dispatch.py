@@ -39,7 +39,7 @@ from keypilot.core.hot_vectors import Cell, HotVectors
 from keypilot.core.hotkey import Binding, HotkeyTable
 from keypilot.core.keynames import MODIFIER_VKS, key_name
 from keypilot.core.mouse import VK_MBUTTON, VK_RBUTTON, WM_MOUSEMOVE, MouseSeen, mouse_key
-from keypilot.core.prefix import Outcome, PrefixTracker
+from keypilot.core.prefix import DEFAULT_HOLD_MS, Outcome, PrefixTracker
 from keypilot.core.turkish import TurkishLayout
 from keypilot.win32 import send
 from keypilot.win32.hook import KeyEvent, MouseEvent
@@ -459,23 +459,25 @@ class Dispatcher:
         return [Run(Cmd.Run.MOD_UP(key_name(mod)), key=button)]
 
     def tick(self, now: float) -> list[tuple[int, str]]:
-        """Bekletilen kisa basim eylemleri -- Qt zamanlayicisi cagirir.
+        """Qt zamanlayicisinin darbesi. Uc is yapar:
 
-        Basili tutma esigi ARTIK burada yoklanmiyor: basim turune tus
-        birakilinca karar veriliyor (AHK ile ayni, bkz. `PrefixTracker.key_up`).
-        Geriye yalniz cift basim penceresi kaldi.
+        1. hayalet tus taramasi (`_reconcile`)
+        2. basili jest tusunun overlay asamasi: short esigi gecince `P`,
+           ikinci esik gecince `S` (overlay yalniz izler, karar vermez)
+        3. cift basim penceresi dolan kisa basim eylemleri -- donus degeri
+
+        Basili tutma EYLEMI burada yoklanmiyor: basim turune tus birakilinca
+        karar veriliyor (AHK ile ayni, bkz. `PrefixTracker.key_up`).
         """
         self._reconcile(now)
         fired: list[tuple[int, str]] = []
         for prefix in self.gestures.active:
             started = self.prefixes.held_since(prefix) or self._gesture_started.get(prefix)
+            if started is None or self.gestures.fired(prefix):
+                continue
             definition = self.prefixes.definition(prefix)
-            if started is None:
-                continue
-            if self.gestures.fired(prefix):
-                continue
             elapsed_ms = (now - started) * 1000.0
-            hold_ms = definition.hold_ms if definition is not None else 350.0
+            hold_ms = definition.hold_ms if definition is not None else DEFAULT_HOLD_MS
             cascade = self.machine.definitions.get(prefix)
             # Kaskad short esigi: F17/F18'de prefix.hold_ms yok, CascadeDef.short_ms var.
             if cascade is not None and cascade.short_ms is not None:
@@ -623,6 +625,10 @@ class Dispatcher:
         self.prefixes.reset()
         self.tracker.reset()
         self.gestures.reset()
+        # Turkce katmaninin "basili harf" kaydi da: birakmasi duraklatmada /
+        # pencere acikken kaybolan harf orada kalirsa sonraki her basisi tus
+        # tekrari sanilip yutuluyordu.
+        self.turkish.reset()
         self._freeze_at = None
         self._gesture_at = None
         self._tip_t = 0.0

@@ -38,6 +38,7 @@ OCR onu da okumaya calisir (AHK'de de ayni tuzak vardi).
 from __future__ import annotations
 
 import ctypes
+from collections.abc import Callable
 from ctypes import wintypes
 from enum import IntEnum, StrEnum
 
@@ -149,6 +150,7 @@ _CURSORS = {
 #: altinda toolbox aciliyor (ad/aciklama, X/Y/W/H). Ikisi tek cubuga
 #: sigmiyordu; ayni cerceve, iki takim alet.
 
+
 class SnipAction(Id):
     """Islem cubugu eylemleri -- app.py `done` sinyalinde bu kimligi alir.
 
@@ -175,7 +177,6 @@ ACTIONS = (
 
 #: Secildikten sonra secim cercevesinin acik kalacagi eylemler.
 KEEP_OPEN = frozenset({SnipAction.OCR_ADV})
-
 
 
 class SnipOverlay(QWidget):
@@ -237,23 +238,18 @@ class SnipOverlay(QWidget):
         self._picking = False  # ilk secim suruklemesi mi
         self._session = False  # OCR+ acik: cerceve kalir, orutu kalkar
         self._virtual = (0, 0, 0, 0)  # sanal masaustu, FIZIKSEL piksel
-        #: Secim biter bitmez KENDILIGINDEN calisacak eylem (ACTIONS'tan bir
-        #: kimlik). F13 menusundeki "OCR Gelismis / OCR Basit" boyle
-        #: calisiyor: alan secilir secilmez OCR baslar, islem cubugundan
-        #: dugmeye basmaya gerek kalmaz. Bir kez kullanilir, sonra silinir.
-        self.auto_action: SnipAction | None = None
         #: Kural penceresi acilirken hook'u susturan kanca (app.py verir):
         #: `set_ui_open(True/False)`. Verilmezse pencere yine acilir ama
         #: yakalanacak tus once kisayol olarak islenir.
-        self.set_ui_open = None
+        self.set_ui_open: Callable[[bool], None] | None = None
         #: Kural kisayolunu kayit defterine tutturan kanca (app.py verir):
         #: `bind_rule(owner, spec, alan_adi, sira) -> catisan sahip / ""`.
-        self.bind_rule = None
+        self.bind_rule: Callable[[str, str, str, int], str] | None = None
         #: Alanin butun kurallarinin tuslarini birakan kanca (app.py verir).
-        self.release_rules = None
+        self.release_rules: Callable[[str], None] | None = None
         #: Yeniden yakalamadan once gizlenecek DIS pencereler (OCR paneli).
         #: app.py doldurur; geri gosteren bir cagrilabilir dondurmeli.
-        self.hide_others = None
+        self.hide_others: Callable[[], Callable[[], None]] | None = None
         # F14 ile secim: tus BASILI oldugu surece fare hareketi dikdortgeni
         # buyutur, tus birakilinca secim biter. Tusun durumu zamanlayiciyla
         # yoklaniyor: pencere odakli oldugu icin tus olaylari Qt'ye degil
@@ -280,7 +276,7 @@ class SnipOverlay(QWidget):
 
         # TEK KAPSAYICI: cubuk ve Area paneli ayni pencerenin icinde, dikey
         # duzende. Once iki ayri widget'ti; aralarindaki bosluktan orutu
-        # goruniyordu ve imlec oralarda secim imlecine (tutamac oku)
+        # gorunuyordu ve imlec oralarda secim imlecine (tutamac oku)
         # donuyordu -- ustelik iki ayri yerlestirme ve iki ayri maske parcasi
         # demekti. Bir kapsayici hepsini birden cozuyor.
         self._panel = QWidget(self)
@@ -1028,9 +1024,6 @@ class SnipOverlay(QWidget):
         self._sync_toolbox()  # cift yon: cerceve -> kutular
         self.update()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
-        if self.auto_action is not None:
-            action, self.auto_action = self.auto_action, None
-            self._finish(action)
 
     def repick(self, origin: tuple[int, int] | None = None) -> None:
         """Secim ekranda dururken tusa (F14) yeniden basildi: bastan sec.
@@ -1437,10 +1430,9 @@ class SnipOverlay(QWidget):
             self.close()
             return
         delta = _ARROW_DELTA.get(event.key())
-        if delta is not None and not event.modifiers():
-            if self._nudge(*delta):
-                event.accept()
-                return
+        if delta is not None and not event.modifiers() and self._nudge(*delta):
+            event.accept()
+            return
         # FARENIN KOPYALA TUSU. F20 kaskadi kisa basimda `^c` gonderiyor
         # (keymap.build_cascades) ve o tus, secim penceresi ondeyken bize
         # geliyordu -- ama burada Ctrl+C'nin bir anlami yoktu, tus hicbir
@@ -1547,7 +1539,7 @@ class SnipOverlay(QWidget):
         )
 
     def closeEvent(self, event) -> None:
-        """Kapanisi app.py'ye bildir: pencere acikken kisayollar susuyordu."""
+        """Kapanisi app.py'ye bildir: secimi yapan tusun izlenmesi biter."""
         # Area kipinde kaydedilmemis is varsa once sorulur; "Vazgec"
         # denirse pencere ACIK KALIR -- Esc'e yanlislikla basmak yazilani
         # goturmesin.

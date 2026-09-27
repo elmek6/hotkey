@@ -130,9 +130,6 @@ class CascadeMachine:
     def active_key(self) -> int | None:
         return self._active.key if self._active else None
 
-    def owns(self, vk: int) -> bool:
-        return vk in self.definitions
-
     # ---- besleme ----
 
     def feed_key(self, vk: int, down: bool, t: float) -> tuple[bool, list[Action]]:

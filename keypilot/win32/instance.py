@@ -128,7 +128,6 @@ class SingleInstance:
 
         threading.Thread(target=wait, name="keypilot-takeover", daemon=True).start()
 
-
     def _try_acquire(self) -> bool:
         handle = kernel32.CreateMutexW(None, True, self.name)
         last_error = ctypes.get_last_error()

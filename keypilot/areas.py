@@ -119,7 +119,6 @@ class Rule:
     text: str = ""
     #: Kisayol, `parse_hotkey` bicimi: "F4", "Ctrl+Shift+K". Bos = tus yok.
     key: str = ""
-    #: Periyot, SANIYE. 0 = periyodik degil.
     #: Periyot, SANIYE (0..3600). 0 = periyodik degil, tetiklenince BIR KEZ
     #: calisir.
     every: int = 0

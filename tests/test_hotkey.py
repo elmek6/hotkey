@@ -126,11 +126,6 @@ def test_sahip_olmadigi_tusa_dokunmaz():
     assert table.match(Z, ()) is None  # modifier yoksa eslesme yok
 
 
-def test_tips_yalniz_aciklamali_tanimlari_verir():
-    table = HotkeyTable().add("^z", "a", "geri al").add("^y", "b")
-    assert table.tips == (("Ctrl+Z", "geri al"),)
-
-
 # ---- fare olayi cevirisi ----
 
 

@@ -28,13 +28,9 @@ VK_NAMES: dict[int, str] = {
     0xDB: "SC01A", 0xDC: "SC02B", 0xDD: "SC01B", 0xDE: "SC028",
 }
 
-for _i in range(1, 25):
-    VK_NAMES[0x6F + _i] = f"F{_i}"
-for _c in range(0x30, 0x3A):
-    VK_NAMES[_c] = chr(_c)
-for _c in range(0x41, 0x5B):
-    VK_NAMES[_c] = chr(_c)
-del _i, _c
+VK_NAMES.update({0x6F + number: f"F{number}" for number in range(1, 25)})
+# Rakamlar ve harfler: VK kodu ASCII koduyla ayni.
+VK_NAMES.update({vk: chr(vk) for vk in (*range(0x30, 0x3A), *range(0x41, 0x5B))})
 
 # Tekerlek yonleri gercek bir VK degil; 0xFF ustunde takma kod aliyorlar ki
 # fare ve klavye ayni kisayol tablosunda ayni sekilde yazilabilsin.
@@ -58,10 +54,6 @@ VK_NAMES[0xB1] = "Media_Prev"
 VK_NAMES[0xB3] = "Media_Play_Pause"
 
 MODIFIER_VKS = frozenset({0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C})
-
-MOUSE_VKS = frozenset(
-    {0x01, 0x02, 0x04, 0x05, 0x06, VK_WHEEL_UP, VK_WHEEL_DOWN, VK_WHEEL_LEFT, VK_WHEEL_RIGHT}
-)
 
 NAME_TO_VK: dict[str, int] = {name.lower(): vk for vk, name in VK_NAMES.items()}
 

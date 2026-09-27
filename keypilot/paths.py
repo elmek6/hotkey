@@ -30,14 +30,14 @@ SETTINGS = FILES / "settings.json"  # settings.ahk bicimi -- keypilot.settings
 REPOSITORY = FILES / "repository.md"
 
 
-# TODO(AHK): port edilmemis veri dosyalari (kaynak: _AutoHotKey/Files/)
-#   bigclips.bin   1 MB ustu kopyalar -- clip_hist.ahk buyuk metni ayri
-#                  dosyaya tasiyor, biz simdilik hic almiyoruz
-#   clipimg.idx    gorsel pano: sabit slotlu indeks + 64x64 kucuk resim
-#   clipimg.dat    gorsel pano: 500 MB dairesel PNG log'u
-#                  (clip_image_store.ahk + gdip_mini.ahk)
-#   profiles.json  app_shorts.ahk
-#   incognito_appids.json  incognito.ahk
+# Kendi modullerinin yaninda tanimlanan oteki dosyalar (hepsi FILES altinda):
+#   clipimg.idx / clipimg.dat   gorsel pano -- imgstore.ClipImageStore
+#   profiles.json               uygulama profilleri -- app_shorts.ShortcutStore
+#   incognito.json, incognito_* incognito.py
+#   rec<n>.jsonl                makro slotlari -- macro.slot_path
+#
+# TODO(AHK): bigclips.bin (1 MB ustu kopyalar) port edilmedi -- clip_hist.ahk
+#   buyuk metni ayri dosyaya tasiyor, biz simdilik hic almiyoruz.
 
 
 def ensure_files_dir() -> Path:

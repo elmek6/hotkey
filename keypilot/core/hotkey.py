@@ -200,7 +200,6 @@ def _hotkey(vk: int, mods: list[tuple[str, tuple[int, ...]]], wildcard: bool = F
 
 
 def _resolve(name: str) -> int:
-
     vk = vk_from_name(name)
     if vk is None:
         raise ValueError(f"bilinmeyen tus adi: {name!r}")
@@ -412,8 +411,3 @@ class HotkeyTable:
             if binding.hotkey.matches(vk, held, prefix):
                 return binding
         return None
-
-    @property
-    def tips(self) -> tuple[tuple[str, str], ...]:
-        """Ipucu penceresinde gosterilecek 'kisayol: aciklama' listesi."""
-        return tuple((b.hotkey.text, b.desc) for b in self.bindings if b.desc)

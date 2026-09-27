@@ -235,6 +235,12 @@ class HotVectors:
     _center: dict[int, dict[Cell, str]] = field(default_factory=dict, init=False)
     #: Overlay acilsin mi (KeyBuilder.gestureVisible).
     _visible: dict[int, bool] = field(default_factory=dict, init=False)
+    #: Jesti olan onekler -- `has()` hook callback'inde HER tusta soruluyor,
+    #: tanimlari taramak yerine kume.
+    _prefixes: set[int] = field(default_factory=set, init=False)
+
+    def __post_init__(self) -> None:
+        self._prefixes = {prefix for prefix, _direction in self.defs}
 
     # ---- tanim ----
 
@@ -250,6 +256,7 @@ class HotVectors:
         self.defs[(prefix, direction)] = VectorDef(
             prefix, direction, action, desc, every=max(1, int(every))
         )
+        self._prefixes.add(prefix)
         return self
 
     def center(self, prefix: int, p: str = "", s: str = "") -> HotVectors:
@@ -271,7 +278,7 @@ class HotVectors:
 
     def has(self, prefix: int) -> bool:
         """Bu onek tusunun tanimli jesti var mi -- callback'in hizli elemesi."""
-        return any(key[0] == prefix for key in self.defs)
+        return prefix in self._prefixes
 
     def axes(self, prefix: int) -> set[Axis]:
         """Bu onek icin KAYITLI eksenler. AHK: `__FilterGesturesByDirection`.
@@ -460,11 +467,3 @@ class HotVectors:
 
     def reset(self) -> None:
         self._active.clear()
-
-    @property
-    def tips(self) -> tuple[tuple[str, str], ...]:
-        return tuple(
-            (f"{definition.direction.label}", definition.desc)
-            for definition in self.defs.values()
-            if definition.desc
-        )

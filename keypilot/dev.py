@@ -1,8 +1,8 @@
 """Gelistirme ayarlari -- gunluk kullanimda KAPALI duran mekanizmalar.
 
 Buradaki her sey "programin isini yapmasi" degil, "programi incelemek"
-icin. Ayri bir dosyada durmalarinin sebebi tek: dagilmasinlar. Bir tanisi
-mekanizma sinsice birikiyor -- bir nobetci, bir ayrinti log'u, bir sayac
+icin. Ayri bir dosyada durmalarinin sebebi tek: dagilmasinlar. Tani
+mekanizmalari sinsice birikiyor -- bir nobetci, bir ayrinti log'u, bir sayac
 -- ve hicbiri tek basina buyuk gorunmedigi icin kimse toplamini sormuyor.
 Toplami burada, tek ekranda ve varsayilan olarak KAPALI.
 
@@ -59,7 +59,7 @@ MAX_WATCHDOG_MS = 60_000
 
 DEV_MODE = setting(
     "dev.enabled",
-    "GELISTIRME MODU´´",
+    "GELISTIRME MODU",
     default=False,
     category=Category.DEVELOPMENT,
     tags="gelistirme development hata ayiklama debug tani",

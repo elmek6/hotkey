@@ -538,6 +538,29 @@ def test_turkce_asamasi_dizilim2de_haritasiz_tusa_dokunmaz():
     assert box.key_filter(_press(0x43, 0.0)) is False
 
 
+def test_turkce_harf_basiliyken_duraklatma_harfi_oldurmez():
+    """Dizilim 1'de 'c' basiliyken duraklatildi: BIRAKMA olayi Turkce
+    katmanina hic ulasmadi (duraklatmada filtre erken donuyor). Eskiden
+    'c' katmanin "basili" listesinde kaliyor ve SONRAKI her basisi tus
+    tekrari sanilip sessizce yutuluyordu -- harf olu kaliyordu."""
+    from keypilot.win32.hook import KeyEvent
+
+    box = _tr_box(1)
+    assert box.key_filter(_press(0x43, 0.0)) is True
+    _drain(box.actions)
+    box.paused = True
+    box.reset()  # app.set_paused boyle yapiyor
+    release = KeyEvent(
+        vk=0x43, scan=0, down=False, extended=False,
+        injected=False, ours=False, time_ms=0, t=0.1,
+    )
+    assert box.key_filter(release) is False  # duraklatmada dokunulmadan gecer
+    box.paused = False
+    _drain(box.actions)  # reset'in ipucu/overlay kapatma olaylari
+    assert box.key_filter(_press(0x43, 1.0)) is True
+    assert "send_text:c" in [a.action for a in _drain(box.actions)]
+
+
 def test_turkce_asamasi_onek_basiliyken_atlanir():
     """Sira: onek > kaskad > Turkce. `F13 & c` Turkce harfe yem olmamali."""
     box = _tr_box(1)
@@ -830,8 +853,8 @@ def test_ikinci_asamada_s_gelir_jest_baslayinca_faz_kesilir(monkeypatch):
 
 def test_f18_jest_overlay_short_sonra_acilir(monkeypatch):
     """F18 kaskad tusu: overlay short esiginden sonra acilir."""
-    from keypilot.core.builder import KeyBuilder, PressType
     from keypilot import dispatch as dispatch_module
+    from keypilot.core.builder import KeyBuilder, PressType
 
     monkeypatch.setattr(dispatch_module.send, "cursor_pos", lambda: (100, 100))
     F18 = 0x81

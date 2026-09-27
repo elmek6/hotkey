@@ -100,7 +100,7 @@ def _drop_temp(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _write_atomic(path: Path, data: bytes) -> bool:
+def write_atomic(path: Path, data: bytes) -> bool:
     """Once `.tmp`, sonra `os.replace`. Basarisizsa log'a yazar, firlatmaz."""
     temp = path.with_suffix(path.suffix + ".tmp")
     try:
@@ -174,7 +174,7 @@ class JsonStore:
             "saved_at": datetime.now().isoformat(timespec="seconds"),
         }
         payload.update(data)
-        return _write_atomic(self.path, orjson.dumps(payload, option=orjson.OPT_INDENT_2))
+        return write_atomic(self.path, orjson.dumps(payload, option=orjson.OPT_INDENT_2))
 
 
 # ---- pano gecmisi: clip_hist.ahk ikili bicimi ----
@@ -367,7 +367,7 @@ class ClipStore:
             written += 1
         chunks[0] = self.HEADER.pack(written, start_ms, self.version, 0)
 
-        if not _write_atomic(self.path, b"".join(chunks)):
+        if not write_atomic(self.path, b"".join(chunks)):
             return False
         self._start_ms = start_ms
         self.loaded_count = written
@@ -378,7 +378,7 @@ class ClipStore:
         diskle birlestirme -- yoksa sildigimiz kayitlar geri gelirdi."""
         self.loaded_count = 0
         start_ms = self._start_ms or _to_ahk_ms(datetime.now().timestamp())
-        return _write_atomic(self.path, self.HEADER.pack(0, start_ms, self.version, 0))
+        return write_atomic(self.path, self.HEADER.pack(0, start_ms, self.version, 0))
 
     def _read_current(self) -> list[ClipEntry]:
         """Diskteki kayitlar -- birlestirme icin. Sorun cikarsa bos liste;
@@ -602,7 +602,7 @@ class SlotStore:
             if name in self.groups
         ]
         payload = {"defaultGroupName": self.default_group, "groups": ordered}
-        return _write_atomic(self.path, BOM + orjson.dumps(payload))
+        return write_atomic(self.path, BOM + orjson.dumps(payload))
 
 
 def _merge_with_disk(memory: list[ClipEntry], disk: list[ClipEntry]) -> list[ClipEntry]:

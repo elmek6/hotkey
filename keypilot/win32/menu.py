@@ -36,6 +36,7 @@ shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 #: Menu tanimlarinda "buradan sonrasi YENI KOLON" isareti (AHK: MENU_COL).
 COLUMN = "|"
 
+
 class Mark(StrEnum):
     """Ogenin ek alanlarina konan isaretler."""
 
@@ -85,6 +86,7 @@ class Icon:
     @classmethod
     def shell(cls, number: int) -> Icon:
         return cls(IconFile.SHELL, number)
+
 
 MF_STRING = 0x0000
 MF_POPUP = 0x0010
@@ -248,12 +250,19 @@ def force_foreground(hwnd: int) -> None:
 def icon_handle(icon: Icon, size: int = 16) -> int:
     """Ikonun HICON'u, istenen boyutta; bulunamazsa 0. Cagiran
     `destroy_icon` ile birakir. Qt tarafi (ui/overview.py) ayni ikonlari
-    dugmelerde gostermek icin kullaniyor."""
+    dugmelerde gostermek icin kullaniyor.
+
+    SHDefExtractIcon: kucuk ikonu ISTENEN boyutta verir (ExtractIconEx
+    yalniz 32/16 sistem boyutunu verir ve yuksek DPI'da bulaniklasir).
+    Indeks 0 tabanli, AHK'nin numarasi 1 tabanli.
+    """
     handle = wintypes.HICON()
     result = shell32.SHDefExtractIconW(
         ctypes.c_wchar_p(icon.file), icon.number - 1, 0, ctypes.byref(handle), None, size
     )
-    return handle.value or 0 if result == 0 else 0
+    if result != 0:
+        return 0
+    return handle.value or 0
 
 
 def destroy_icon(handle: int) -> None:
@@ -273,16 +282,10 @@ def _icon_bitmap(icon: Icon) -> int:
     if icon in _icon_cache:
         return _icon_cache[icon]
     bitmap = 0
-    handle = wintypes.HICON()
-    # SHDefExtractIcon: kucuk ikonu ISTENEN boyutta verir (ExtractIconEx
-    # yalniz 32/16 sistem boyutunu verir ve yuksek DPI'da bulaniklasir).
-    # Indeks 0 tabanli, AHK'nin numarasi 1 tabanli.
-    result = shell32.SHDefExtractIconW(
-        ctypes.c_wchar_p(icon.file), icon.number - 1, 0, ctypes.byref(handle), None, 16
-    )
-    if result == 0 and handle:
-        bitmap = _icon_to_bitmap(handle.value, 16)
-        user32.DestroyIcon(handle)
+    handle = icon_handle(icon, 16)
+    if handle:
+        bitmap = _icon_to_bitmap(handle, 16)
+        destroy_icon(handle)
     _icon_cache[icon] = bitmap
     return bitmap
 

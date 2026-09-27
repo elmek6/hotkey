@@ -65,7 +65,6 @@ SLOT_BYTES = META_BYTES + THUMB_BYTES  # 16448
 MAX_SLOTS = 500
 MAX_DAT = 500 * 1024 * 1024
 MAX_PNG = 8 * 1024 * 1024  # kodlanmis ust sinir
-MAX_RAW = 64 * 1024 * 1024  # ham DIB akil sagligi siniri
 BLOB_HDR = 8
 TAG_PAD = 0xFFFFFFFF
 
@@ -638,5 +637,5 @@ def thumb_to_image(thumb: bytes) -> Image.Image:
 #     giriyordu; 500 MB'lik depo pratikte nadiren o noktaya gelir. Eklenirse
 #     yeri `_touch_duplicate` icidir.
 # TODO(AHK): `saveFromClipboard`in CF_DIB yolu yerine burada PNG/PIL yolu
-#     kullaniliyor (win32/clipboard.py). Sonuc ayni ama AHK'nin ham DIB
+#     kullaniliyor (clip_ctl.save_image). Sonuc ayni ama AHK'nin ham DIB
 #     hash'iyle bizimki farkli: dedupe surumler arasi calismaz.

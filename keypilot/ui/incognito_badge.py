@@ -47,7 +47,6 @@ def make_icon(size: int = 64) -> QIcon:
     return QIcon(pixmap)
 
 
-
 class IncognitoBadge(QWidget):
     def __init__(self, incognito: Incognito, on_close: Callable[[], None]) -> None:
         super().__init__()

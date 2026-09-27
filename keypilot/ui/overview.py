@@ -1,19 +1,23 @@
 """Genel bakis -- kisa F13 ile acilan tam ekran katman.
 
-Uc liste AYNI ANDA ekranda:
+Uc liste AYNI ANDA ekranda, cevresinde menu ve dugme seritleri (yerlesim
+`OverviewPanel` basliginda):
 
     +------------------------------------------------------------+
-    |  APP SHORTS (on plandaki uygulamanin kisayollari)          |
+    |  APP SHORTS (on plandaki uygulama)  Profil v  |  Hep ustte |
     +------------------------------------------------------------+
     +---------------------------+    +---------------------------+
-    |  PANO GECMISI             |    |  SLOTLAR                  |
-    |                           |    |                           |
+    |  PANO GECMISI  [ara] 🔍   |    |  SLOTLAR                  |
     +---------------------------+    +---------------------------+
+    +------------------------------------------------------------+
+    |  tus satiri (Enter, Del, ^A ^C ...) / pencere dugmeleri    |
+    +------------------------------------------------------------+
 
 Arka plan hafif saydam, ekranin tamamini kaplar (imlecin oldugu
 monitorde). Bir ogeye tiklamak onu calistirir ve katmani kapatir;
 listelerin DISINA tiklamak, Esc ya da baska pencereye gecmek yalnizca
-kapatir. Arama yok -- ilk surum yalniz gosterip tiklatiyor.
+kapatir. Harfe basmak pano listesini suzen kutuya yazar; Tab/ok tuslari
+listeler arasinda gezer.
 
 Panel eylemi KENDISI calistirmaz, `chosen` ile eylem kimligini disari verir
 (quick_panel.py ile ayni ayrim). Veri de disaridan gelir: app shorts

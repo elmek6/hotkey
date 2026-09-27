@@ -289,8 +289,9 @@ def test_yaz_oku_dongusu_veriyi_degistirmez(qapp, tmp_path):
 
 
 def test_yazma_yarim_kalirsa_eski_dosya_yerinde_kalir(view, monkeypatch):
-    """`.tmp` + `os.replace`: AHK dosyayi tek parca yaziyordu."""
-    import keypilot.app_shorts as modul
+    """`.tmp` + `os.replace`: AHK dosyayi tek parca yaziyordu. Yazma
+    store.write_atomic'ten geciyor (butun depolarla ortak kural)."""
+    import keypilot.store as modul
 
     monkeypatch.setattr(
         modul.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("disk dolu"))

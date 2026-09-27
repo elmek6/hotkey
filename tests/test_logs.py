@@ -3,7 +3,7 @@
 import logging
 
 from keypilot import logs
-from keypilot.logs import ErrorStore, recent_text
+from keypilot.logs import ErrorStore
 
 
 def test_uyari_ve_ustu_toplanir():
@@ -49,11 +49,6 @@ def test_limit_asilinca_eskiler_duser():
 
 def test_bos_depo_none_doner():
     assert ErrorStore().last is None
-
-
-def test_recent_text_bos_durumda_da_calisir():
-    """Menu her zaman bir sey gostermeli, bos liste patlamamali."""
-    assert isinstance(recent_text(5), str)
 
 
 def test_lifecycle_satiri_FILE_INFO_kapaliyken_de_dosyaya_gecer():

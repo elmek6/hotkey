@@ -10,7 +10,8 @@ Python'da tek bir kanca yetmiyor, uc ayri yerden gelebiliyor:
 Ucu de buraya baglaniyor. Hook callback'i AYRI konu: orada exception
 yakalanip yutuluyor (win32/hook.py), cunku callback'ten disari sizan bir
 hata Windows'un hook'u dusurmesine yol acar -- program calisir gorunur ama
-hicbir tus gelmez.
+hicbir tus gelmez. Yutulan hatalar sayiliyor (`HookThread.errors`) ve
+log penceresinin "Durum" sekmesinde gorunuyor.
 
 AHK'den tasinan iki karar:
 
@@ -125,7 +126,7 @@ _LINE_RE = re.compile(
     r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) "
     # Zaman damgasi ile seviye ARASINDA tek karakterlik bir isaret duran
     # ara bicimler oldu (`... 16:47:16 ! INFO ...`). Yutulmazsa o satirlarda
-    # seviye bir kayiyor ve `!` seviye adi sanilyordu.
+    # seviye bir kayiyor ve `!` seviye adi saniliyordu.
     r"(?:[@!.|] )?"
     r"(?P<level>\S+)\s+(?P<thread>\S+)\s+(?P<source>[^:]+): (?P<message>.*)$"
 )
@@ -525,11 +526,3 @@ def clear_log(path=None) -> bool:
         log.exception("log dosyasi temizlenemedi")
         return False
     return True
-
-
-def recent_text(limit: int = 10) -> str:
-    """AHK: getRecentErrors -- menude ve panoda gosterilecek metin."""
-    items = errors.items[-limit:]
-    if not items:
-        return "hata yok"
-    return "\n".join(item.line for item in items)

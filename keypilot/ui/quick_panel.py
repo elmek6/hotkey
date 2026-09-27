@@ -79,7 +79,6 @@ from keypilot.ui.place import center_on_cursor_screen
 MIN_WIDTH = 380  # bu kadarindan dar olmaz (arama kutusu + altyazi sigsin)
 MAX_LINES = 3  # oge basina en fazla satir
 PAGE = 10  # bir sayfada gosterilen oge -- 1234567890 kisayolu kadar
-MAX_ITEMS = PAGE  # eski ad, sayfa boyu ile ayni
 NUMBER_PX = 16  # kutunun SOLUNDAKI kisayol kolonu, piksel
 THUMB_PX = 48  # satir basi onizleme resmi
 WRAP_WIDTH = 56  # esaralikli yazi tipinde satira sigan EN FAZLA karakter
@@ -238,7 +237,6 @@ class QuickPanel(QWidget):
         layout.addWidget(self.search)
         layout.addWidget(self.list, 1)
         layout.addWidget(self.footer)
-
 
     # ---- disari ----
 
@@ -412,7 +410,8 @@ class QuickPanel(QWidget):
             + self.list.verticalScrollBar().sizeHint().width()
             + 8
         )
-        cap = int((self.screen() or QGuiApplication.primaryScreen()).availableGeometry().width() * 0.9)
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        cap = int(screen.availableGeometry().width() * 0.9)
         return max(MIN_WIDTH, min(text + thumb + chrome, cap))
 
     def _row_widget(self, number: int, item: QuickItem) -> QWidget:
@@ -487,9 +486,8 @@ class QuickPanel(QWidget):
         """Tum tuslar burada toplaniyor.
 
         Odak hep arama kutusunda duruyor ama 1-9, ok tuslari ve Tab listeye
-        ait; QLineEdit'e olay suzgeci takmak yerine pencere duzeyinde
-        yakalamak yetiyor, cunku panelde baska odaklanabilir sey yok.
-        Buraya dusen tus (harf, bosluk, Backspace) kutuya iletilir.
+        ait; kutuya takilan suzgec (`eventFilter`) onlari buraya yolluyor.
+        Buraya dusen oteki tuslar (harf, bosluk, Backspace) kutuya iletilir.
         """
         key = event.key()
         modifiers = event.modifiers()

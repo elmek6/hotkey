@@ -6,9 +6,9 @@ yaziliydi, kullanicinin gordugu tek tus yuzeyi ise key history penceresiydi
 yaptigi is burada: kutuya odaklanirsin, tusa basarsin, kutu o tusun ADINI
 alir.
 
-Neden dogrudan Qt olayi: kutu acikken dispatcher susturuluyor
-(`ui_open`), yani dusuk seviye hook araya girmiyor ve tus normal bir Qt
-`keyPressEvent` olarak geliyor. Tus adini `nativeVirtualKey` uzerinden
+Neden dogrudan Qt olayi: kutu tus beklerken dispatcher susturuluyor
+(`ui_open`, bkz. `silence`), yani dusuk seviye hook araya girmiyor ve tus
+normal bir Qt `keyPressEvent` olarak geliyor. Tus adini `nativeVirtualKey` uzerinden
 cozuyoruz -- Qt'nin kendi tus sabitleri degil VK numarasi, cunku programin
 geri kalani (keynames, hotkey, dispatch) VK ile konusuyor. F13/F14 gibi
 klavyede olmayan ama farenin urettigi tuslar da boylece dogru adlaniyor.
@@ -18,10 +18,19 @@ Uretilen metin `parse_hotkey`in anladigi bicimde: `F4`, `Ctrl+Shift+K`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QPushButton
 
 from keypilot.core.keynames import key_name
+
+#: Yakalama surerken dusuk seviye hook'u SUSTURAN kanca -- app.py kuruyor
+#: (`silence(True)` yakalama basinda, `silence(False)` sonunda). Butun
+#: kutular icin tek kanca: kutu profil penceresinde de alan kuralinda da
+#: ayni. Kurulu degilse (testte, tek basina) kutu yine calisir ama onek
+#: tuslari (F13, `^`, CapsLock) once kisayol olarak islenir.
+silence: Callable[[bool], None] | None = None
 
 #: Tek baslarina kisayol OLMAYAN tuslar: basili tutulurken oteki tusu
 #: bekliyoruz, yakalama bunlarda bitmemeli.
@@ -69,6 +78,8 @@ class KeyCapture(QPushButton):
         self.setChecked(self._armed)
 
     def _arm(self) -> None:
+        if not self._armed and silence is not None:
+            silence(True)
         self._armed = True
         self._refresh()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -81,6 +92,8 @@ class KeyCapture(QPushButton):
             self._armed = False
             self.releaseKeyboard()
             self._refresh()
+            if silence is not None:
+                silence(False)
 
     def keyPressEvent(self, event) -> None:
         if not self._armed:
@@ -107,6 +120,12 @@ class KeyCapture(QPushButton):
 
     def focusOutEvent(self, event) -> None:
         # Odak giderse yakalama asili kalmasin: klavye kaydi birakilmazsa
-        # pencerenin geri kalani tus almaz.
+        # pencerenin geri kalani tus almaz -- ve hook susuk kalirsa HICBIR
+        # kisayol calismaz.
         self._disarm()
         super().focusOutEvent(event)
+
+    def hideEvent(self, event) -> None:
+        # Pencere tus beklerken kapatildi: odak olayi gelmeyebilir.
+        self._disarm()
+        super().hideEvent(event)

@@ -24,15 +24,10 @@ hedefe tek gonderimle degil DONGUYLE gidiliyor.
 zoom tuslari arasinda zorunlu bosluk, AHK'de olculmus 180 ms). Bu yuzden
 disari acilan butun islemler ayri bir thread'de kosuyor -- `actions.beep`
 ile ayni fikir. Ayni anda iki istek girmesin diye tek kilit.
-
-TODO(AHK): `close()` (magnifier'i tamamen kapatma) port edildi ama hicbir
-tusa/menuye bagli degil -- AHK'de de "istersen menuden baglarsin" diye
-duruyordu.
 """
 
 from __future__ import annotations
 
-import ctypes
 import logging
 import subprocess
 import threading
@@ -43,7 +38,8 @@ from ctypes import wintypes
 from keypilot.core.keynames import vk_from_name
 from keypilot.settings import Category, setting
 from keypilot.win32 import send
-from keypilot.win32.structs import kernel32, user32
+from keypilot.win32.shell import process_exists
+from keypilot.win32.structs import user32
 
 log = logging.getLogger("keypilot.magnifier")
 
@@ -94,32 +90,21 @@ class Magnifier:
         """
         if not process_exists(PROCESS_NAME):
             return DEFAULT_LEVEL
-        return _read_dword("Magnification", DEFAULT_LEVEL)
+        return _read_level()
 
     def is_zoomed(self) -> bool:
         return self.level() > DEFAULT_LEVEL
 
     # ---- disari acilan islemler (hepsi ayri thread'de) ----
 
-    def zoom_in(self) -> None:
-        """Bir kademe yakinlastir. `F13 & F14` buraya bagli."""
-        self._spawn(lambda: self._step(up=True))
-
-    def zoom_out(self) -> None:
-        """Bir kademe uzaklastir. `F14 & F13` buraya bagli."""
-        self._spawn(lambda: self._step(up=False))
-
     def toggle(self) -> None:
-        """AHK: toggle() -- buyutulmusse %100'e don, degilse %200'e cik."""
+        """AHK: toggle() -- buyutulmusse %100'e don, degilse %200'e cik.
+        `F13 & F14` / `F14 & F13` buraya bagli."""
         self._spawn(self._toggle)
 
     def reset(self) -> None:
         """%100'e don, magnifier acik kalir. Panik tusundan da cagriliyor."""
         self._spawn(self._reset)
-
-    def close(self) -> None:
-        """AHK: close() -- once %100, sonra sureci kapat."""
-        self._spawn(self._close)
 
     # ---- ic akis (worker thread) ----
 
@@ -139,15 +124,6 @@ class Magnifier:
         finally:
             self._lock.release()
 
-    def _step(self, up: bool) -> None:
-        """Tek kademe. AHK'de ayri bir metot degildi (`zoomTo` icindeydi);
-        burada var cunku `F13 & F14` dogrudan kademe degistiriyor."""
-        if not self._ensure_running():
-            return
-        before = self.level()
-        _send_zoom_key(up)
-        self._wait_change(before)
-
     def _toggle(self) -> None:
         if self.is_zoomed():
             self._reset()
@@ -158,27 +134,20 @@ class Magnifier:
         if process_exists(PROCESS_NAME):
             self._zoom_to(DEFAULT_LEVEL)
 
-    def _close(self) -> None:
-        self._reset()
-        try:
-            subprocess.run(
-                ["taskkill", "/IM", PROCESS_NAME, "/F"],
-                check=False,
-                capture_output=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-        except OSError:
-            log.exception("%s kapatilamadi", PROCESS_NAME)
-
     def _zoom_to(self, target: int) -> bool:
         """Hedef yuzdeye cik/in. Adim boyutu kullanici ayarina bagli oldugu
         icin kademeleri tek tek gonderip her seferinde registry'den
-        dogruluyoruz. AHK: zoomTo."""
+        dogruluyoruz. AHK: zoomTo.
+
+        Dongu icinde kademe REGISTRY'den okunuyor, `level()` degil: surecin
+        ayakta oldugu `_ensure_running` ile bir kez dogrulandi, her
+        yoklamada (20 ms'de bir) butun surec listesini taramanin anlami yok.
+        """
         if not self._ensure_running():
             return False
         first = True
         for _ in range(MAX_STEPS):
-            current = self.level()
+            current = _read_level()
             if current == target:
                 return True
             if not first:
@@ -198,7 +167,7 @@ class Magnifier:
         deadline = time.monotonic() + timeout_ms / 1000.0
         while time.monotonic() < deadline:
             time.sleep(0.02)
-            if self.level() != before:
+            if _read_level() != before:
                 return True
         return False
 
@@ -301,50 +270,6 @@ def _read_dword(name: str, default: int) -> int:
         return default
 
 
-# ---- surec kontrolu: AHK ProcessExist ----
-
-TH32CS_SNAPPROCESS = 0x00000002
-INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
-MAX_PATH = 260
-
-
-class PROCESSENTRY32W(ctypes.Structure):
-    _fields_ = [
-        ("dwSize", wintypes.DWORD),
-        ("cntUsage", wintypes.DWORD),
-        ("th32ProcessID", wintypes.DWORD),
-        ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
-        ("th32ModuleID", wintypes.DWORD),
-        ("cntThreads", wintypes.DWORD),
-        ("th32ParentProcessID", wintypes.DWORD),
-        ("pcPriClassBase", ctypes.c_long),
-        ("dwFlags", wintypes.DWORD),
-        ("szExeFile", wintypes.WCHAR * MAX_PATH),
-    ]
-
-
-kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-kernel32.Process32FirstW.restype = wintypes.BOOL
-kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-kernel32.Process32NextW.restype = wintypes.BOOL
-
-
-def process_exists(name: str) -> bool:
-    """AHK: ProcessExist("Magnify.exe"). Adlar buyuk/kucuk harf duyarsiz."""
-    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if not snapshot or snapshot == INVALID_HANDLE_VALUE:
-        return False
-    entry = PROCESSENTRY32W()
-    entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
-    target = name.lower()
-    try:
-        found = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
-        while found:
-            if entry.szExeFile.lower() == target:
-                return True
-            found = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
-    finally:
-        kernel32.CloseHandle(snapshot)
-    return False
+def _read_level() -> int:
+    """Registry'deki kademe -- surec ayakta mi diye BAKMAZ (bkz. `level`)."""
+    return _read_dword("Magnification", DEFAULT_LEVEL)

@@ -1,8 +1,8 @@
 """Sistem tepsisi -- AHK'deki TraySetIcon + A_TrayMenu karsiligi.
 
-Menu: Pause/Play (surumle birlikte) / Reload / Pause menu / Settings / Event monitor /
-Copy last error / Exit. Metinler INGILIZCE -- AHK tepsi menusu de oyleydi,
-aliskanlik bozulmasin.
+Menu: Pause/Play (surumle birlikte) / Reload / [Reload (dev off)] / Pause
+menu / Settings / Event monitor / Copy last error / Show log / Exit.
+Metinler INGILIZCE -- AHK tepsi menusu de oyleydi, aliskanlik bozulmasin.
 
 Duraklat, AHK'nin `Suspend` komutunun karsiligi: hook yerinde kalir ama
 hicbir tus yutulmaz, hicbir eylem calismaz. Hook'u sokup takmak yerine
@@ -14,12 +14,11 @@ tiklamanin O ANDAKI karsiligi. Ayardan okunuyor ve TEK PARCADA (`_tooltip`)
 uretiliyor -- parca parca guncellenen bir metinde durumun bir yarisi eski
 kaliyordu.
 
-IPUCU TEK SATIR OLMAK ZORUNDA. Ilk deneme uc satirdi ve tepside yalnizca
-ilki gorunuyordu: Windows 11'in tepsi ipucu (XAML) `szTip` icindeki satir
-sonlarini gostermiyor. Uzunluk da bedava degil -- kabuk bu alani eski
-surumlerde 64 karakterde kesiyor ve fazlasi sessizce dusuyor; bu yuzden
-parcalar ONEM SIRASINA gore ekleniyor (bkz. `_fit`) ve surumun yapim
-damgasi ipucuna girmiyor (tam surum tepsi menusunun ilk maddesinde).
+IPUCU SATIR SATIR, UZUNLUGU SINIRLI. Her parca kendi satirinda
+(`TOOLTIP_SEP`); kabuk `szTip` alanini 127 karakterde kesiyor ve fazlasi
+sessizce dusuyor, bu yuzden parcalar ONEM SIRASINA gore ekleniyor (bkz.
+`_fit`) ve surumun yapim damgasi ipucuna girmiyor (tam surum tepsi
+menusunun ilk maddesinde).
 
 Simge dosyadan degil, cizilerek uretiliyor -- ne .ico dosyasi tasimak
 gerekiyor ne de paketlemede kaynak gomme derdi var. Dort durumu var: calisiyor
@@ -54,6 +53,7 @@ BAR = QColor("#ffffff")
 #: hata / uyari) ve mor onlarin yerine gecseydi gelistirme modu hata
 #: isaretini ORTERDI. Halka ayri bir kanal -- ikisi ayni anda gorunur.
 DEV_RING = QColor("#a371f7")
+
 
 class TrayAction(StrEnum):
     """Tepsi simgesi eylemleri. Ayara KIMLIK yazilir, menude ETIKET gorunur
@@ -101,9 +101,10 @@ DOUBLE_CLICK = setting(
     tags="tepsi tray cift tiklama simge",
     desc=(
         "Sistem tepsisindeki simgeye cift tiklayinca ne olsun -- secenekler "
-        "tepsi menusundeki maddelerin ayni. Tek tiklama Windows'un kendi isi "
-        "(menuyu acar), ona karisilmiyor. Simge ISARETLI iken (kirmizi = hata, "
-        "sari = uyari) bu ayar gecersiz: son hatalar penceresi acilir."
+        "tepsi menusundeki maddelerin ayni. Tek tiklama ayri bir ayar; ikisine "
+        "birden is baglarsan tek tikin isi her cift tiklamada once calisir. "
+        "Simge ISARETLI iken (kirmizi = hata, sari = uyari) bu ayar gecersiz: "
+        "son hatalar penceresi acilir."
     ),
 )
 

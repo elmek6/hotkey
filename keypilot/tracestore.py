@@ -39,7 +39,7 @@ from pathlib import Path
 
 import orjson
 
-from keypilot.store import _write_atomic
+from keypilot.store import write_atomic
 from keypilot.win32 import reg
 
 log = logging.getLogger("keypilot.incognito.store")
@@ -189,7 +189,7 @@ class RegStore(TraceStore):
                 return True
             log.warning("%s: anahtar var ama okunamadi, yedek alinmadi", self.name)
             return False
-        return _write_atomic(self._file(root), orjson.dumps(dump))
+        return write_atomic(self._file(root), orjson.dumps(dump))
 
     def restore(self, root: Path) -> bool:
         if self._absent(root).exists():
@@ -282,7 +282,7 @@ class RegDeltaStore(RegStore):
             # Oturumda olustuysa komple silinsin -- RegStore ile ayni sozlesme.
             self._absent(root).write_bytes(b"1")
             return True
-        return _write_atomic(self._file(root), str(self._max_child()).encode("ascii"))
+        return write_atomic(self._file(root), str(self._max_child()).encode("ascii"))
 
     def restore(self, root: Path) -> bool:
         if self._absent(root).exists():
@@ -371,7 +371,7 @@ class FileGlobStore(TraceStore):
             chunks.append(blob)
             written += 1
         blob = self._HEADER.pack(self.SIGNATURE, written) + b"".join(chunks)
-        return _write_atomic(self._pack(root), blob)
+        return write_atomic(self._pack(root), blob)
 
     def _pack_one(self, entry: os.DirEntry[str]) -> bytes | None:
         """OKUNAMAYAN DOSYA (baska surec kilitlemis olabilir) yine de ADIYLA

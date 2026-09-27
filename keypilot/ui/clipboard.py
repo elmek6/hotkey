@@ -48,18 +48,13 @@ class ClipboardWatcher(QObject):
     """Pano degisimini gecikmeli, tazelik kontrollu sekilde bildirir.
 
     text_copied : metin kopyalandi (gecmise girecek olan)
-    other_copied: metin olmayan icerik (gorsel/dosya) -- sadece geri
-                  bildirim icin (gorsel pano bilerek port edilmedi)
+    other_copied: metin olmayan icerik (gorsel/dosya) -- gorseli pano
+                  denetleyicisi gorsel deposuna yaziyor (clip_ctl.on_other)
     """
 
     text_copied = Signal(str)
     other_copied = Signal()
 
-    # TODO(AHK): GORSEL PANO port edilmedi. AHK'de metin disi kopya
-    # `clip_image_store.ahk`e gidiyordu: PNG blob'u 500 MB'lik dairesel
-    # `clipimg.dat` icine, 64x64 kucuk resim + metadata sabit slotlu
-    # `clipimg.idx` icine yaziliyor, `clip_image_dialog.ahk` bunlari
-    # gosteriyordu (gdip_mini.ahk ile). Burada yalniz "gordum" deniyor.
     # TODO(AHK): 1 MB ustu metinler AHK'de `bigclips.bin` icine tasiniyordu;
     # bizde hic alinmiyor (core/clip_history.py MAX_BYTES).
 

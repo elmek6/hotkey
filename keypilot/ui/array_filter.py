@@ -70,7 +70,6 @@ KEEP_OPEN = setting(
     ),
 )
 
-VISIBLE_ROWS = 12  # AHK: r12
 PREVIEW_LIMIT = 120  # AHK: SubStr(content, 1, 120)
 FKEY_COUNT = 12  # F1..F12 -> gorunen satirlar
 

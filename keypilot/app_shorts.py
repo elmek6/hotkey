@@ -21,18 +21,14 @@ ekliyor, buraya eklersek AHK tarafi dosyayi tanimaz.
 hicbir profil eslesmez; `className` doluysa TAM esitlik, `title` doluysa
 baslikta GECMESI yeter; ilk eslesen kazanir, sira dosyadaki siradir.
 
-**Port edilmeyen:** AHK'nin `showManagerGui` profil/aksiyon duzenleyicisi
-ve `Record Macro` dugmesi. Duzenleme simdilik JSON dosyasindan yapiliyor
-(F13 menusundeki "Profilleri duzenle" maddesi dosyayi Notepad ile acar) --
-makro kaydedici zaten port edilmedigi icin GUI'nin yarisi bos kalirdi.
+Duzenleme penceresi (AHK `showManagerGui`) ui/profiles_view.py'de; AHK'nin
+`Record Macro` dugmesi port edilmedi (bkz. orasi).
 """
 
 from __future__ import annotations
 
 import codecs
-import contextlib
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,7 +36,7 @@ import orjson
 
 from keypilot import paths
 from keypilot.commands import Cmd
-from keypilot.store import backup_file
+from keypilot.store import backup_file, write_atomic
 
 log = logging.getLogger("keypilot.app_shorts")
 
@@ -191,18 +187,7 @@ class ShortcutStore:
                 for profile in self.profiles
             ],
         }
-        path = self.path
-        temp = path.with_suffix(path.suffix + ".tmp")
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temp.write_bytes(codecs.BOM_UTF8 + orjson.dumps(data))
-            os.replace(temp, path)
-        except OSError:
-            log.exception("%s yazilamadi", path.name)
-            with contextlib.suppress(OSError):
-                temp.unlink()
-            return False
-        return True
+        return write_atomic(self.path, codecs.BOM_UTF8 + orjson.dumps(data))
 
     # ---- sorgu ----
 

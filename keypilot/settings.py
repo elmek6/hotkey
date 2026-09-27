@@ -28,7 +28,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from keypilot.store import backup_file
+from keypilot.store import backup_file, write_atomic
 
 log = logging.getLogger("keypilot.settings")
 
@@ -335,18 +335,14 @@ class Registry:
         return self.save_now(path) if self.dirty else False
 
     def save_now(self, path: Path) -> bool:
+        """Atomik yazar (`.tmp` + yer degistirme, store.py ile ayni kural):
+        kapanis sirasinda yarim kalan bir yazim BUTUN ayarlari goturmesin."""
         values: dict[str, object] = dict(self.orphans)
         for item in self.all:
             if item.is_changed():
                 values[item.key] = item.get()
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps({"_v": VERSION, "values": values}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except OSError:
-            log.exception("settings.json yazilamadi")
+        text = json.dumps({"_v": VERSION, "values": values}, ensure_ascii=False, indent=2)
+        if not write_atomic(path, text.encode("utf-8")):
             return False
         self.dirty = False
         return True

@@ -86,7 +86,6 @@ class Cmd:
 
     class Clip(Id):
         _generate_next_value_ = _prefix("clip")
-        SHOW = auto()
         FILTER = auto()
         PASTE = auto()
         PASTE_PREV = auto()
@@ -119,7 +118,6 @@ class Cmd:
         _generate_next_value_ = _prefix("magnifier")
         TOGGLE = auto()
         RESET = auto()
-        ZOOM = auto()
         PANIC = auto()
 
     class Tip(Id):
@@ -158,7 +156,6 @@ class Cmd:
         MANAGE = auto()
         ADD = auto()
         PLAY = auto()
-        EDIT = auto()
 
     class Repository(Id):
         _generate_next_value_ = _prefix("repository")
@@ -171,7 +168,6 @@ class Cmd:
     class Turkish(Id):
         _generate_next_value_ = _prefix("turkish")
         TOGGLE = auto()
-        LAYOUT = auto()
         SET = auto()
 
     class Caps(Id):
@@ -182,8 +178,6 @@ class Cmd:
         _generate_next_value_ = _prefix("select")
         START = auto()
         SCREEN = auto()
-        OCR = auto()
-        OCR_ADV = auto()
 
     class Area(Id):
         _generate_next_value_ = _prefix("area")
@@ -213,7 +207,6 @@ class Cmd:
         TIP = auto()
         TIP_HTML = auto()
         NOTIFY = auto()
-        YOK = auto()
         CLICK_THEN = auto()
         CLICK3_THEN = auto()
         BUTTON_DOWN = auto()

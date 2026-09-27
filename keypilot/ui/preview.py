@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import html
 
+from keypilot.ui.tip import DIM
+
 #: Ipucunda gosterilecek en fazla satir / satir basina en fazla karakter.
 TIP_LINES = 5
 TIP_WIDTH = 70
@@ -15,6 +17,12 @@ TIP_WIDTH = 70
 
 def shorten(text: str, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def dim(body: str) -> str:
+    """Ipucunda SOLUK (ikincil) metin. `body` HTML'dir -- kacislamak
+    cagiranin isi. Renk tek yerde: ui/tip.py `DIM`."""
+    return f"<span style='color:{DIM};'>{body}</span>"
 
 
 def preview_html(text: str, lines: int = TIP_LINES, width: int = TIP_WIDTH) -> str:
@@ -30,5 +38,5 @@ def preview_html(text: str, lines: int = TIP_LINES, width: int = TIP_WIDTH) -> s
     body = "<br>".join(shown)
     rest = len(rows) - lines
     if rest > 0:
-        body += f"<br><span style='color:#8b949e;'>… +{rest} satir</span>"
+        body += f"<br>{dim(f'… +{rest} satir')}"
     return body

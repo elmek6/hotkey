@@ -1,3 +1,11 @@
+"""Jest overlay'i -- basili jest tusunun yonlerini ve basim asamasini gosterir.
+
+dispatch.py uc olayla surer (core/cascade.py): `ShowGesture` acar,
+`UpdateGesture` asamayi (P/S) ya da kilitli yonu yakar, `HideGesture`
+kapatir. Pencere odak almaz ve fareyi gecirir -- jest sirasinda imlec
+zaten donuk, overlay yalnizca goruntu.
+"""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
@@ -5,6 +13,13 @@ from PySide6.QtGui import QCursor, QFont, QGuiApplication
 from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
 from keypilot.core.hot_vectors import Cell
+
+
+def _tile_style(background: str, color: str) -> str:
+    return (
+        f"QLabel {{ background: {background}; color: {color}; border: none;"
+        " border-radius: 9px; padding: 2px; }"
+    )
 
 
 class GestureOverlay(QWidget):
@@ -21,6 +36,12 @@ class GestureOverlay(QWidget):
     ACTIVE_BG = "rgba(45, 115, 220, 240)"
     TEXT = "#E6EDF3"
     DIM = "#AAB4C0"
+
+    #: Hucrenin iki gorunumu. Bir kez kuruluyor: guncelleme jest boyunca
+    #: 60 ms'de bir geliyor ve her seferinde alti hucreye stil sayfasi
+    #: yazmak Qt'de stil yeniden hesabi demek.
+    ACTIVE_STYLE = _tile_style(ACTIVE_BG, TEXT)
+    NORMAL_STYLE = _tile_style(NORMAL_BG, DIM)
 
     def __init__(self) -> None:
         super().__init__(None)
@@ -49,6 +70,10 @@ class GestureOverlay(QWidget):
         self._labels: dict[Cell, str] = {}
         self._counts: dict[Cell, str] = {}
         self._expired = False
+        #: Hucreye EN SON uygulanan hal: (gorunur, metin, punto, etkin).
+        #: Ayni hal tekrar gelirse hucreye dokunulmaz (bkz. ACTIVE_STYLE).
+        self._painted: dict[Cell, tuple[bool, str, int, bool]] = {}
+        self._fonts: dict[int, QFont] = {}
 
         self._timeout = QTimer(self)
         self._timeout.setSingleShot(True)
@@ -101,6 +126,12 @@ class GestureOverlay(QWidget):
         tile.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         return tile
 
+    def _font(self, size: int) -> QFont:
+        font = self._fonts.get(size)
+        if font is None:
+            font = self._fonts[size] = QFont("Segoe UI", size)
+        return font
+
     def update_state(
         self,
         phase: Cell | None = None,
@@ -121,9 +152,11 @@ class GestureOverlay(QWidget):
             self._counts = counts
 
         self._refresh()
-        self._place()
-        self.show()
-        self.raise_()
+        if not self.isVisible():
+            # Jest boyunca imlec donuk: yer yalnizca acilista hesaplaniyor.
+            self._place()
+            self.show()
+            self.raise_()
 
     def begin(
         self,
@@ -134,13 +167,15 @@ class GestureOverlay(QWidget):
         self._timeout.stop()
         if self.ACTIVE_SECONDS > 0:
             self._timeout.start(int(self.ACTIVE_SECONDS * 1000))
+        self._place()  # gorunurken yeni jest: yeni imlec noktasi
         self.update_state(phase, None, labels, {})
 
     def clear_state(self) -> None:
         self._phase = None
         self._direction = None
-        self._labels.clear()
-        self._counts.clear()
+        # Yeni sozluk: gelen `labels` cagiranin nesnesi, yerinde silinmesin.
+        self._labels = {}
+        self._counts = {}
         self._expired = False
         self._place_center(False)
         self._timeout.stop()
@@ -171,45 +206,26 @@ class GestureOverlay(QWidget):
             else:
                 visible = not locked
                 is_active = visible and self._phase == Cell.S
+
+            label = self._labels.get(name) or name
+            if name.is_direction:
+                value = self._counts.get(name, "")
+                text = f"{label}\n{value}" if is_active and value else label
+                size = 11 if value or label != name else 14
+            else:
+                text = label
+                size = 22 if s_only and name == Cell.S else 14
+
+            state = (visible, text, size, is_active)
+            if self._painted.get(name) == state:
+                continue
+            self._painted[name] = state
             tile.setVisible(visible)
             if not visible:
                 continue
-
-            label = self._labels.get(name) or name
-            value = self._counts.get(name, "")
-
-            if name.is_direction:
-                if is_active and value:
-                    text = f"{label}\n{value}"
-                else:
-                    text = label
-
-                font = QFont(
-                    "Segoe UI",
-                    11 if value or label != name else 14,
-                )
-            else:
-                text = label
-                font = QFont("Segoe UI", 22 if s_only and name == Cell.S else 14)
-
             tile.setText(text)
-            tile.setFont(font)
-
-            background = self.ACTIVE_BG if is_active else self.NORMAL_BG
-
-            color = self.TEXT if is_active else self.DIM
-
-            tile.setStyleSheet(
-                f"""
-                QLabel {{
-                    background: {background};
-                    color: {color};
-                    border: none;
-                    border-radius: 9px;
-                    padding: 2px;
-                }}
-                """
-            )
+            tile.setFont(self._font(size))
+            tile.setStyleSheet(self.ACTIVE_STYLE if is_active else self.NORMAL_STYLE)
 
     def _place(self) -> None:
         cursor = QCursor.pos()
