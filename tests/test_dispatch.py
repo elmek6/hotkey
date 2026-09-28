@@ -984,3 +984,31 @@ def test_nobetci_GetLastInputInfo_basarisizsa_alarm_vermez(monkeypatch):
     box = _hook(monkeypatch, idle_ms=float("inf"))
     box.last_event = 0.0
     assert box.looks_dead(3600.0) is False
+
+
+def test_orta_tus_basiliyken_tekerlek_zoom():
+    """GERCEK keymap: ~MButton & WheelUp/Down -> Ctrl +/-. Orta tus
+    uygulamaya gider (`~`), tekerlek yutulur; birakinca yapistirma yok."""
+    from keypilot import keymap
+    from keypilot.core.mouse import WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEWHEEL
+    from keypilot.win32.hook import MouseEvent
+
+    def event(message: int, t: float, data: int = 0) -> MouseEvent:
+        return MouseEvent(
+            message=message, x=0, y=0, data=data, injected=False, ours=False, time_ms=0, t=t
+        )
+
+    box = Dispatcher(
+        machine=CascadeMachine(),
+        hotkeys=keymap.build_hotkeys(),
+        gestures=HotVectors(),
+        actions=queue.Queue(),
+        seen=queue.Queue(),
+        menu_open=lambda: False,
+    )
+    assert box.mouse_filter(event(WM_MBUTTONDOWN, 0.0)) is False  # `~`: gecer
+    assert box.mouse_filter(event(WM_MOUSEWHEEL, 0.05, 120)) is True
+    assert box.mouse_filter(event(WM_MOUSEWHEEL, 0.10, -120)) is True
+    assert box.mouse_filter(event(WM_MBUTTONUP, 0.15)) is False
+    acts = [a.action for a in _drain(box.actions)]
+    assert acts == ["send_key:^NumpadAdd", "send_key:^NumpadSub"]

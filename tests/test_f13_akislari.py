@@ -441,20 +441,26 @@ def test_f13_f14_buyuteci_cevirir_onek_eylemi_calismaz(rig):
     rig.assert_idle()
 
 
-def test_f13_tekerlek_buyutur(rig):
-    from keypilot.core.mouse import WM_MOUSEWHEEL
+def test_orta_tus_tekerlek_zoom_yapar(rig):
+    """~MButton & WheelUp -> Ctrl + NumpadAdd (sayfa zoom'u). F13 & Wheel
+    kaldirildi: F13 basiliyken tekerlek artik yutulmuyor."""
+    from keypilot.core.mouse import WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEWHEEL
+
+    def mouse(message: int, t: float, data: int = 0) -> MouseEvent:
+        return MouseEvent(
+            message=message, x=CURSOR[0], y=CURSOR[1], data=data, injected=False,
+            ours=False, time_ms=0, t=t,
+        )
 
     t = time.perf_counter()
-    rig.key(F13, True, t)
-    wheel = MouseEvent(
-        message=WM_MOUSEWHEEL, x=CURSOR[0], y=CURSOR[1], data=120, injected=False,
-        ours=False, time_ms=0, t=t + 0.05,
-    )
-    assert rig.dispatcher.mouse_filter(wheel) is True
-    rig.key(F13, False, t + 0.1)
+    rig.dispatcher.mouse_filter(mouse(WM_MBUTTONDOWN, t))
+    assert rig.dispatcher.mouse_filter(mouse(WM_MOUSEWHEEL, t + 0.05, 120)) is True
+    rig.dispatcher.mouse_filter(mouse(WM_MBUTTONUP, t + 0.1))
     rig.pump(t + 1.0)
-    assert ("tap", vk_from_name("NumpadAdd"), (0x5B,)) in rig.sent
-    assert rig.pilot._overview is None
+    add = vk_from_name("NumpadAdd")
+    taps = [mods for kind, vk, *rest in rig.sent if kind == "tap" and vk == add for mods in rest]
+    ctrl = {0x11, 0xA2, 0xA3}
+    assert taps and all(set(mods) & ctrl and 0x5B not in mods for mods in taps), rig.sent
     rig.assert_idle()
 
 

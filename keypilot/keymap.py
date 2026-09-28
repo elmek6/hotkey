@@ -26,7 +26,7 @@ Bagli tuslar (build_hotkeys). Uc ayri kombo bicimi var, ucu de AHK'den:
     RButton+LButton  sag basiliyken sol tik -> Ctrl (coklu secim)
     MButton+LButton  orta basiliyken sol tik -> Shift (aralik secimi)
     F13 + fare yonu  jest: dikey = buyutec, yatay = ses (core/hot_vectors.py)
-    ~F13 & WheelUp   basili tutup tekerlek
+    ~MButton & Wheel orta tus basiliyken tekerlek -> Ctrl +/- (zoom)
     Pause            basili tut: duraklatma penceresi (AHK DialogPauseGui)
     Pause & Home     yeniden baslat (AHK: reloadScript)
     Pause & End      yeniden baslat    Pause & c   takilan durumu sifirlar
@@ -563,16 +563,18 @@ def build_hotkeys() -> HotkeyTable:
     table.add("F13 & F14", Cmd.Magnifier.TOGGLE, "buyutec: x2 / :2")
     table.add("F14 & F13", Cmd.Magnifier.TOGGLE, "buyutec: x2 / :2")
 
-    # --- tekerlek kombolari. AHK'de bu satirlar `~F13 & WheelUp::` diye
-    # yazili; burada `~` YOK ve olmamali. AHK'de tilde gerekiyordu cunku
-    # orada onek tusu tamamen bloklanir; bizde onek zaten birakilinca kendi
-    # eylemini calistiriyor, ustune bir de F13'u uygulamaya gecirmenin
-    # anlami yok. `~` bizde per-tus: bir satirda yazarsan o tus HIC
-    # yutulmaz. ---
-    table.add("F13 & WheelUp", Cmd.send_key("#NumpadAdd"), "buyut")
-    table.add("F13 & WheelDown", Cmd.send_key("#NumpadSub"), "kucult")
+    # --- tekerlek kombolari. `~` bizde per-tus: bir satirda yazarsan o tus
+    # HIC yutulmaz; F14 icin istenmiyor. F13 & Wheel (buyutec) kaldirildi --
+    # buyutec F13 jesti ve F13 & F14 ile. ---
     table.add("F14 & WheelUp", Cmd.send_key("Volume_Up"), "ses +")
     table.add("F14 & WheelDown", Cmd.send_key("Volume_Down"), "ses -")
+
+    # AHK AutoHotkey.ahk `~MButton & WheelUp/Down`: sayfa zoom'u. `~` SART:
+    # orta tus kaydirma/yeni sekme icin uygulamaya gitmeli (asagidaki
+    # `~MButton` satirlari da oyle). Tekerlek yutulur, sayfa kaymaz; basili
+    # tutma yapistirmasi da iptal olur (dispatch._cancel_mouse_hold_for_wheel).
+    table.add("~MButton & WheelUp", Cmd.send_key("^NumpadAdd"), "zoom +")
+    table.add("~MButton & WheelDown", Cmd.send_key("^NumpadSub"), "zoom -")
 
     # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
     # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---
