@@ -85,6 +85,11 @@ SW_MINIMIZE = 6
 _ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.EnumWindows.argtypes = [_ENUM_PROC, wintypes.LPARAM]
 user32.EnumWindows.restype = wintypes.BOOL
+user32.WindowFromPoint.argtypes = [wintypes.POINT]
+user32.WindowFromPoint.restype = wintypes.HWND
+user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetAncestor.restype = wintypes.HWND
+GA_ROOT = 2
 
 #: Pencerenin DWM'de gizli olup olmadigini yalniz bu DLL biliyor.
 _dwmapi = ctypes.WinDLL("dwmapi")
@@ -93,6 +98,14 @@ _dwmapi = ctypes.WinDLL("dwmapi")
 def foreground_window() -> int:
     """AHK: WinGetID("A"). One cikan pencerenin hwnd'si; yoksa 0."""
     return int(user32.GetForegroundWindow() or 0)
+
+
+def window_at(x: int, y: int) -> int:
+    """Ekran noktasindaki UST pencere (cocuk kontrol degil); yoksa 0."""
+    child = user32.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+    if not child:
+        return 0
+    return int(user32.GetAncestor(child, GA_ROOT) or child)
 
 
 def window_title(hwnd: int) -> str:

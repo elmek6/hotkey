@@ -245,7 +245,7 @@ def _sahte_keypilot(monkeypatch, acilan: list):
             "notify": lambda s, *a: None,
         },
     )()
-    sahte.tip = type("P", (), {"show_html": lambda s, *a: None})()
+    sahte.tip = type("P", (), {"show_html": lambda s, *a, **k: None})()
     # Birikmis hata log penceresine gidiyor (bkz. _flush_critical): mesaj
     # kutusu kaydirmadigi icin coklu hata ekrani asiyordu.
     sahte.log_view = type(

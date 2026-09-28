@@ -72,6 +72,13 @@ class ClipController:
         runner.register(Cmd.Clip.FILTER, lambda _: self.show_filter())
         runner.register(Cmd.Clip.PASTE, self.paste_history)
         runner.register(Cmd.Clip.PASTE_PLAIN, self.paste_history_plain)
+        runner.register(
+            Cmd.Clip.PASTE_ENTER, lambda arg: self._paste_history_keys(arg, "^v", "Enter")
+        )
+        runner.register(
+            Cmd.Clip.SELECT_PASTE_ENTER,
+            lambda arg: self._paste_history_keys(arg, "^a", "^v", "Enter"),
+        )
         runner.register(Cmd.Clip.PASTE_PREV, lambda _: self.paste_then_previous())
         runner.register(Cmd.Menu.CLIP, lambda _: self.show_menu())
         runner.register(Cmd.Clip.IMAGES, lambda _: self.show_images())
@@ -215,11 +222,17 @@ class ClipController:
         (Ctrl+Shift+V). Genel bakis katmaninda pano satirinin hover ikonu.
         Kayit zaten duz metin; fark hedef uygulamada: Ctrl+Shift+V orada
         "hedefin stiline uy" demek (Word, tarayici editorleri)."""
+        self._paste_history_keys(argument, "^+v")
+
+    def _paste_history_keys(self, argument: str, *strokes: str) -> None:
+        """Gecmisin `argument`. kaydini panoya koyar, sonra `strokes` tus
+        dizisini gonderir. Genel bakistaki hover dugmeleri: bicimsiz
+        (`^+v`), yapistir + Enter, hepsini sec + yapistir + Enter."""
         entry = self.history.get(int(argument)) if argument.isdigit() else None
         if entry is None or not entry.text:
             return
         self.watcher.set_text(entry.text)
-        QTimer.singleShot(60, lambda: self._send_key(Cmd.send_key("^+v")))
+        QTimer.singleShot(60, lambda: self._send_key(Cmd.send_keys(*strokes)))
 
     def older_clip(self, current: str) -> str | None:
         """Panodaki metnin gecmisteki bir onceki (daha eski) kaydi.

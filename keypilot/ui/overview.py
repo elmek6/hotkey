@@ -52,13 +52,26 @@ from keypilot.ui.quick_panel import QuickItem
 from keypilot.win32.menu import COLUMN, Icon, Mark, destroy_icon, force_foreground, icon_handle
 
 #: Arka plan ortusu -- "hafif saydam": arkadaki pencere secilir, yazilar
-#: okunmaz.
-BACKDROP = QColor(13, 17, 23, 150)
-PANEL_BG = "rgba(22, 27, 34, 235)"
-PANEL_BORDER = "#3d444d"
-TITLE_COLOR = "#58a6ff"
-ITEM_HOVER = "rgba(83, 155, 245, 0.18)"
-SEPARATOR = "rgba(61, 68, 77, 0.6)"  # ogeler arasi ince cizgi
+#: okunmaz. Palet Tokyo Night ailesinden: lacivert zemin, pastel vurgular.
+BACKDROP = QColor(10, 12, 24, 165)
+PANEL_BG = "rgba(26, 27, 38, 242)"
+BUTTON_BG = "rgba(41, 46, 66, 245)"  # dugmeler zeminden bir ton acik
+PANEL_BORDER = "#3b4261"
+TEXT = "#c0caf5"
+MUTED = "#565f89"
+TITLE_COLOR = "#7aa2f7"  # genel vurgu: kenarlar, secili dugme
+ITEM_HOVER = "rgba(122, 162, 247, 0.20)"
+ITEM_SELECTED = "rgba(122, 162, 247, 0.30)"
+SEPARATOR = "rgba(59, 66, 97, 0.55)"  # ogeler arasi ince cizgi
+#: Kutu basliklari -- her liste kendi renginde, goz hangisinde oldugunu
+#: renkten bulsun.
+SHORTS_COLOR = "#e0af68"
+CLIPS_COLOR = "#7dcfff"
+SLOTS_COLOR = "#bb9af7"
+PINS_COLOR = "#9ece6a"
+CLOSE_BG = "#f7768e"
+#: Pano hover dugmelerinden one cikan (V⏎) -- bkz. `app.show_overview`.
+HOVER_ALT_COLOR = "#9ece6a"
 #: App shorts seridinde yan yana kac kisayol. Her oge hucresinin TAMAMINI
 #: kaplar: fare yazinin ustune gelmeden, hucreye girince vurgulanir.
 SHORTS_COLUMNS = 2  # ust kutunun SOL yarisinda
@@ -77,18 +90,16 @@ MAX_CLIPS = 30
 #: Satir verisinde ikinci eylem (hover dugmesi) ve arama metni.
 ALT_ROLE = Qt.ItemDataRole.UserRole + 1
 SEARCH_ROLE = Qt.ItemDataRole.UserRole + 2
-HOVER_ICON = "Tt"  # "bicimsiz metin" -- stil yok, yalniz harf
-HOVER_TIP = "Unformatted paste (Ctrl+Shift+V)"
 
 LIST_STYLE = (
-    f"QListWidget {{ border: none; background: transparent; color: #e6edf3;"
+    f"QListWidget {{ border: none; background: transparent; color: {TEXT};"
     f" font-size: {FONT_PT}pt; }}"
     # Ogeler arasinda ince ayrac: satirlar birbirine karismasin.
     f"QListWidget::item {{ padding: 1px 4px; border-bottom: 1px solid {SEPARATOR}; }}"
     f"QListWidget::item:hover {{ background: {ITEM_HOVER}; }}"
     # Klavyeyle secili oge (ok tuslari / Tab) fareyle ustune gelinmis gibi.
-    f"QListWidget::item:selected {{ background: {ITEM_HOVER}; color: #e6edf3; }}"
-    "QListWidget::item:disabled { color: #6e7681; }"
+    f"QListWidget::item:selected {{ background: {ITEM_SELECTED}; color: {TEXT}; }}"
+    f"QListWidget::item:disabled {{ color: {MUTED}; }}"
     # Ince, koyu kaydirma cubugu -- varsayilan beyaz cubuk kartta siritiyordu.
     "QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }"
     f"QScrollBar::handle:vertical {{ background: {PANEL_BORDER}; border-radius: 3px;"
@@ -98,26 +109,32 @@ LIST_STYLE = (
 )
 
 BUTTON_STYLE = (
-    f"QPushButton {{ background: {PANEL_BG}; color: #e6edf3; border: 1px solid {PANEL_BORDER};"
+    f"QPushButton {{ background: {BUTTON_BG}; color: {TEXT}; border: 1px solid {PANEL_BORDER};"
     f" border-radius: 5px; padding: 3px 8px; font-size: {FONT_PT}pt; }}"
     f"QPushButton:checked {{ border-color: {TITLE_COLOR}; color: {TITLE_COLOR}; }}"
     f"QPushButton:hover {{ background: {ITEM_HOVER}; border-color: {TITLE_COLOR}; }}"
 )
 MENU_STYLE = (
-    f"QMenu {{ background: #1c2128; color: #e6edf3; border: 1px solid {PANEL_BORDER};"
+    f"QMenu {{ background: {BUTTON_BG}; color: {TEXT}; border: 1px solid {PANEL_BORDER};"
     f" font-size: {FONT_PT}pt; }}"
     f"QMenu::item {{ padding: 4px 18px; }}"
     f"QMenu::item:selected {{ background: {ITEM_HOVER}; }}"
-    "QMenu::item:disabled { color: #6e7681; }"
+    f"QMenu::item:disabled {{ color: {MUTED}; }}"
     f"QMenu::separator {{ height: 1px; background: {PANEL_BORDER}; margin: 3px 6px; }}"
 )
-HOVER_BUTTON_STYLE = (
-    f"QToolButton {{ background: {PANEL_BG}; color: {TITLE_COLOR}; border: 1px solid {TITLE_COLOR};"
-    f" border-radius: 4px; font-size: {FONT_PT - 2}pt; font-weight: bold; padding: 0; }}"
-    f"QToolButton:hover {{ background: {TITLE_COLOR}; color: {PANEL_BG}; }}"
-)
+
+
+def _hover_style(color: str) -> str:
+    """Satir hover dugmesi: `color` renkte cerceve + yazi, ustunde dolgu."""
+    return (
+        f"QToolButton {{ background: {BUTTON_BG}; color: {color}; border: 1px solid {color};"
+        f" border-radius: 4px; font-size: {FONT_PT - 2}pt; font-weight: bold; padding: 0 3px; }}"
+        f"QToolButton:hover {{ background: {color}; color: {PANEL_BG}; }}"
+    )
+
+
 SEARCH_STYLE = (
-    f"QLineEdit {{ background: transparent; color: #e6edf3; border: 1px solid {PANEL_BORDER};"
+    f"QLineEdit {{ background: transparent; color: {TEXT}; border: 1px solid {PANEL_BORDER};"
     f" border-radius: 4px; padding: 0 4px; font-size: {FONT_PT - 1}pt; }}"
     f"QLineEdit:focus {{ border-color: {TITLE_COLOR}; }}"
 )
@@ -143,7 +160,7 @@ class _Section(QFrame):
     #: Satirin hover dugmesi tiklandi -- eylem kimligi (bkz. `fill` alts).
     alt_chosen = Signal(str)
 
-    def __init__(self, title: str, flow: bool = False) -> None:
+    def __init__(self, title: str, flow: bool = False, accent: str = TITLE_COLOR) -> None:
         super().__init__()
         self._flow = flow
         self.setObjectName("section")
@@ -152,9 +169,7 @@ class _Section(QFrame):
             " border-radius: 6px; }"
         )
         self.title = QLabel(title)
-        self.title.setStyleSheet(
-            f"color: {TITLE_COLOR}; font-weight: bold; font-size: {FONT_PT - 1}pt;"
-        )
+        self.title.setStyleSheet(f"color: {accent}; font-weight: bold; font-size: {FONT_PT - 1}pt;")
 
         self.list = QListWidget()
         self.list.setStyleSheet(LIST_STYLE)
@@ -179,15 +194,10 @@ class _Section(QFrame):
         self.head = _row()
         self.head.addWidget(self.title)
 
-        #: Satirin SAGINDA, fare ustundeyken beliren ikinci eylem dugmesi
-        #: (pano: bicimsiz yapistir). Tek dugme, fareyle satirdan satira tasinir.
-        self.hover_button = QToolButton(self.list.viewport())
-        self.hover_button.setText(HOVER_ICON)
-        self.hover_button.setStyleSheet(HOVER_BUTTON_STYLE)
-        self.hover_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.hover_button.hide()
-        self.hover_button.clicked.connect(self._on_hover_click)
-        self._hover_action = ""
+        #: Satirin SAGINDA, fare ustundeyken beliren ek eylem dugmeleri
+        #: (pano: hepsini sec + yapistir + Enter, yapistir + Enter, bicimsiz).
+        #: Dugmeler bir kez kurulur, fareyle satirdan satira tasinir.
+        self.hover_buttons: list[QToolButton] = []
         self.list.viewport().installEventFilter(self)
 
         layout = QVBoxLayout(self)
@@ -196,17 +206,15 @@ class _Section(QFrame):
         layout.addLayout(self.head)
         layout.addWidget(self.list, 1)
 
-    def fill(
-        self, items: tuple[QuickItem, ...], empty: str, alts: tuple[str, ...] = ()
-    ) -> None:
-        """`alts`: ogeyle AYNI sirada ikinci eylem (hover dugmesi); bossa
-        dugme o listede hic cikmaz."""
+    def fill(self, items: tuple[QuickItem, ...], empty: str, alts: tuple[tuple, ...] = ()) -> None:
+        """`alts`: ogeyle AYNI sirada, satir basina (etiket, eylem, ipucu
+        [, renk]) dizisi -- hover dugmeleri soldan saga; bossa o listede dugme cikmaz."""
         self.list.clear()
-        self.hover_button.hide()
+        self._hide_hover()
         for index, item in enumerate(items):
             row = QListWidgetItem(shorten(item.text, LABEL_CHARS))
             row.setData(Qt.ItemDataRole.UserRole, item.action)
-            row.setData(ALT_ROLE, alts[index] if index < len(alts) else "")
+            row.setData(ALT_ROLE, alts[index] if index < len(alts) else ())
             row.setData(SEARCH_ROLE, f"{item.text}\n{item.content}".casefold())
             row.setToolTip(item.content[:TOOLTIP_CHARS])
             self.list.addItem(row)
@@ -242,27 +250,57 @@ class _Section(QFrame):
             row = self.list.item(index)
             haystack = row.data(SEARCH_ROLE)
             row.setHidden(bool(needle) and not (haystack and needle in haystack))
-        self.hover_button.hide()
+        self._hide_hover()
+
+    def _hover_button(self, index: int) -> QToolButton:
+        """`index`. hover dugmesi; yoksa kurulur. Eylem dugmenin kendisinde
+        (`property`) -- tiklaninca o anki satirinki gider."""
+        while len(self.hover_buttons) <= index:
+            button = QToolButton(self.list.viewport())
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.hide()
+            button.clicked.connect(
+                lambda _=False, b=button: self.alt_chosen.emit(str(b.property("action")))
+            )
+            self.hover_buttons.append(button)
+        return self.hover_buttons[index]
+
+    def _hide_hover(self) -> None:
+        for button in self.hover_buttons:
+            button.hide()
 
     def _place_hover(self, pos) -> None:
-        """Fare hangi satirdaysa, satirin ikinci eylemi varsa dugmeyi o
-        satirin sag ucuna koyar."""
+        """Fare hangi satirdaysa, satirin ek eylemleri varsa dugmeleri o
+        satirin sag ucuna, verilen sirayla (soldan saga) dizer."""
         row = self.list.itemAt(pos)
-        action = row.data(ALT_ROLE) if row is not None else ""
-        if row is None or not action:
-            self.hover_button.hide()
+        alts = row.data(ALT_ROLE) if row is not None else ()
+        if row is None or not alts:
+            self._hide_hover()
             return
         rect = self.list.visualItemRect(row)
         size = rect.height() - 4
-        self.hover_button.setFixedSize(size, size)
-        self.hover_button.move(rect.right() - size - 4, rect.top() + 2)
-        self.hover_button.setToolTip(HOVER_TIP)
-        self._hover_action = str(action)
-        self.hover_button.show()
-
-    def _on_hover_click(self) -> None:
-        if self._hover_action:
-            self.alt_chosen.emit(self._hover_action)
+        right = rect.right() - 4
+        # Sagdan sola yerlestir: son dugme satirin en sag ucunda.
+        for index in range(len(alts) - 1, -1, -1):
+            label, action, tip, *rest = alts[index]
+            button = self._hover_button(index)
+            color = rest[0] if rest else TITLE_COLOR
+            # Dugme satirlar arasi tasiniyor; stil yalniz renk degisince.
+            if button.property("color") != color:
+                button.setProperty("color", color)
+                button.setStyleSheet(_hover_style(color))
+            button.setText(label)
+            button.setToolTip(tip)
+            button.setProperty("action", str(action))
+            width = max(size, button.sizeHint().width())
+            button.setFixedSize(width, size)
+            right -= width
+            button.move(right, rect.top() + 2)
+            right -= 3  # dugmeler arasi bosluk
+            button.show()
+        for button in self.hover_buttons[len(alts) :]:
+            button.hide()
 
     def eventFilter(self, watched, event):
         if watched is self.list.viewport():
@@ -273,10 +311,10 @@ class _Section(QFrame):
                 self._place_hover(event.position().toPoint())
             elif kind == QEvent.Type.Leave:
                 # Dugmenin kendisine gecmek de viewport'tan "cikis" sayilir.
-                if not self.hover_button.underMouse():
-                    self.hover_button.hide()
+                if not any(button.underMouse() for button in self.hover_buttons):
+                    self._hide_hover()
             elif kind == QEvent.Type.Wheel:
-                self.hover_button.hide()  # kayan satirda eski yerde kalmasin
+                self._hide_hover()  # kayan satirda eski yerde kalmasin
         return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event) -> None:
@@ -368,7 +406,7 @@ class _CloseButton(QToolButton):
         self.setToolTip("Kapat")
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # tuslar katmana gelsin
         self.setStyleSheet(
-            "QToolButton { background: #D93025; color: white; border: none;"
+            f"QToolButton {{ background: {CLOSE_BG}; color: #1a1b26; border: none;"
             " border-radius: 4px; font-weight: bold; padding: 2px 7px; }"
         )
 
@@ -483,13 +521,13 @@ class OverviewPanel(QWidget):
         # Her secim -- liste, dugme ya da ustteki menu -- katmani kapatir.
         self.chosen.connect(lambda _action: self.close())
 
-        self.shorts = _Section("App shorts", flow=True)
+        self.shorts = _Section("App shorts", flow=True, accent=SHORTS_COLOR)
         # Ust kutunun ICINDE: kendi cercevesi ikinci bir kenar cizmesin.
         self.shorts.setStyleSheet("QFrame#section { background: transparent; border: none; }")
         if (shorts_layout := self.shorts.layout()) is not None:
             shorts_layout.setContentsMargins(0, 0, 0, 0)
-        self.clips = _Section("Pano")
-        self.slots = _Section("Slot")
+        self.clips = _Section("Pano", accent=CLIPS_COLOR)
+        self.slots = _Section("Slot", accent=SLOTS_COLOR)
         for section in (self.shorts, self.clips, self.slots):
             section.list.itemClicked.connect(self._on_click)
             section.alt_chosen.connect(self._fire)
@@ -592,7 +630,7 @@ class OverviewPanel(QWidget):
         pins: tuple = (),
         keys: tuple = (),
         buttons: tuple = (),
-        clip_alts: tuple[str, ...] = (),
+        clip_alts: tuple[tuple, ...] = (),
         filter_action: str = "",
         filter_tip: str = "",
     ) -> None:
@@ -604,7 +642,8 @@ class OverviewPanel(QWidget):
         `keys`: (etiket, eylem, ek...) -- alt kutunun UST sirasi, tus gonderir.
         `buttons`: (etiket, eylem, ek...) -- alt kutunun ALT sirasi, pencere acar.
         Hepsi menu tanim bicimi (ui/menu.py).
-        `clip_alts`: pano satirlarinin hover dugmesi eylemleri, ayni sirada.
+        `clip_alts`: pano satirlarinin hover dugmeleri, ayni sirada; satir
+        basina (etiket, eylem, ipucu [, renk]) dizisi.
         `filter_action`: Pano basligindaki 🔍 dugmesi (arama penceresi).
         """
         # Baslik kalici; _clear dugmelerle birlikte onu da silerdi.
@@ -618,7 +657,7 @@ class OverviewPanel(QWidget):
         _clear(self._pins)
         caption = QLabel("Hep ustte")
         caption.setStyleSheet(
-            f"color: {TITLE_COLOR}; font-weight: bold; font-size: {FONT_PT - 1}pt;"
+            f"color: {PINS_COLOR}; font-weight: bold; font-size: {FONT_PT - 1}pt;"
         )
         self._pins.addWidget(caption)
         for label, action, *extras in pins:

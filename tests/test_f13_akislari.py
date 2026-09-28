@@ -142,6 +142,10 @@ def rig(qapp, monkeypatch, tmp_path, caplog):
     menus: list = []
     monkeypatch.setattr(win32_menu, "track", lambda spec, title="": menus.append(spec))
     monkeypatch.setattr(overview_module, "force_foreground", lambda _hwnd: None)
+    monkeypatch.setattr(app_module, "window_at", lambda _x, _y: 4444)
+    monkeypatch.setattr(
+        app_module, "force_foreground", lambda hwnd: sent.append(("activate", hwnd))
+    )
     monkeypatch.setattr(app_module, "foreground_window", lambda: 4242)
     monkeypatch.setattr(app_module, "window_class", lambda _h: "Chrome_WidgetWin_1")
     monkeypatch.setattr(app_module, "window_title", lambda _h: "Test - Google Chrome")
@@ -163,8 +167,8 @@ def rig(qapp, monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(pilot.magnifier, "_spawn", lambda work: sent.append(("magnifier",)))
     monkeypatch.setattr(pilot.incognito, "enable", lambda: None)
     monkeypatch.setattr(pilot.pins, "toggle", lambda hwnd=0, title="": None)
-    # Kisa F13 once orta tik gonderiyor (keymap.F13_SHORT_MIDDLE_CLICK);
-    # sahte `send.click` onu kaydediyor.
+    # Kisa F13 once imlecin altindaki pencereyi one aliyor
+    # (keymap.F13_ACTIVATE_UNDER_CURSOR); sahte `force_foreground` kaydediyor.
 
     (tmp_path / "profiles.json").write_text(
         '{"projectName": "ProfileManager", "profiles": [{"profileName": "Chrome",'
@@ -248,7 +252,9 @@ def test_kisa_f13_genel_bakisi_acar_ve_durum_temiz_kalir(rig, caplog):
     _short_f13(rig)
     panel = rig.pilot._overview
     assert panel is not None and panel.isVisible()
-    assert ("click", "middle") in rig.sent  # F13_SHORT_MIDDLE_CLICK
+    # F13_ACTIVATE_UNDER_CURSOR: tik YOK, pencere dogrudan one alinir.
+    assert ("activate", 4444) in rig.sent
+    assert ("click", "middle") not in rig.sent
     # On plandaki pencerenin profili: iki kisayol seritte.
     assert panel.shorts.list.count() == 2
     assert panel.clips.list.count() == 3
@@ -281,10 +287,11 @@ def test_genel_bakisin_butun_maddeleri_kayitli_ve_calisiyor(rig, caplog):
     for section in (panel.shorts, panel.clips, panel.slots):
         for index in range(section.list.count()):
             item = section.list.item(index)
-            for role in (0x0100, overview_module.ALT_ROLE):  # UserRole, ALT_ROLE
-                value = item.data(role)
-                if value:
-                    leaves.append(str(value))
+            if value := item.data(0x0100):  # UserRole
+                leaves.append(str(value))
+            # hover dugmeleri: (etiket, eylem, ipucu [, renk])
+            alts = item.data(overview_module.ALT_ROLE) or ()
+            leaves += [str(alt[1]) for alt in alts]
     leaves += _leaves(rig.pilot._overview_menus())
     leaves += _leaves(rig.pilot._overview_buttons())
     leaves += _leaves(rig.pilot._pin_menu_items())

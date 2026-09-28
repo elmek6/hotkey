@@ -41,6 +41,25 @@ BADGE_BG = "#30363d"
 BADGE_FG = "#f0f6fc"
 BG = "#1b1f24"
 BORDER = "#30363d"
+#: Hata/uyari ipucu (`show_html(alert=True)`): siradan ipucundan ilk bakista
+#: ayrilsin diye amber zemin, koyu yazi.
+ALERT_BG = "#e0af68"
+ALERT_FG = "#1a1b26"
+ALERT_BORDER = "#b8863b"
+
+
+def _style(bg: str, fg: str, border: str) -> str:
+    # Cerceve YALNIZ kutuya (#tip): ic etiketler de kenarlik alirsa
+    # metnin etrafinda ikinci bir cerceve cikiyor.
+    return (
+        f"#tip {{ background-color: {bg};"
+        f" border: 1px solid {border}; border-radius: 6px; }}"
+        f"QLabel {{ color: {fg}; border: none; background: transparent; }}"
+    )
+
+
+NORMAL_STYLE = _style(BG, FG, BORDER)
+ALERT_STYLE = _style(ALERT_BG, ALERT_FG, ALERT_BORDER)
 
 # Emoji'nin gercekten cizilmesi icin yedek aile zinciri gerekiyor:
 # Segoe UI'de sekil yoksa Qt Segoe UI Emoji'ye duser.
@@ -82,21 +101,21 @@ class Tip(QWidget):
         layout.addWidget(self.thumb, 0, Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self.text, 1)
 
-        # Cerceve YALNIZ kutuya (#tip): ic etiketler de kenarlik alirsa
-        # metnin etrafinda ikinci bir cerceve cikiyor.
-        self.setStyleSheet(
-            f"#tip {{ background-color: {BG};"
-            f" border: 1px solid {BORDER}; border-radius: 6px; }}"
-            f"QLabel {{ color: {FG}; border: none; background: transparent; }}"
-        )
+        self.setStyleSheet(NORMAL_STYLE)
+        self._alert = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.hide)
 
     # ---- gosterim ----
 
-    def show_html(self, body: str, ms: int = 0, image: QImage | None = None) -> None:
+    def show_html(
+        self, body: str, ms: int = 0, image: QImage | None = None, alert: bool = False
+    ) -> None:
         """Ham HTML. Cagiran kacislamadan sorumlu.
+
+        `alert`: hata/uyari gorunumu (amber zemin). Pencere tek; stil yalniz
+        gorunum degisince yeniden yaziliyor.
 
         `image` verilirse metnin soluna 64x64 kucuk resim konur -- BELLEKTEN,
         gecici dosya yok. Verilmezse resim alani gizlenir; ayni pencere bir
@@ -115,6 +134,9 @@ class Tip(QWidget):
         else:
             self.thumb.clear()
             self.thumb.hide()
+        if alert != self._alert:
+            self._alert = alert
+            self.setStyleSheet(ALERT_STYLE if alert else NORMAL_STYLE)
         self.text.setText(f"<div style=\"font-family:{FAMILY};\">{body}</div>")
         self.adjustSize()
         self._place()

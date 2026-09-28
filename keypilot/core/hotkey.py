@@ -221,6 +221,11 @@ class Binding:
     owner: str = OWNER_KEYMAP
 
 
+def _specificity(binding: Binding) -> tuple[bool, int]:
+    """Siralama anahtari: onekli ve cok modifierli tanim once denenir."""
+    return (binding.hotkey.prefix is not None, len(binding.hotkey.mods))
+
+
 @dataclass
 class HotkeyTable:
     """AHK'nin statik `^!k::` tanimlarinin karsiligi: dizgi -> eylem kimligi.
@@ -231,6 +236,9 @@ class HotkeyTable:
 
     bindings: list[Binding] = field(default_factory=list)
     _keys: set[int] = field(default_factory=set, init=False, repr=False)
+    #: vk -> o tusun tanimlari, ozgulluk sirasinda. `match` yalniz basilan
+    #: tusun listesini tarar: `1` icin `Caret & 1`, `Tab & 1`, `CapsLock & 1`.
+    _by_vk: dict[int, list[Binding]] = field(default_factory=dict, init=False, repr=False)
     #: vk -> onek tanimini koyanlarin adlari (rapor icin).
     _owners: dict[int, set] = field(default_factory=dict, init=False, repr=False)
     _prefix_defs: dict[int, PrefixDef] = field(default_factory=dict, init=False, repr=False)
@@ -239,11 +247,13 @@ class HotkeyTable:
         self, spec: str, action: str, desc: str = "", owner: str = OWNER_KEYMAP
     ) -> HotkeyTable:
         hotkey = parse_hotkey(spec)
-        self.bindings.append(Binding(hotkey, action, desc, owner))
+        binding = Binding(hotkey, action, desc, owner)
+        self.bindings.append(binding)
         # Once onekli, sonra cok modifierli tanim denenir: ozgul olan kazanir.
-        self.bindings.sort(
-            key=lambda b: (b.hotkey.prefix is not None, len(b.hotkey.mods)), reverse=True
-        )
+        self.bindings.sort(key=_specificity, reverse=True)
+        same_key = self._by_vk.setdefault(hotkey.vk, [])
+        same_key.append(binding)
+        same_key.sort(key=_specificity, reverse=True)
         self._keys.add(hotkey.vk)
         if hotkey.prefix is not None:
             self._touch_prefix(hotkey.prefix, passthrough=hotkey.passthrough)
@@ -336,6 +346,7 @@ class HotkeyTable:
                 return binding
             if same and binding.owner == owner:
                 self.bindings.remove(binding)
+                self._by_vk[binding.hotkey.vk].remove(binding)
                 break
         self.add(spec, action, desc, owner)
         return None
@@ -349,6 +360,10 @@ class HotkeyTable:
         before = len(self.bindings)
         self.bindings = [b for b in self.bindings if b.owner != owner]
         self._keys = {b.hotkey.vk for b in self.bindings} | set(self._prefix_defs)
+        by_vk: dict[int, list[Binding]] = {}
+        for binding in self.bindings:  # zaten ozgulluk sirasinda
+            by_vk.setdefault(binding.hotkey.vk, []).append(binding)
+        self._by_vk = by_vk
         return before - len(self.bindings)
 
     def entries(self) -> tuple[tuple[str, str, str, str], ...]:
@@ -405,9 +420,7 @@ class HotkeyTable:
         held: tuple[int, ...] | frozenset[int] = (),
         prefix: int | None = None,
     ) -> Binding | None:
-        if vk not in self._keys:
-            return None
-        for binding in self.bindings:
+        for binding in self._by_vk.get(vk, ()):
             if binding.hotkey.matches(vk, held, prefix):
                 return binding
         return None

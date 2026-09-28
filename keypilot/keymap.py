@@ -138,11 +138,14 @@ VECTOR_STEP_PX = setting(
 SHORT_MS = 350  # bundan kisa basim KISA, uzunu ORTA (ya da "basili tut")
 LONG_MS = 800  # bundan uzunu UZUN (tanimliysa)
 
-#: F13 kisa basimda katman/menu ACILMADAN hemen once orta fare tusu
-#: gonderilir (tarayici yeni sekme, kaydirma-orta-tik, vb.). Genel bakis
+#: F13 kisa basimda katman/menu ACILMADAN once imlecin altindaki pencere
+#: one alinir -- App shorts profili o pencereden okunur. Eskiden bunun icin
+#: orta tik gonderiliyordu; tarayici/VSCode kisa orta tika otomatik kaydirma
+#: moduyla cevap verip imleci o modda birakiyordu (linkte yeni sekme de
+#: aciyordu). Tiksiz one alma yan etkisiz. Genel bakis
 #: (`app.show_overview`) de eski F13 menusu (`app.show_f13_menu`) de buna
 #: bakiyor; kapatmak icin `False`.
-F13_SHORT_MIDDLE_CLICK = True
+F13_ACTIVATE_UNDER_CURSOR = True
 
 # ---- BILGISAYAR -- AHK: LoadSettings() icindeki A_ComputerName testi ----
 # ADI NEDEN "PROFIL" DEGIL: proje "profil" kelimesini UYGULAMA profilleri

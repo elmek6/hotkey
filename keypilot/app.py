@@ -79,8 +79,8 @@ from keypilot.ui.mem_slots import MemSlots
 from keypilot.ui.menu import CHECKED, DEFAULT, DISABLED, Icon, PopupMenu
 from keypilot.ui.monitor import EventMonitor
 from keypilot.ui.ocr_view import OcrView
+from keypilot.ui.overview import HOVER_ALT_COLOR, OverviewPanel
 from keypilot.ui.overview import MAX_CLIPS as OVERVIEW_CLIPS
-from keypilot.ui.overview import OverviewPanel
 from keypilot.ui.pause import PauseDialog
 from keypilot.ui.preview import dim, preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
@@ -96,6 +96,7 @@ from keypilot.win32 import ocr, send, shell
 from keypilot.win32.hook import HookThread
 from keypilot.win32.instance import SingleInstance
 from keypilot.win32.magnifier import Magnifier
+from keypilot.win32.menu import force_foreground
 from keypilot.win32.screen import monitors
 from keypilot.win32.shutdown import ExitWatch
 from keypilot.win32.window import (
@@ -103,6 +104,7 @@ from keypilot.win32.window import (
     foreground_window,
     minimize,
     topmost_windows,
+    window_at,
     window_class,
     window_title,
 )
@@ -1276,6 +1278,7 @@ class KeyPilot:
             self.tip.show_html(
                 f"⚠️ <b>{html.escape(level.lower())}</b><br>{preview_html(text, 3)}",
                 2500,
+                alert=True,
             )
         if level == "CRITICAL":
             self.tray.notify("KeyPilot - hata", shorten(text.strip(), 200))
@@ -1385,11 +1388,8 @@ class KeyPilot:
         Kisa F13 artik genel bakisi aciyor (`show_overview`); bu menu `´`
         menusundeki "7: F13 menu" maddesinden aciliyor.
         """
-        # Menu oncesi orta tik (keymap.F13_SHORT_MIDDLE_CLICK). Bizim
-        # gonderdigimiz tik `ours` isaretli: kanca onu yutmaz, `~MButton`
-        # eylemlerimiz de tetiklenmez.
-        if keymap.F13_SHORT_MIDDLE_CLICK:
-            send.click("middle")
+        if keymap.F13_ACTIVATE_UNDER_CURSOR:
+            self._activate_under_cursor()
         # 1. kolon tablodan gelir ve COLUMN ile biter; 2. kolon o anki
         # pencereye bagli bloklar -- sira AHK showF13menu ile ayni.
         spec: tuple = (("Clipboard history", self.clip.menu_items()),)
@@ -1464,6 +1464,14 @@ class KeyPilot:
             self._quick.qr_requested.connect(self.show_qr_text)
         self._quick.open(self._quick.tab_index(argument))
 
+    def _activate_under_cursor(self) -> None:
+        """Imlecin altindaki pencereyi one alir -- TIKLAMADAN. Orta tik
+        hedefte otomatik kaydirma / yeni sekme aciyordu (keymap.py
+        F13_ACTIVATE_UNDER_CURSOR). Odak kilidini `force_foreground` asiyor."""
+        hwnd = window_at(*send.cursor_pos())
+        if hwnd and hwnd != foreground_window():
+            force_foreground(hwnd)
+
     @command(Cmd.Menu.OVERVIEW)
     def show_overview(self, argument: str = "") -> None:
         """F13 (kisa) -- app shorts, pano, slotlar tek ekranda.
@@ -1471,11 +1479,11 @@ class KeyPilot:
         App shorts katman ACILMADAN okunuyor: acildiktan sonra on plandaki
         pencere katmanin kendisi olur ve profil bulunamaz.
 
-        `f13` argumani: eski F13 menusu gibi once orta tik (bkz.
-        keymap.F13_SHORT_MIDDLE_CLICK).
+        `f13` argumani: eski F13 menusu gibi once imlecin altindaki pencere
+        one alinir (bkz. keymap.F13_ACTIVATE_UNDER_CURSOR).
         """
-        if argument == "f13" and keymap.F13_SHORT_MIDDLE_CLICK:
-            send.click("middle")
+        if argument == "f13" and keymap.F13_ACTIVATE_UNDER_CURSOR:
+            self._activate_under_cursor()
         hwnd = foreground_window()
         profile = self.shorts.find(window_class(hwnd), window_title(hwnd))
         shorts = (
@@ -1514,10 +1522,17 @@ class KeyPilot:
             # calisirken klavyeye uzanmadan Enter / Del / hepsini sec...
             keys=keymap.OVERVIEW_KEYS,
             buttons=self._overview_buttons(),
-            # Pano satirinin hover ikonu: ayni kayit, bicimsiz yapistir.
+            # Pano satirinin hover dugmeleri (soldan saga): hepsini sec +
+            # yapistir + Enter, yapistir + Enter, bicimsiz yapistir.
             # `_clip_items` 1 tabanli sira veriyor; ayni sirayla eslesiyor.
             clip_alts=tuple(
-                Cmd.Clip.PASTE_PLAIN(index) for index in range(1, len(clips) + 1)
+                (
+                    ("AV⏎", Cmd.Clip.SELECT_PASTE_ENTER(index), "Select all + paste + Enter"),
+                    # Ortadaki farkli renkte: yan yana ⏎'li iki dugme karismasin.
+                    ("V⏎", Cmd.Clip.PASTE_ENTER(index), "Paste + Enter", HOVER_ALT_COLOR),
+                    ("Tt", Cmd.Clip.PASTE_PLAIN(index), "Unformatted paste (Ctrl+Shift+V)"),
+                )
+                for index in range(1, len(clips) + 1)
             ),
             filter_action=Cmd.Clip.FILTER,
             filter_tip="Search on history (array filter)",

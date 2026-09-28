@@ -119,6 +119,37 @@ def test_en_ozgul_tanim_kazanir():
     assert table.match(Z, (LCTRL,)).action == "a"
 
 
+def _action(table: HotkeyTable, vk: int, held: tuple[int, ...] = ()) -> str | None:
+    binding = table.match(vk, held)
+    return binding.action if binding else None
+
+
+def test_ozgul_tanim_eklenme_sirasindan_bagimsiz_kazanir():
+    """Indeks tus basina sirali: once `^+z` eklense de sonuc ayni."""
+    table = HotkeyTable().add("^+z", "b").add("^z", "a")
+    assert _action(table, Z, (LCTRL, LSHIFT)) == "b"
+    assert _action(table, Z, (LCTRL,)) == "a"
+
+
+def test_release_tanimi_indeksten_de_dusurur():
+    table = HotkeyTable().add("^z", "a")
+    table.claim("alan:1", "^+z", "b")
+    assert _action(table, Z, (LCTRL, LSHIFT)) == "b"
+    assert table.release("alan:1") == 1
+    assert table.match(Z, (LCTRL, LSHIFT)) is None
+    assert _action(table, Z, (LCTRL,)) == "a"
+    assert [b.action for b in table.bindings] == ["a"]
+
+
+def test_claim_ayni_sahipte_indeksteki_eski_tanimi_degistirir():
+    table = HotkeyTable()
+    table.claim("alan:1", "^z", "eski")
+    table.claim("alan:1", "^z", "yeni")
+    assert _action(table, Z, (LCTRL,)) == "yeni"
+    assert table.release("alan:1") == 1
+    assert table.match(Z, (LCTRL,)) is None
+
+
 def test_sahip_olmadigi_tusa_dokunmaz():
     table = HotkeyTable().add("^z", "a")
     assert not table.owns(K)

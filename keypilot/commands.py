@@ -90,6 +90,8 @@ class Cmd:
         PASTE = auto()
         PASTE_PREV = auto()
         PASTE_PLAIN = auto()
+        PASTE_ENTER = auto()
+        SELECT_PASTE_ENTER = auto()
         IMAGES = auto()
 
     class Slots(Id):
