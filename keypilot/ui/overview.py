@@ -3,19 +3,20 @@
 App shorts, pano ve slotlar tek pencerede; cevresinde menu ve dugme
 seritleri (yerlesim `OverviewPanel` basliginda):
 
-    +------------------------------------------------------------+
-    |  APP SHORTS (on plandaki uygulama)  Profil v  |  Hep ustte |
-    +------------------------------------------------------------+
-    +------------------------------------------------------------+
-    |  [Pano] [Slot]  [ara] 🔍                                   |
-    |  secili sekmenin listesi                                   |
-    +------------------------------------------------------------+
-    +------------------------------------------------------------+
-    |  tus satiri (Enter, Del, ^A ^C ...) / pencere dugmeleri    |
-    +------------------------------------------------------------+
+    +------------------------------------------------+
+    |  App shorts (profil) v          Hep ustte v  X |
+    |  kisayol izgarasi                              |
+    +------------------------------------------------+
+    +------------------------------------------------+
+    |  [Pano] [Slot]  [ara        X 🔍]  Win+V       |
+    |  secili sekmenin listesi                       |
+    +------------------------------------------------+
+    +------------------------------------------------+
+    |  pencere dugmeleri (Hafiza, Makro ...)         |
+    +------------------------------------------------+
 
 Kutular GORUNUSTE ayri, pencere TEK: ekrani kaplamaz ve karartmaz, imlecin
-oldugu monitorun ortasinda durur. Bir ogeye tiklamak onu calistirir ve
+yaninda acilir. Bir ogeye tiklamak onu calistirir ve
 paneli kapatir; panelin DISINA tiklamak (odak gider), Esc ya da baska
 pencereye gecmek yalnizca kapatir. Harfe basmak pano listesini suzen
 kutuya yazar; Tab/ok tuslari listeler arasinda gezer.
@@ -80,10 +81,10 @@ HOVER_ALT_COLOR = "#9ece6a"
 #: kaplar: fare yazinin ustune gelmeden, hucreye girince vurgulanir.
 SHORTS_COLUMNS = 2  # ust kutunun SOL yarisinda
 #: Panel sabit enli, imlecin yaninda acilir (ekrana sigacak sekilde).
-CARD_WIDTH = 600
+CARD_WIDTH = 437
 LIST_HEIGHT = 230  # pano / slot listesinin boyu, piksel
 SHORTS_ROWS = 3  # seritte en fazla bu kadar kisayol satiri; fazlasi kayar
-LABEL_CHARS = 70  # satirda gosterilen en fazla karakter (liste tam en)
+LABEL_CHARS = 50  # satirda gosterilen en fazla karakter (liste tam en)
 FONT_PT = 10
 LEAVE_POLL_MS = 120  # acik menude imlec yoklama araligi (fare cikti mi)
 TOOLTIP_CHARS = 600  # ipucunda gosterilen en fazla karakter
@@ -138,6 +139,28 @@ def _hover_style(color: str) -> str:
     )
 
 
+def _title_style(color: str) -> str:
+    """Kutu basligi gibi duran acilir menu dugmesi: cercevesiz, `color` renkte."""
+    return (
+        f"QPushButton {{ background: transparent; color: {color}; border: none;"
+        f" padding: 1px 2px; font-size: {FONT_PT - 1}pt; font-weight: bold; }}"
+        f"QPushButton:hover {{ background: {ITEM_HOVER}; border-radius: 4px; }}"
+    )
+
+
+def _glyph_icon(glyph: str, color: str) -> QIcon:
+    """Arama kutusunun ic dugmeleri (sil, mercek) icin yazidan ikon --
+    QLineEdit eylemi metin degil yalniz ikon gosterir."""
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    font = painter.font()
+    font.setPixelSize(22)
+    painter.setFont(font)
+    painter.setPen(QColor(color))
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
+    painter.end()
+    return QIcon(pixmap)
 
 
 def _tab_style(color: str) -> str:
@@ -393,9 +416,10 @@ class _HoverButton(QPushButton):
     """Ustune GELINCE hemen altinda menu acan dugme (tiklamak da acar).
     Bekleme ve acilis animasyonu yok -- ikisi de zaman kaybiydi."""
 
-    def __init__(self, label: str, spec: tuple, chosen: SignalInstance) -> None:
+    def __init__(self, label: str, spec: tuple, chosen: SignalInstance, color: str = "") -> None:
+        """`color`: dugme yerine kutu basligi gibi gorunur (bkz. `_title_style`)."""
         super().__init__(f"{label} ▾")
-        self.setStyleSheet(BUTTON_STYLE)
+        self.setStyleSheet(_title_style(color) if color else BUTTON_STYLE)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # tuslar katmana gelsin
         self._menu = QMenu(self)
@@ -460,8 +484,8 @@ def _box() -> tuple[QFrame, QVBoxLayout]:
         " border-radius: 6px; }"
     )
     layout = QVBoxLayout(frame)
-    layout.setContentsMargins(8, 6, 8, 6)
-    layout.setSpacing(6)
+    layout.setContentsMargins(6, 4, 6, 4)
+    layout.setSpacing(4)
     return frame, layout
 
 
@@ -491,32 +515,6 @@ def _step(widget: QListWidget, row: int, step: int) -> int | None:
     return None
 
 
-def _vline() -> QFrame:
-    """Ust kutunun iki kolonunu ayiran ince dikey cizgi."""
-    line = QFrame()
-    line.setFixedWidth(1)
-    line.setStyleSheet(f"background: {PANEL_BORDER};")
-    return line
-
-
-def _hline() -> QFrame:
-    """Alt kutudaki iki sirayi ayiran ince cizgi."""
-    line = QFrame()
-    line.setFixedHeight(1)
-    line.setStyleSheet(f"background: {SEPARATOR};")
-    return line
-
-
-def _equal(widget: QWidget) -> QWidget:
-    """Yatay olcuyu ICERIGE degil yerlesime birakir: ayni `stretch` verilen
-    kardesler tam esit en alir. Varsayilan politikada en uzun etiket kendi
-    tarafini genisletiyordu (pano / slot yarilari esit durmuyordu)."""
-    policy = widget.sizePolicy()
-    policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
-    widget.setSizePolicy(policy)
-    return widget
-
-
 def _row() -> QHBoxLayout:
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
@@ -527,11 +525,10 @@ def _row() -> QHBoxLayout:
 class OverviewPanel(QWidget):
     """Tek pencere, uc kutu. Secim `chosen(eylem)` ile disari cikar.
 
-        +-- UST ---------------------------------------------+
-        | App shorts (kisayollar)            | Profil ▾      |
-        | Hep ustte: [pencere] [pencere] ...                 |
+        +-- UST: App shorts ▾ ........ Hep ustte ▾  ✕ -------+
+        | kisayol izgarasi                                   |
         +----------------------------------------------------+
-        +-- ORTA: [Pano] [Slot]  ara 🔍 ---------------------+
+        +-- ORTA: [Pano] [Slot]  [ara  ✕ 🔍]  Win+V ---------+
         | secili sekmenin listesi                            |
         +----------------------------------------------------+
         +-- ALT: [dugme] [dugme] [dugme] ... ----------------+
@@ -560,6 +557,8 @@ class OverviewPanel(QWidget):
 
         self.shorts = _Section("App shorts", flow=True, accent=SHORTS_COLOR)
         self.shorts.flatten()  # ust kutunun ICINDE
+        # Basligi ust satirdaki acilir dugme tasiyor (bkz. `open`).
+        self.shorts.title.hide()
         # Pano ve slot ayni kutuda, sekme olarak; basliklarini sekme tasiyor.
         self.clips = _Section("Pano", accent=CLIPS_COLOR)
         self.slots = _Section("Slot", accent=SLOTS_COLOR)
@@ -570,49 +569,39 @@ class OverviewPanel(QWidget):
             section.flatten()
             section.title.hide()
 
-        # Sekme satirinda: yazdikca PANOYU suzen kutu + arama penceresi
-        # (array filter) dugmesi. Harfe basmak da kutuya yazar (keyPressEvent).
+        # Sekme satirinda: yazdikca PANOYU suzen kutu. Harfe basmak da kutuya
+        # yazar (keyPressEvent). Kutunun ICINDE sil ✕ ve arama penceresi
+        # (array filter) 🔍; yaninda pano gecmisi dugmesi (Win+V).
         self.search = QLineEdit()
         self.search.setStyleSheet(SEARCH_STYLE)
         self.search.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.search.textChanged.connect(self.clips.filter)
         self.search.installEventFilter(self)
-        self._filter_button = QToolButton()
-        self._filter_button.setText("🔍")
-        self._filter_button.setStyleSheet(BUTTON_STYLE.replace("QPushButton", "QToolButton"))
-        self._filter_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._filter_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._filter_button.clicked.connect(lambda: self._fire(self._filter_action))
+        clear = self.search.addAction(
+            _glyph_icon("✕", CLOSE_BG), QLineEdit.ActionPosition.TrailingPosition
+        )
+        clear.setToolTip("Temizle")
+        clear.triggered.connect(self.search.clear)
+        self._filter = self.search.addAction(
+            _glyph_icon("🔍", TITLE_COLOR), QLineEdit.ActionPosition.TrailingPosition
+        )
+        self._filter.triggered.connect(lambda: self._fire(self._filter_action))
         self._filter_action = ""
+        self._history = QPushButton()
+        self._history.setStyleSheet(BUTTON_STYLE)
+        self._history.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._history.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._history.clicked.connect(lambda: self._fire(self._history_action))
+        self._history_action = ""
 
-        # ---- ust: IKI ESIT kolon, arada dikey cizgi ----
-        #   sol: "App shorts" ... Profil ▾   +  kisayol izgarasi
-        #   sag: "Hep ustte" [pencere] [pencere] ...
+        # ---- ust: baslik satiri + kisayol izgarasi ----
+        #   App shorts ▾ (profil menusu) ... Hep ustte ▾  ✕
         top, top_layout = _box()
-        columns = _row()
-        columns.setSpacing(8)
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(2)
-        #: Sol baslik satiri: baslik, bosluk, menu dugmeleri (acilista kurulur).
+        #: Baslik satiri: iki acilir menu ve ✕ (acilista kurulur).
         self._header = _row()
-        left_layout.addLayout(self._header)
-        left_layout.addWidget(self.shorts)
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        #: Hep-ustte basligi + pencere dugmeleri (acilista kurulur).
-        self._pins = _row()
-        right_layout.addLayout(self._pins)
-        right_layout.addStretch(1)
-        columns.addWidget(_equal(left), 1)
-        columns.addWidget(_vline())
-        columns.addWidget(_equal(right), 1)
         self.close_button = _CloseButton(self)
-        columns.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignTop)
-        self._top_columns = columns  # ✕ imlecten kacarken buradan cikiyor
-        top_layout.addLayout(columns)
+        top_layout.addLayout(self._header)
+        top_layout.addWidget(self.shorts)
 
         # ---- orta: Pano / Slot sekmeleri, tek liste alani ----
         # Sekmenin ustune gelmek o sekmeyi gosterir; `_sections` sirasiyla
@@ -626,7 +615,7 @@ class OverviewPanel(QWidget):
         for tab in self._tabs:
             tabs.addWidget(tab)
         tabs.addWidget(self.search, 1)
-        tabs.addWidget(self._filter_button)
+        tabs.addWidget(self._history)
         self._stack = QStackedWidget()
         self._stack.addWidget(self.clips)
         self._stack.addWidget(self.slots)
@@ -634,12 +623,9 @@ class OverviewPanel(QWidget):
         middle_layout.addLayout(tabs)
         middle_layout.addWidget(self._stack)
 
-        # ---- alt: iki TEK satir -- ustte tuslar, altta pencereler ----
+        # ---- alt: TEK satir pencere dugmeleri ----
         foot, foot_layout = _box()
-        self._keys = _row()
         self._windows = _row()
-        foot_layout.addLayout(self._keys)
-        foot_layout.addWidget(_hline())
         foot_layout.addLayout(self._windows)
 
         #: Klavyeyle gezilen listeler, Tab sirasi. Ok tuslari ETKIN listede.
@@ -651,7 +637,7 @@ class OverviewPanel(QWidget):
         self.setFixedWidth(CARD_WIDTH)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(3)
         layout.addWidget(top)
         layout.addWidget(middle)
         layout.addWidget(foot)
@@ -666,7 +652,7 @@ class OverviewPanel(QWidget):
         slots: tuple[QuickItem, ...],
         menus: tuple = (),
         pins: tuple = (),
-        keys: tuple = (),
+        history: tuple = (),
         buttons: tuple = (),
         clip_alts: tuple[tuple, ...] = (),
         filter_action: str = "",
@@ -674,49 +660,37 @@ class OverviewPanel(QWidget):
     ) -> None:
         """Listeleri doldurur, imlecin yaninda acar.
 
-        `menus`: (etiket, alt tanim) -- baslik satirinda, ustune gelince acilir.
-        `pins`: (etiket, eylem, ek...) -- baslik satirinin sonu; CHECKED isaretli
-        olan sabitli, tiklamak degistirir.
-        `keys`: (etiket, eylem, ek...) -- alt kutunun UST sirasi, tus gonderir.
-        `buttons`: (etiket, eylem, ek...) -- alt kutunun ALT sirasi, pencere acar.
-        Hepsi menu tanim bicimi (ui/menu.py).
+        `menus`: (etiket, alt tanim) -- App shorts basliginin acilir menusu;
+        tek tanimsa dogrudan o, birden fazlaysa alt menuler.
+        `pins`: "Hep ustte ▾" menusu (menu tanim bicimi, ui/menu.py); CHECKED
+        isaretli olanlarin sayisi baslikta.
+        `history`: (etiket, eylem, ipucu) -- arama kutusunun yanindaki dugme.
+        `buttons`: (etiket, eylem, ek...) -- alt kutu, pencere acar.
         `clip_alts`: pano satirlarinin hover dugmeleri, ayni sirada; satir
         basina (etiket, eylem, ipucu [, renk]) dizisi.
-        `filter_action`: Pano basligindaki 🔍 dugmesi (arama penceresi).
+        `filter_action`: arama kutusundaki 🔍 (arama penceresi).
         """
-        # Baslik kalici; _clear dugmelerle birlikte onu da silerdi.
-        self._header.removeWidget(self.shorts.title)
+        # ✕ kalici; _clear dugmelerle birlikte onu da silerdi.
+        self._header.removeWidget(self.close_button)
         _clear(self._header)
-        self._header.addWidget(self.shorts.title)
+        shorts_menu = menus[0][1] if len(menus) == 1 else menus
+        self._add_menu(shorts_title, shorts_menu, SHORTS_COLOR)
         self._header.addStretch(1)
-        for label, spec in menus:
-            button = _HoverButton(label, spec, self.chosen)
-            # Menu acikken gelen odak kaybi atlaniyor (bkz. `_close_if_inactive`);
-            # menu kapaninca bir daha bakilir -- disari tiklama menuyu kapatmissa.
-            button.popup_menu.aboutToHide.connect(self._check_active_later)
-            self._header.addWidget(button)
-
-        _clear(self._pins)
-        caption = QLabel("Hep ustte")
-        caption.setStyleSheet(
-            f"color: {PINS_COLOR}; font-weight: bold; font-size: {FONT_PT - 1}pt;"
-        )
-        self._pins.addWidget(caption)
-        for label, action, *extras in pins:
-            button = self._button(label, str(action))
-            button.setCheckable(True)
-            button.setChecked(Mark.CHECKED in extras)
-            self._pins.addWidget(button)
-        self._pins.addStretch(1)
+        # Sabitli pencere sayisi baslikta: menuyu acmadan gorunsun.
+        pinned = sum(1 for entry in pins if entry and Mark.CHECKED in entry[2:])
+        self._add_menu(f"Hep ustte ({pinned})" if pinned else "Hep ustte", pins, PINS_COLOR)
+        self._header.addWidget(self.close_button)
 
         self._filter_action = filter_action
-        self._filter_button.setToolTip(filter_tip)
-        self._filter_button.setVisible(bool(filter_action))
+        self._filter.setToolTip(filter_tip)
+        self._filter.setVisible(bool(filter_action))
+        label, self._history_action, *tip = history or ("", "")
+        self._history.setText(label)
+        self._history.setToolTip(tip[0] if tip else "")
+        self._history.setVisible(bool(self._history_action))
 
-        self._fill_row(self._keys, keys, equal=True)
         self._fill_row(self._windows, buttons)
 
-        self.shorts.title.setText(shorts_title)
         self.shorts.fill(shorts, "(bu pencere icin profil yok)")
         self.search.clear()
         self.clips.fill(clips, "(pano gecmisi bos)", clip_alts)
@@ -742,10 +716,19 @@ class OverviewPanel(QWidget):
         button = self.close_button
         if not button.rect().contains(button.mapFromGlobal(pos)):
             return
-        self._top_columns.removeWidget(button)
+        self._header.removeWidget(button)
         self._windows.addWidget(button)
 
     # ---- ic ----
+
+    def _add_menu(self, label: str, spec: tuple, color: str) -> None:
+        """Baslik satirina ustune gelince acilan menu. Bos tanim soluk kalir."""
+        button = _HoverButton(label, spec, self.chosen, color)
+        button.setEnabled(bool(spec))
+        # Menu acikken gelen odak kaybi atlaniyor (bkz. `_close_if_inactive`);
+        # menu kapaninca bir daha bakilir -- disari tiklama menuyu kapatmissa.
+        button.popup_menu.aboutToHide.connect(self._check_active_later)
+        self._header.addWidget(button)
 
     def _button(self, label: str, action: str) -> QPushButton:
         button = QPushButton(label)
@@ -755,12 +738,10 @@ class OverviewPanel(QWidget):
         button.clicked.connect(lambda _=False, a=action: self._fire(a))
         return button
 
-    def _fill_row(self, row: QHBoxLayout, spec: tuple, equal: bool = False) -> None:
+    def _fill_row(self, row: QHBoxLayout, spec: tuple) -> None:
         """Dugmeleri TEK satira dizer ve satiri BOYDAN BOYA doldurur (sola
-        yigilip sagda bosluk birakmasin). `equal`: hepsi ayni en -- kisa
-        etiketli tus satiri icin; yoksa artan yer etikete oranla dagilir.
-        Ek alanlar: `Icon` dugmenin ikonu, bos olmayan dizgi ipucu (kisa
-        etiketli tuslarin uzun adi).
+        yigilip sagda bosluk birakmasin); artan yer etikete oranla dagilir.
+        Ek alanlar: `Icon` dugmenin ikonu, bos olmayan dizgi ipucu.
         Menu tanimindaki `None` (ayrac) atlanir."""
         _clear(row)
         for entry in spec:
@@ -773,12 +754,7 @@ class OverviewPanel(QWidget):
                     button.setIcon(_qicon(extra))
                 elif isinstance(extra, str) and extra and not isinstance(extra, Mark):
                     button.setToolTip(extra)
-            if equal:
-                _equal(button)
-            else:
-                button.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, button.sizePolicy().verticalPolicy()
-                )
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, button.sizePolicy().verticalPolicy())
             row.addWidget(button, 1)
 
     def _place_near_cursor(self) -> None:

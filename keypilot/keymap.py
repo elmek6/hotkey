@@ -282,18 +282,9 @@ SPECIAL_KEYS_MENU = (
 )
 
 
-#: Genel bakis katmaninin (ui/overview.py) tus satiri: SPECIAL_KEYS_MENU'nun
-#: KISA etiketli hali + Win+V. Tek satira sigmali; uzun ad ipucunda.
-OVERVIEW_KEYS = (
-    ("Enter", Cmd.send_key("Enter")),
-    ("Back", Cmd.send_key("Backspace"), "Backspace"),
-    ("Del", Cmd.send_key("Delete"), "Delete"),
-    ("Esc", Cmd.send_key("Escape")),
-    ("^A ^X", Cmd.send_keys("^a", "^x"), "Hepsini sec + kes"),
-    ("^A ^C", Cmd.send_keys("^a", "^c"), "Hepsini sec + kopyala"),
-    ("^⇧V", Cmd.send_key("^+v"), "Bicimsiz yapistir"),
-    ("Win+V", Cmd.send_key("#v"), "Clipboard history win"),
-)
+#: Genel bakis katmaninda arama kutusunun yanindaki dugme: Windows pano
+#: gecmisi. (Eski tus satiri -- Enter, Del, ^A ^C ... -- kaldirildi.)
+OVERVIEW_HISTORY = ("Win+V", Cmd.send_key("#v"), "Clipboard history win")
 
 
 def screen_menu() -> tuple:

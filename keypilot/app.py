@@ -1518,9 +1518,7 @@ class KeyPilot:
             self._slot_items(""),
             menus=self._overview_menus(),
             pins=self._pin_menu_items(),
-            # Ust sira: F14 "Special keys" kisa etiketlerle -- fareyle
-            # calisirken klavyeye uzanmadan Enter / Del / hepsini sec...
-            keys=keymap.OVERVIEW_KEYS,
+            history=keymap.OVERVIEW_HISTORY,
             buttons=self._overview_buttons(),
             # Pano satirinin hover dugmeleri (soldan saga): hepsini sec +
             # yapistir + Enter, yapistir + Enter, bicimsiz yapistir.
@@ -1545,15 +1543,15 @@ class KeyPilot:
         return ((profile_title, profile_rows),)
 
     def _overview_buttons(self) -> tuple:
-        """Alt kutunun alt sirasi: pencere acan maddeler. F13 menusunun tek
-        tik maddeleri + F14/`´` sistem menusunden sik acilan pencereler."""
-        # "Search on history" burada DEGIL: Pano basligindaki 🔍 dugmesi.
-        # Win+V tus satirinda (keymap.OVERVIEW_KEYS).
+        """Alt kutu: pencere acan maddeler. F13 menusunun tek tik maddeleri +
+        F14/`´` sistem menusunden sik acilan pencereler."""
+        # "Search on history" burada DEGIL: arama kutusundaki 🔍.
+        # Win+V arama kutusunun yaninda (keymap.OVERVIEW_HISTORY).
         return (
             ("Hafiza", Cmd.Memslots.START, Icon.res(30), "Hafiza bloklari"),
             ("Makro", Cmd.Macro.RECORDER, "Macro recorder"),
-            # F14 ile ayni ad ve ikon.
-            ("Clipboard images", Cmd.Clip.IMAGES, Icon.res(109)),
+            # F14 ile ayni ikon; ad dar panele sigsin diye kisa.
+            ("images", Cmd.Clip.IMAGES, Icon.res(109), "Clipboard images"),
             ("📚 Repository", Cmd.Repository.OPEN),
             self._incognito_menu_item(),
             ("⚙️", Cmd.App.SETTINGS, "Ayarlar"),

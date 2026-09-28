@@ -295,11 +295,11 @@ def test_genel_bakisin_butun_maddeleri_kayitli_ve_calisiyor(rig, caplog):
     leaves += _leaves(rig.pilot._overview_menus())
     leaves += _leaves(rig.pilot._overview_buttons())
     leaves += _leaves(rig.pilot._pin_menu_items())
-    leaves += [str(action) for _label, action, *_ in app_module.keymap.OVERVIEW_KEYS]
+    leaves.append(str(app_module.keymap.OVERVIEW_HISTORY[1]))
     leaves.append(Cmd.Clip.FILTER)
-    # Dugmeler de sayildi mi: alt satirlar ve hep-ustte.
+    # Dugmeler de sayildi mi: iki baslik menusu, sekmeler, Win+V, alt satir.
     buttons = [b for b in panel.findChildren(QPushButton) if b.text()]
-    assert len(buttons) >= len(app_module.keymap.OVERVIEW_KEYS) + 6
+    assert len(buttons) >= 5 + len(rig.pilot._overview_buttons())
 
     missing = [action for action in leaves if not _registered(rig, action)]
     assert missing == [], f"kayitsiz eylem: {missing}"
