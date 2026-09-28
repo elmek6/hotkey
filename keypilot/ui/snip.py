@@ -364,7 +364,7 @@ class SnipOverlay(QWidget):
 
     # ---- Area paneli (cubugun altina acilir) ----
 
-    def _build_toolbox(self) -> QWidget:
+    def _build_toolbox(self) -> QTabWidget:
         """Acilan panel: iki SEKME -- Area ve IFTTT.
 
         Once ic ice iki acici vardi (Area'nin icinde Kural acicisi) ve panel
@@ -407,12 +407,14 @@ class SnipOverlay(QWidget):
         self._name_box.setEditable(True)
         self._name_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self._name_box.setMinimumWidth(240)
-        self._name_box.lineEdit().setPlaceholderText("alan adi")
+        name_edit = self._name_box.lineEdit()
+        assert name_edit is not None  # setEditable(True) kurdu
+        name_edit.setPlaceholderText("alan adi")
         # `activated`: yalnizca KULLANICI sectiginde: `currentIndexChanged`
         # liste koddan yeniden dolduruldugunda da atesleniyor ve panel
         # kendi kendine baska alana atliyordu.
         self._name_box.activated.connect(self._on_pick_area)
-        self._name_box.lineEdit().textEdited.connect(self._mark_dirty)
+        name_edit.textEdited.connect(self._mark_dirty)
         grid.addWidget(QLabel("Alan", box), 0, 0)
         grid.addWidget(self._name_box, 0, 1, 1, 2)
         self._stamp_label = QLabel("", box)

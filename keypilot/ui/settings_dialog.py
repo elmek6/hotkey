@@ -197,7 +197,7 @@ class SettingCard(QFrame):
 
     # ---- deger nesnesi ----
 
-    def _make_value(self) -> QWidget:
+    def _make_value(self) -> QLineEdit | QPushButton:
         """Tipin nesnesi: menu dugmesi ya da yazi kutusu."""
         if self.item.type_of() in TYPED_KINDS:
             box = QLineEdit(str(self.item.get()))
@@ -346,7 +346,7 @@ class SettingCard(QFrame):
         font = self.value.font()
         font.setBold(changed)  # AHK: degismis ayar kalin
         self.value.setFont(font)
-        if self.reset_action is not None:
+        if self.reset_action is not None and self.default is not None:
             self.reset_action.setEnabled(changed)  # varsayilandayken soluk
             self.default.setText(str(self.item.default))
         self.info.setText(self.item.info_text())

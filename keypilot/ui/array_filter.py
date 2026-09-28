@@ -35,7 +35,7 @@ pano icin kullanilabiliyordu.
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QFont, QKeyEvent, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QKeyEvent, QKeySequence, QMouseEvent, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -270,7 +270,11 @@ class ArrayFilter(QWidget):
             ):
                 self.table.keyPressEvent(event)
                 return True
-        elif watched is self.table.viewport() and event.type() == QEvent.Type.MouseMove:
+        elif (
+            watched is self.table.viewport()
+            and event.type() == QEvent.Type.MouseMove
+            and isinstance(event, QMouseEvent)
+        ):
             if self.hover.isChecked():
                 row = self.table.rowAt(int(event.position().y()))
                 if row >= 0:

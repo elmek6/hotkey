@@ -33,6 +33,7 @@ import subprocess
 import threading
 import time
 import winreg
+from collections.abc import Callable
 from ctypes import wintypes
 
 from keypilot.core.keynames import vk_from_name
@@ -242,6 +243,9 @@ def _taskbar_delete_tab(hwnd: int) -> None:
     from comtypes import COMMETHOD, GUID, IUnknown
 
     class ITaskbarList(IUnknown):
+        # comtypes metotlari `_methods_`tan uretir; pyright icin imzalar.
+        HrInit: Callable[[], int]
+        DeleteTab: Callable[[int], int]
         _iid_ = GUID("{56FDF342-FD6D-11D0-958A-006097C9A090}")
         _methods_ = [
             COMMETHOD([], comtypes.HRESULT, "HrInit"),

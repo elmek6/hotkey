@@ -344,7 +344,8 @@ class ClipImages(QWidget):
                 if record.slot == slot:
                     row = index
                     break
-        self.list.setCurrentItem(self.list.topLevelItem(row))
+        if (item := self.list.topLevelItem(row)) is not None:
+            self.list.setCurrentItem(item)
 
     def _on_select(self) -> None:
         slot = self._current_slot()
@@ -358,7 +359,7 @@ class ClipImages(QWidget):
             self.info.setText("kayit okunamadi")
             return
         image = QImage()
-        image.loadFromData(png, "PNG")
+        image.loadFromData(png)  # bicim icerikten
         self.preview.set_image(image)
         self._update_info(slot)
 
@@ -395,7 +396,7 @@ class ClipImages(QWidget):
             self.copied.emit("")
             return
         image = QImage()
-        image.loadFromData(png, "PNG")
+        image.loadFromData(png)  # bicim icerikten
         QGuiApplication.clipboard().setImage(image)
         self.store.touch(slot)
         self.copied.emit(f"{image.width()}x{image.height()}")

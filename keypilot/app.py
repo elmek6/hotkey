@@ -835,7 +835,8 @@ class KeyPilot:
         """
         paths.PAINT.mkdir(parents=True, exist_ok=True)
         target = paths.PAINT / "snip.png"
-        if not image.save(str(target), "PNG") or not shell.open_in_paint(target):
+        # Bicim uzantidan (.png); `"PNG"` stub hatasi, `b"PNG"` calisirken ValueError.
+        if not image.save(str(target)) or not shell.open_in_paint(target):
             self.tip.show_html("⚠️ <b>Paint'te acilamadi</b>", 1500)
 
     def save_capture(self, image: QImage) -> None:

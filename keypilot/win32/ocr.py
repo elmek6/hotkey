@@ -26,11 +26,17 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 
 from keypilot.core.ocr_layout import Word
+
+if TYPE_CHECKING:  # pyright icin hep bagli; calisirken asagidaki try
+    from winrt.windows.graphics.imaging import BitmapPixelFormat, SoftwareBitmap
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.storage.streams import DataWriter
 
 try:
     from winrt.windows.graphics.imaging import BitmapPixelFormat, SoftwareBitmap
@@ -139,7 +145,7 @@ def _to_bgra(image: QImage) -> tuple[bytes, int, int]:
     image = image.convertToFormat(QImage.Format.Format_ARGB32)
     width, height = image.width(), image.height()
     stride = image.bytesPerLine()
-    raw = image.constBits().tobytes()
+    raw = bytes(image.constBits())
     if stride != width * 4:
         raw = b"".join(raw[row * stride : row * stride + width * 4] for row in range(height))
     return raw, width, height

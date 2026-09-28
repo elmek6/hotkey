@@ -154,7 +154,7 @@ class ClipController:
             converted = image.convertToFormat(QImage.Format.Format_RGBA8888)
             width, height = converted.width(), converted.height()
             stride = converted.bytesPerLine()
-            raw = converted.constBits().tobytes()
+            raw = bytes(converted.constBits())
             if stride != width * 4:  # satir dolgusu varsa kirp
                 raw = b"".join(
                     raw[row * stride : row * stride + width * 4] for row in range(height)

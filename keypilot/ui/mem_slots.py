@@ -312,7 +312,8 @@ class MemSlots(QWidget):
         self._pending_slot = None
         self.blocks = [""] * SLOT_COUNT
         for row in range(SLOT_COUNT):
-            self.slot_table.item(row, 1).setText("")
+            if (cell := self.slot_table.item(row, 1)) is not None:
+                cell.setText("")
         self.select_slot(1)
 
     # ---- ic yardimcilar ----
@@ -341,7 +342,8 @@ class MemSlots(QWidget):
 
     def _write_slot(self, index: int, text: str) -> None:
         self.blocks[index - 1] = text
-        self.slot_table.item(index - 1, 1).setText(preview(text))
+        if (cell := self.slot_table.item(index - 1, 1)) is not None:
+            cell.setText(preview(text))
 
     def _fill_history(self) -> None:
         """AHK: _populateHistory"""

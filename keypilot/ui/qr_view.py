@@ -204,25 +204,26 @@ class QrDialog(QWidget):
         anlamsizlasiyor, tasimaya calismak yaniltici olurdu."""
         while self._form.count():
             row = self._form.takeAt(0)
-            if row.widget():
-                row.widget().deleteLater()
+            if row is not None and (child := row.widget()) is not None:
+                child.deleteLater()
         self._fields.clear()
         self._template = item
 
         for spec in item.fields:
+            edit: QLineEdit | None = None  # parola alani: goz dugmesi buna bagli
             if spec.choices:
                 widget: QWidget = QComboBox(self)
                 widget.addItems(spec.choices)
                 widget.setCurrentText(spec.default or spec.choices[0])
                 widget.currentTextChanged.connect(self._refresh)
             else:
-                widget = QLineEdit(self)
+                widget = edit = QLineEdit(self)
                 if spec.secret:
-                    widget.setEchoMode(QLineEdit.EchoMode.Password)
-                widget.textChanged.connect(self._refresh)
+                    edit.setEchoMode(QLineEdit.EchoMode.Password)
+                edit.textChanged.connect(self._refresh)
             self._fields[spec.key] = widget
 
-            if spec.secret:
+            if spec.secret and edit is not None:
                 # Goz dugmesi: parolayi gormeden dogru yazdigindan emin
                 # olmanin baska yolu yok, kare zaten ekranda.
                 line = QHBoxLayout()
@@ -231,7 +232,7 @@ class QrDialog(QWidget):
                 eye.setCheckable(True)
                 eye.setFixedWidth(32)
                 eye.toggled.connect(
-                    lambda shown, w=widget: w.setEchoMode(
+                    lambda shown, w=edit: w.setEchoMode(
                         QLineEdit.EchoMode.Normal
                         if shown
                         else QLineEdit.EchoMode.Password
@@ -256,19 +257,19 @@ class QrDialog(QWidget):
         # kacis karakterleri ikinci kez kacirilip cop bir kare cikiyordu.
         if initial:
             for key, value in qr.parse(item.key, initial).items():
-                widget = self._fields.get(key)
-                if widget is None or not value:
+                field = self._fields.get(key)
+                if field is None or not value:
                     continue
                 if key == "password" and set(value) <= {MASK_CHAR}:
                     # Maskelenmis ham icerik geri geldi: gercek parola
                     # degil, yildizin kendisi. Yazmak yaniltici olurdu.
                     continue
-                if isinstance(widget, QLineEdit):
-                    widget.setText(value)
-                elif isinstance(widget, QComboBox):
-                    widget.setCurrentText(value)
-                elif isinstance(widget, QCheckBox):
-                    widget.setChecked(value == "1")
+                if isinstance(field, QLineEdit):
+                    field.setText(value)
+                elif isinstance(field, QComboBox):
+                    field.setCurrentText(value)
+                elif isinstance(field, QCheckBox):
+                    field.setChecked(value == "1")
         self._refresh()
 
     # ---- cizim ----
@@ -296,7 +297,7 @@ class QrDialog(QWidget):
             self._status.setText("")
             return
         pixmap = QPixmap()
-        pixmap.loadFromData(data, "PNG")
+        pixmap.loadFromData(data)  # bicim icerikten
         self._image.setPixmap(
             pixmap.scaled(
                 qr.PIXEL_SIZE,

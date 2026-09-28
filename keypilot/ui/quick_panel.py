@@ -376,6 +376,7 @@ class QuickPanel(QWidget):
         # Cerceve payi listeden BAGIMSIZ olculuyor: `height() - list.height()`
         # panel daha bir kez bile yerlesmemisken sacma bir sayi veriyordu.
         layout = self.layout()
+        assert layout is not None  # __init__ kuruyor
         margins = layout.contentsMargins()
         chrome = (
             self.tabbar.sizeHint().height()

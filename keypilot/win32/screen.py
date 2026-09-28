@@ -193,7 +193,8 @@ def grab_virtual() -> tuple[QImage, tuple[int, int, int, int]]:
 
         # 32 bit BI_RGB bellekte BGRA sirasindadir; Format_RGB32 tam bu.
         # `copy()` sart: QImage tamponu odunc alir, buffer burada olur.
-        image = QImage(buffer, width, height, width * 4, QImage.Format.Format_RGB32).copy()
+        pixels = memoryview(buffer).cast("B")  # ctypes dizisi -> duz bayt gorunumu
+        image = QImage(pixels, width, height, width * 4, QImage.Format.Format_RGB32).copy()
         return image, (x, y, width, height)
     finally:
         gdi32.SelectObject(memory_dc, previous)
