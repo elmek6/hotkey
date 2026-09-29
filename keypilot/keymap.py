@@ -50,8 +50,8 @@ from keypilot.core.hot_vectors import (
     LockMode,
 )
 from keypilot.core.hotkey import HotkeyTable
-from keypilot.core.radial import Axis, RadialItem, RadialSpec
 from keypilot.core.keynames import register_name
+from keypilot.core.radial import Axis, RadialItem, RadialSpec
 from keypilot.idle import Computer
 from keypilot.settings import Category, between, setting
 from keypilot.win32 import send
@@ -376,26 +376,52 @@ SYS_COMMANDS_MENU = (
 SYSTEM_MENU = SYS_COMMANDS_MENU
 
 #: Radyal menu (ui/radial_menu.py) -- DENEME, icerik F14'ten. Ic halka 4 yon,
-#: dis halka 12 dilim (1 ustte, saat yonunde). Sol yon dikey kilitli: yukari
-#: +1 (ses ac), asagi -1 (ses kis).
+#: dis halka 12 dilim (1 ustte, saat yonunde). KILIT YALNIZ saat 12, 3, 6, 9
+#: dilimlerinde olabilir (core/radial.py `LOCKABLE_OUTER`, RadialSpec denetler).
+#: Kilitli dilimler -- AxisLock'ta yukari/sola +1 (`step_up`), asagi/saga -1:
+#:   saat 12  Back/Del  yatay: sola Backspace, saga Delete  (slot 1'in yeri)
+#:   saat 6   Arrow     yatay: sola Left, saga Right        (slot 7'nin yeri)
+#:   saat 9   Vol       dikey: yukari ses ac, asagi ses kis (slot 0'in yeri)
+#: F14'ten GELMEYENLER: "Edit ^" (slot listesi calisma aninda, komutu yok);
+#: QR, Search in slots, Side slot -- 12 dilime sigmadi.
+
+
+def _slot(number: int) -> RadialItem:
+    return RadialItem(str(number), Cmd.Slot.PASTE_GROUP(f"/{number}"), hint=f"Slot {number}")
+
+
 RADIAL_MENU = RadialSpec(
     directions={
         Direction.UP: RadialItem("Unformatted paste", Cmd.send_key("^+v")),
         Direction.RIGHT: RadialItem("System", menu=SYSTEM_MENU),
         Direction.DOWN: RadialItem("Special keys", menu=SPECIAL_KEYS_MENU),
-        Direction.LEFT: RadialItem(
-            "Volume",
+        # Fonksiyon: monitor listesi her acilista taze.
+        Direction.LEFT: RadialItem("Area", menu=screen_menu),
+    },
+    outer=(
+        RadialItem(
+            "Back\nDel",
+            lock=Axis.HORIZONTAL,
+            step_up=Cmd.send_key("Backspace"),
+            step_down=Cmd.send_key("Delete"),
+            hint="← Back  Del →",
+        ),
+        *(_slot(number) for number in range(2, 7)),
+        RadialItem(
+            "Arrow",
+            lock=Axis.HORIZONTAL,
+            step_up=Cmd.send_key("Left"),
+            step_down=Cmd.send_key("Right"),
+            hint="← Arrow →",
+        ),
+        _slot(8),
+        _slot(9),
+        RadialItem(
+            "Vol",
             lock=Axis.VERTICAL,
             step_up=Cmd.send_key("Volume_Up"),
             step_down=Cmd.send_key("Volume_Down"),
-        ),
-    },
-    outer=(
-        *(
-            RadialItem(
-                str(index % 10), Cmd.Slot.PASTE_GROUP(f"/{index}"), hint=f"Slot {index % 10}"
-            )
-            for index in range(1, 11)
+            hint="Volume ↑↓",
         ),
         RadialItem("Img", Cmd.Clip.IMAGES, hint="Clipboard images"),
         RadialItem("Shot", Cmd.send_key("!PrintScreen"), hint="Window screenshot"),

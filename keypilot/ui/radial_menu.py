@@ -9,7 +9,7 @@ degistirmez, yapistirma oraya gider. Kapanis iki yoldan:
 Kose pikselleri saydam oldugu icin fare oralardan pencereyi terk eder;
 `leaveEvent` de kapatir.
 
-Kilitli yon (ornek: sol, dikey): sektore girince imlec o yukseklikte
+Kilitli dilim (ornek: dis halkada "0", dikey): girince imlec o yukseklikte
 sabitlenir, dikey hareket `AxisLock` ile +1/-1 adima cevrilip ogenin
 `step_up` / `step_down` eylemi calistirilir. Yatay serbest.
 
@@ -46,13 +46,25 @@ from keypilot.core.radial import (
     item_at,
 )
 
-INNER_BG = QColor("#3b7dd8")
-OUTER_BG = QColor("#5b94de")
-EMPTY_BG = QColor("#c9d9f0")
-HOVER_BG = QColor("#9dc1f2")
-LOCK_BG = QColor("#2a5fb0")
-GAP_BG = QColor("#ffffff")
-CLOSE_BG = QColor("#ed6ea7")
+#: Butun zeminler yari saydam (alfa 0-255): alttaki pencere gorunsun.
+#: Yazilar opak kaliyor, okunsun diye.
+ALPHA = 150
+
+
+def _color(hex_code: str, alpha: int = ALPHA) -> QColor:
+    color = QColor(hex_code)
+    color.setAlpha(alpha)
+    return color
+
+
+INNER_BG = _color("#3b7dd8")
+OUTER_BG = _color("#5b94de")
+EMPTY_BG = _color("#c9d9f0")
+HOVER_BG = _color("#9dc1f2", 200)
+LOCK_BG = _color("#2a5fb0", 200)
+GAP_BG = _color("#ffffff", 90)
+HOLE_BG = _color("#ffffff", 200)
+CLOSE_BG = _color("#ed6ea7")
 TEXT = QColor("#ffffff")
 HINT_TEXT = QColor("#1f2228")
 
@@ -159,7 +171,7 @@ class RadialMenu(QWidget):
         if item.lock is not None:
             return
         if item.menu is not None:
-            menu = item.menu
+            menu = item.menu() if callable(item.menu) else item.menu
             QTimer.singleShot(0, lambda: self._show_menu(menu))
         elif item.action:
             action = item.action
@@ -216,11 +228,19 @@ class RadialMenu(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         center = float(EDGE_R)
 
+        # Saydam zeminler ust uste binmesin: pembe yalniz halka, disk degil.
+        middle = QPointF(center, center)
+        ring = QPainterPath()
+        ring.addEllipse(middle, EDGE_R - 2, EDGE_R - 2)
+        ring.addEllipse(middle, CLOSE_R, CLOSE_R)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(CLOSE_BG)
-        painter.drawEllipse(QPointF(center, center), EDGE_R - 2, EDGE_R - 2)
+        painter.drawPath(ring)
         painter.setBrush(GAP_BG)
-        painter.drawEllipse(QPointF(center, center), CLOSE_R, CLOSE_R)
+        painter.drawEllipse(middle, CLOSE_R, CLOSE_R)
+        # Delik: ortadaki koyu yazi her zeminde okunsun.
+        painter.setBrush(HOLE_BG)
+        painter.drawEllipse(middle, HOLE_R, HOLE_R)
 
         separator = QPen(GAP_BG, SEPARATOR)
         painter.setPen(separator)
@@ -228,7 +248,13 @@ class RadialMenu(QWidget):
             start = index * OUTER_SPAN - OUTER_SPAN / 2
             item = self.spec.outer[index] if index < len(self.spec.outer) else None
             hovered = self._hit.zone is Zone.OUTER and self._hit.index == index
-            painter.setBrush(HOVER_BG if hovered else OUTER_BG if item else EMPTY_BG)
+            if hovered and self._lock is not None:
+                color = LOCK_BG
+            elif hovered:
+                color = HOVER_BG
+            else:
+                color = OUTER_BG if item else EMPTY_BG
+            painter.setBrush(color)
             painter.drawPath(
                 _sector(center, INNER_R + RING_GAP, OUTER_R, start, start + OUTER_SPAN)
             )

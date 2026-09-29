@@ -13,6 +13,7 @@ from keypilot.core.radial import (
     EDGE_R,
     HOLE_R,
     INNER_R,
+    OUTER_COUNT,
     OUTER_R,
     STEP_PX,
     Axis,
@@ -59,9 +60,9 @@ def test_ic_halka_dort_yon(dx, dy, direction):
     ("dx", "dy", "index"),
     [
         (0, -MID_OUTER, 0),  # 1 ustte
-        (MID_OUTER, 0, 3),  # 4 sagda
-        (0, MID_OUTER, 6),  # 7 altta
-        (-MID_OUTER, 0, 9),  # 10 solda
+        (MID_OUTER, 0, 3),  # saat 3
+        (0, MID_OUTER, 6),  # saat 6
+        (-MID_OUTER, 0, 9),  # saat 9
         (-10, -MID_OUTER, 0),  # 1 dilimi ortanin iki yanina tasiyor
     ],
 )
@@ -89,6 +90,24 @@ def test_kilit_adimlari_ve_kalan():
     assert lock.feed(0) == 0
 
 
+@pytest.mark.parametrize("index", [0, 3, 6, 9])
+def test_dis_halkada_saat_12_3_6_9_kilitlenebilir(index):
+    kilitli = RadialItem("k", lock=Axis.VERTICAL)
+    RadialSpec({}, tuple(kilitli if i == index else RadialItem("x") for i in range(12)))
+
+
+@pytest.mark.parametrize("index", [1, 2, 4, 5, 7, 8, 10, 11])
+def test_dis_halkada_ara_dilimler_kilitlenemez(index):
+    kilitli = RadialItem("k", lock=Axis.VERTICAL)
+    with pytest.raises(ValueError, match="saat 12, 3, 6, 9"):
+        RadialSpec({}, tuple(kilitli if i == index else RadialItem("x") for i in range(12)))
+
+
+def test_dis_halka_en_fazla_12_dilim():
+    with pytest.raises(ValueError):
+        RadialSpec({}, tuple(RadialItem("x") for _ in range(13)))
+
+
 def test_menu_ekrana_sigar():
     area = (0, 0, 1920, 1080)
     assert fit_center(500, 500, area) == (500, 500)
@@ -109,12 +128,17 @@ def menu(qapp, monkeypatch):
 
     from keypilot.ui.radial_menu import RadialMenu
 
+    class Pencere(RadialMenu):
+        calisan: list[str]
+        menuler: list[tuple]
+        tasima: list
+
     calisan: list[str] = []
     menuler: list[tuple] = []
     tasima: list = []
     monkeypatch.setattr(QCursor, "setPos", staticmethod(lambda *a: tasima.append(a)))
     spec = RadialSpec({Direction.UP: UST, Direction.RIGHT: SISTEM, Direction.LEFT: SES}, (SLOT1,))
-    pencere = RadialMenu(spec, calisan.append, menuler.append)
+    pencere = Pencere(spec, calisan.append, menuler.append)
     pencere.show()
     pencere.calisan, pencere.menuler, pencere.tasima = calisan, menuler, tasima
     yield pencere
@@ -178,6 +202,45 @@ def test_kilit_yatayda_serbest_ve_sektorden_cikinca_biter(menu, qapp):
     assert menu.calisan == []
 
 
+def test_alt_menu_fonksiyonsa_acilista_uretilir(qapp, monkeypatch):
+    from keypilot.ui.radial_menu import RadialMenu
+
+    uretim: list[int] = []
+
+    def taze() -> tuple:
+        uretim.append(1)
+        return (("m", "n"),)
+
+    menuler: list[tuple] = []
+    spec = RadialSpec({Direction.LEFT: RadialItem("Area", menu=taze)})
+    pencere = RadialMenu(spec, lambda _: None, menuler.append)
+    pencere.show()
+    assert uretim == []  # kurulumda degil, tiklayinca
+    pencere.track(-MID_INNER, 0)
+    pencere.click()
+    qapp.processEvents()
+    assert menuler == [(("m", "n"),)]
+    pencere.close()
+
+
+def test_dis_halkada_kilitli_dilim(qapp, monkeypatch):
+    from PySide6.QtGui import QCursor
+
+    from keypilot.ui.radial_menu import RadialMenu
+
+    monkeypatch.setattr(QCursor, "setPos", staticmethod(lambda *a: None))
+    calisan: list[str] = []
+    # Saat 9: dilim 9, tam solda.
+    spec = RadialSpec({}, tuple(SES if i == 9 else SLOT1 for i in range(10)))
+    pencere = RadialMenu(spec, calisan.append, lambda _: None)
+    pencere.show()
+    pencere.track(-MID_OUTER, 0)
+    assert pencere.locked
+    pencere.track(-MID_OUTER, -STEP_PX)
+    assert calisan == ["up"]
+    pencere.close()
+
+
 def test_kilitli_yone_tiklamak_yalniz_kapatir(menu, qapp):
     menu.track(-MID_INNER, 0)
     menu.click()
@@ -196,8 +259,45 @@ def test_deneme_icerigi():
 
     spec = keymap.RADIAL_MENU
     assert set(spec.directions) == set(Direction)
-    assert spec.directions[Direction.LEFT].lock is Axis.VERTICAL
-    assert len(spec.outer) == 12
-    assert spec.outer[0].action == Cmd.Slot.PASTE_GROUP("/1")
-    assert spec.outer[9].label == "0"
+    assert spec.directions[Direction.LEFT].menu is keymap.screen_menu
+    assert len(spec.outer) == OUTER_COUNT == 12
+    assert spec.outer[1].action == Cmd.Slot.PASTE_GROUP("/2")
     assert Cmd.Menu.RADIAL == "menu.radial"
+    # Kilitliler saat 12 / 6 / 9: Back/Del ve Arrow yatay, ses dikey.
+    locks = {index: item.lock for index, item in enumerate(spec.outer) if item.lock}
+    assert locks == {0: Axis.HORIZONTAL, 6: Axis.HORIZONTAL, 9: Axis.VERTICAL}
+    # Sola +1 (step_up), saga -1 (step_down).
+    assert spec.outer[0].step_up == Cmd.send_key("Backspace")
+    assert spec.outer[0].step_down == Cmd.send_key("Delete")
+    assert spec.outer[6].step_up == Cmd.send_key("Left")
+    assert spec.outer[6].step_down == Cmd.send_key("Right")
+    assert [item.label for item in spec.outer[1:6]] == ["2", "3", "4", "5", "6"]
+
+
+def test_radyal_tus_adlari_cozuluyor():
+    from keypilot.core.keynames import vk_from_name
+
+    for name in ("Backspace", "Delete", "Left", "Right", "Volume_Up", "Volume_Down"):
+        assert vk_from_name(name) is not None, name
+
+
+def test_yatay_kilit_sola_arti_saga_eksi(qapp, monkeypatch):
+    from PySide6.QtGui import QCursor
+
+    from keypilot.ui.radial_menu import RadialMenu
+
+    monkeypatch.setattr(QCursor, "setPos", staticmethod(lambda *a: None))
+    calisan: list[str] = []
+    ok = RadialItem("Arrow", lock=Axis.HORIZONTAL, step_up="left", step_down="right")
+    # Saat 6: dilim 6, tam altta.
+    spec = RadialSpec({}, tuple(ok if i == 6 else SLOT1 for i in range(7)))
+    pencere = RadialMenu(spec, calisan.append, lambda _: None)
+    pencere.show()
+    pencere.track(0, MID_OUTER)
+    assert pencere.locked
+    pencere.track(-STEP_PX * 2, MID_OUTER)  # sola iki adim
+    pencere.track(STEP_PX, MID_OUTER)  # saga bir adim
+    assert calisan == ["left", "left", "right"]
+    pencere.track(0, MID_OUTER + 5)  # dikey serbest, kilit suruyor
+    assert pencere.locked
+    pencere.close()

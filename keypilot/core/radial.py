@@ -8,35 +8,42 @@ Halkalar merkezden disa:
 
     delik    (HOLE_R)          bos, uzerine gelinen ogenin adi yazar
     ic halka (INNER_R)         4 yon: UP / RIGHT / DOWN / LEFT, 90'ar derece
-    dis halka (OUTER_R)        12 dilim, saat gibi: 1 ustte, saat yonunde
+    dis halka (OUTER_R)        12 dilim, saat gibi: 1. dilim ustte (saat 12),
+                               saat yonunde
     bosluk   (CLOSE_R)         beyaz aralik, isabet yok
     pembe    (EDGE_R)          degince menu kapanir
 
 Acilar ekran koordinatinda: 0 derece yukari, saat yonunde artar (dy asagi
 pozitif).
 
-YON KILIDI: kilitli yonun sektorune girince imlec o eksende sabitlenir
-(pencere geri tasir), eksen boyunca hareket `AxisLock` ile adima cevrilir:
-her `STEP_PX` piksel bir adim, yukari/sola +1. Diger eksen serbest; o eksende
-sektorden cikinca kilit biter.
+YON KILIDI: yalniz dort ana yon kilitlenebilir -- ic halkanin 4 yonu ve dis
+halkada saat 12, 3, 6, 9 dilimleri (`LOCKABLE_OUTER`); `RadialSpec` baska
+yerde kilit gorurse hata verir. Kilitli dilime girince imlec o eksende
+sabitlenir (pencere geri tasir), eksen boyunca hareket `AxisLock` ile adima
+cevrilir: her `STEP_PX` piksel bir adim, yukari/sola +1. Diger eksen serbest;
+o eksende dilimden cikinca kilit biter.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
 from keypilot.core.hot_vectors import Direction
 
 HOLE_R = 34
-INNER_R = 132
-OUTER_R = 200
-CLOSE_R = 212
-EDGE_R = 232
+INNER_R = 104
+OUTER_R = 180
+CLOSE_R = 192
+EDGE_R = 212
 
 OUTER_COUNT = 12
 OUTER_SPAN = 360 / OUTER_COUNT
+
+#: Dis halkada kilitlenebilen dilimler: saat 12, 3, 6, 9.
+LOCKABLE_OUTER = frozenset({0, 3, 6, 9})
 
 #: Kilitte bir adim icin gereken hareket (piksel).
 STEP_PX = 12
@@ -60,12 +67,14 @@ class RadialItem:
     """Bir dilim. Uc turden biri: eylem, alt menu ya da kilitli yon.
 
     `label` dilimin ustunde, `hint` (bossa `label`) ortadaki delikte yazar.
-    Kilitli yonde `step_up` +1, `step_down` -1 adimda calisir.
+    Kilitli dilimde `step_up` +1, `step_down` -1 adimda calisir. `menu`
+    fonksiyon da olabilir: icerigi her acilista taze uretilen menuler icin
+    (ornek: monitor listesi).
     """
 
     label: str
     action: str = ""
-    menu: tuple | None = None
+    menu: tuple | Callable[[], tuple] | None = None
     lock: Axis | None = None
     step_up: str = ""
     step_down: str = ""
@@ -81,6 +90,16 @@ class RadialSpec:
     directions: dict[Direction, RadialItem] = field(default_factory=dict)
     #: Saat yonunde, 1. dilim ustte. En fazla `OUTER_COUNT`.
     outer: tuple[RadialItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.outer) > OUTER_COUNT:
+            raise ValueError(f"dis halka en fazla {OUTER_COUNT} dilim: {len(self.outer)}")
+        for index, item in enumerate(self.outer):
+            if item.lock is not None and index not in LOCKABLE_OUTER:
+                raise ValueError(
+                    f"'{item.label}' kilitli ama dis halkada {index}. dilimde; "
+                    "yalniz saat 12, 3, 6, 9 (dilim 0, 3, 6, 9) kilitlenebilir"
+                )
 
 
 class Zone(Enum):
