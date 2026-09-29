@@ -298,7 +298,7 @@ def test_genel_bakisin_butun_maddeleri_kayitli_ve_calisiyor(rig, caplog):
     leaves.append(str(app_module.keymap.OVERVIEW_HISTORY[1]))
     leaves.append(Cmd.Clip.FILTER)
     # Dugmeler de sayildi mi: iki baslik menusu, sekmeler, Win+V, alt satir.
-    buttons = [b for b in panel.findChildren(QPushButton) if b.text()]
+    buttons = [b for b in panel.findChildren(QPushButton) if b.text() or not b.icon().isNull()]
     assert len(buttons) >= 5 + len(rig.pilot._overview_buttons())
 
     missing = [action for action in leaves if not _registered(rig, action)]

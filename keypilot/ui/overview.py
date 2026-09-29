@@ -711,8 +711,8 @@ class OverviewPanel(QWidget):
         self._dodge_cursor(QCursor.pos())
 
     def _dodge_cursor(self, pos: QPoint) -> None:
-        """Katman acildiginda imlec ✕'in USTUNDEYSE, ✕ alt siradaki ⚙️
-        dugmesinin yanina tasinir -- yoksa katman acilir acilmaz kapanirdi."""
+        """Katman acildiginda imlec ✕'in USTUNDEYSE, ✕ alt siranin
+        SONUNA tasinir -- yoksa katman acilir acilmaz kapanirdi."""
         button = self.close_button
         if not button.rect().contains(button.mapFromGlobal(pos)):
             return

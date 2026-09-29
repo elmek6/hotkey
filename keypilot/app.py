@@ -1566,7 +1566,8 @@ class KeyPilot:
             ("images", Cmd.Clip.IMAGES, Icon.res(109), "Clipboard images"),
             ("📚 Repository", Cmd.Repository.OPEN),
             self._incognito_menu_item(),
-            ("⚙️", Cmd.App.SETTINGS, "Ayarlar"),
+            # Ikon-yalniz: F14 "Window screenshot" (Alt+PrintScreen) ile ayni ikon.
+            ("", Cmd.send_key("!PrintScreen"), Icon.shell(196), "Window screenshot"),
         )
 
     @command(Cmd.Qr.SHOW)
