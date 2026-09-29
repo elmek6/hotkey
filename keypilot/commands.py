@@ -103,6 +103,7 @@ class Cmd:
         GROUP_DELETE = auto()
         SEARCH = auto()
         EDIT_FILE = auto()
+        EDITOR = auto()
 
     class Slot(Id):
         _generate_next_value_ = _prefix("slot")

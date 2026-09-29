@@ -88,6 +88,7 @@ from keypilot.ui.qr_view import QrDialog
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
 from keypilot.ui.repository_view import RepositoryView
 from keypilot.ui.settings_dialog import SettingsDialog
+from keypilot.ui.slots_view import SlotsWindows
 from keypilot.ui.snip import SnipAction, SnipOverlay
 from keypilot.ui.tip import Tip
 from keypilot.ui.tray import Tray
@@ -488,6 +489,11 @@ class KeyPilot:
         self.repository.load()
         self.repository_view = RepositoryView(self.repository)
         self.runner.register(Cmd.Repository.OPEN, lambda _: self.repository_view.open())
+
+        # Slot gruplarinin hepsi tek pencerede (en fazla iki pencere);
+        # F14 ile ayni SlotStore.
+        self.slots_windows = SlotsWindows(self.slot_store)
+        self.runner.register(Cmd.Slots.EDITOR, lambda _: self.slots_windows.open())
 
         # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
         # Nesne her acilista yeniden kuruluyor -- durum tasimiyor ve
@@ -2275,6 +2281,7 @@ class KeyPilot:
         self.ocr_view.close()
         self.mem_slots.close()
         self.repository_view.close()
+        self.slots_windows.close()
         # Ilk istendiginde kurulan pencereler: hic acilmadiysa None.
         # `_overview` kapaninca kendini siliyor, olu sarmalayiciya dokunulmaz.
         for window in (

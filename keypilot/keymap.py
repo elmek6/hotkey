@@ -354,6 +354,8 @@ SYS_COMMANDS_MENU = (
     ("0: Exit script", Cmd.App.EXIT),
     # repository.ahk: veri Files/repository.md, pencere ui/repository_view.py.
     ("r: Repository", Cmd.Repository.OPEN),
+    # Butun slot gruplari tek pencerede (ui/slots_view.py).
+    ("s: Slot duzenle", Cmd.Slots.EDITOR),
     # Tek madde: pencereyi acar. Mod pencerede yasar, kapatma da orada.
     ("i: Incognito", Cmd.Incognito.OPEN),
     ("a: TrayTip test", Cmd.Run.NOTIFY("Mesaj icerigi")),
