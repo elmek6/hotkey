@@ -50,6 +50,7 @@ from keypilot.core.hot_vectors import (
     LockMode,
 )
 from keypilot.core.hotkey import HotkeyTable
+from keypilot.core.radial import Axis, RadialItem, RadialSpec
 from keypilot.core.keynames import register_name
 from keypilot.idle import Computer
 from keypilot.settings import Category, between, setting
@@ -374,6 +375,33 @@ SYS_COMMANDS_MENU = (
 #: `´`de yoktu); tek kaynak kalsin diye takma ad.
 SYSTEM_MENU = SYS_COMMANDS_MENU
 
+#: Radyal menu (ui/radial_menu.py) -- DENEME, icerik F14'ten. Ic halka 4 yon,
+#: dis halka 12 dilim (1 ustte, saat yonunde). Sol yon dikey kilitli: yukari
+#: +1 (ses ac), asagi -1 (ses kis).
+RADIAL_MENU = RadialSpec(
+    directions={
+        Direction.UP: RadialItem("Unformatted paste", Cmd.send_key("^+v")),
+        Direction.RIGHT: RadialItem("System", menu=SYSTEM_MENU),
+        Direction.DOWN: RadialItem("Special keys", menu=SPECIAL_KEYS_MENU),
+        Direction.LEFT: RadialItem(
+            "Volume",
+            lock=Axis.VERTICAL,
+            step_up=Cmd.send_key("Volume_Up"),
+            step_down=Cmd.send_key("Volume_Down"),
+        ),
+    },
+    outer=(
+        *(
+            RadialItem(
+                str(index % 10), Cmd.Slot.PASTE_GROUP(f"/{index}"), hint=f"Slot {index % 10}"
+            )
+            for index in range(1, 11)
+        ),
+        RadialItem("Img", Cmd.Clip.IMAGES, hint="Clipboard images"),
+        RadialItem("Shot", Cmd.send_key("!PrintScreen"), hint="Window screenshot"),
+    ),
+)
+
 # ---- OnStart / OnExit -- AHK: LoadSettings() ve ExitSettings() ----
 # Pano gecmisinin diskten okunmasi/yazilmasi app.py on_start/on_exit icinde;
 # buraya yalniz "acilista/kapanista su eylemler de calissin" turu script
@@ -412,6 +440,7 @@ def build_cascades() -> dict[int, CascadeDef]:
         KeyBuilder("F16", short=SHORT_MS)
         .main_key(PressType.SHORT, Cmd.send_key("^z"))
         .main_key(PressType.MEDIUM, Cmd.send_key("Enter"))
+        .combo("F15", "radyal menu (deneme)", Cmd.Menu.RADIAL)
         .show_menu(False)
         .named("F16")
         .build(),

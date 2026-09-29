@@ -86,6 +86,7 @@ from keypilot.ui.preview import dim, preview_html, shorten
 from keypilot.ui.profiles_view import ProfilesView
 from keypilot.ui.qr_view import QrDialog
 from keypilot.ui.quick_panel import QuickItem, QuickPanel, QuickTab
+from keypilot.ui.radial_menu import RadialMenu
 from keypilot.ui.repository_view import RepositoryView
 from keypilot.ui.settings_dialog import SettingsDialog
 from keypilot.ui.slots_view import SlotsWindows
@@ -494,6 +495,10 @@ class KeyPilot:
         # F14 ile ayni SlotStore.
         self.slots_windows = SlotsWindows(self.slot_store)
         self.runner.register(Cmd.Slots.EDITOR, lambda _: self.slots_windows.open())
+
+        # Radyal menu (deneme): F16 & F15. Icerik keymap.RADIAL_MENU.
+        self.radial_menu = RadialMenu(keymap.RADIAL_MENU, self.runner.run, self.menu.show)
+        self.runner.register(Cmd.Menu.RADIAL, lambda _: self.radial_menu.open_at_cursor())
 
         # QR (qr-plani.md): pencere panodakiyle acilir, PC -> telefon.
         # Nesne her acilista yeniden kuruluyor -- durum tasimiyor ve
@@ -2282,6 +2287,7 @@ class KeyPilot:
         self.mem_slots.close()
         self.repository_view.close()
         self.slots_windows.close()
+        self.radial_menu.close()
         # Ilk istendiginde kurulan pencereler: hic acilmadiysa None.
         # `_overview` kapaninca kendini siliyor, olu sarmalayiciya dokunulmaz.
         for window in (

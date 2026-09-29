@@ -83,6 +83,7 @@ class Cmd:
         CLIP = auto()
         BASE_SLOTS = auto()
         SIDE_SLOTS = auto()
+        RADIAL = auto()
 
     class Clip(Id):
         _generate_next_value_ = _prefix("clip")
