@@ -85,3 +85,44 @@ def test_dialog_dakika_etiketi_gunceller(qapp):
     dialog.accepted_minutes.connect(got.append)
     dialog._accept()
     assert got == [90]
+
+
+def test_dialog_hibernate_kutusu(qapp):
+    from keypilot.ui.idle import IdleDialog
+
+    dialog = IdleDialog()
+    dialog.show_for(60, hibernate=True)
+    assert dialog.wants_hibernate()
+    dialog.show_for(60)
+    assert not dialog.wants_hibernate()
+    dialog.close()
+
+
+def test_hibernate_sayaci_iptal_ve_bitis(qapp):
+    from keypilot.ui.hibernate_countdown import HibernateCountdown
+
+    countdown = HibernateCountdown()
+    events: list[str] = []
+    countdown.expired.connect(lambda: events.append("expired"))
+    countdown.cancelled.connect(lambda: events.append("cancelled"))
+    countdown.start(300)
+    assert countdown.running
+    assert "5:00" in countdown._label.text()
+    countdown._cancel()
+    assert not countdown.running
+    countdown.start(0)
+    countdown._tick()
+    assert events == ["cancelled", "expired"]
+    countdown.stop()
+    countdown.stop()  # ikinci stop sessiz
+    assert events == ["cancelled", "expired"]
+    countdown.close()
+
+
+def test_saat_sapmasi_ve_hhmm():
+    from keypilot.idle import clock_drifted, clock_hhmm
+
+    assert not clock_drifted(1000.0, 1030.0)
+    assert clock_drifted(1000.0, 1000.0 + 600)  # uyku: 10 dk gec
+    assert clock_hhmm(40) == "00:40"
+    assert clock_hhmm(125) == "02:05"

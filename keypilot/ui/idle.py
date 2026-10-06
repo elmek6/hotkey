@@ -1,9 +1,22 @@
-"""Ekran koruyucu zamanlayicisi -- kalan sure + dakika girisi."""
+"""Ekran koruyucu zamanlayicisi -- kalan sure + dakika girisi.
+
+"Hibernate" kutusu isaretliyse sure bitince bilgisayar hazirda beklemeye
+gecer; son 5 dakikada tepsi ustunde kapatilabilir bir sayac cikar
+(bkz. ui/hibernate_countdown.py).
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from keypilot.idle import clock_label
 from keypilot.ui.place import center_on_cursor_screen
@@ -29,12 +42,16 @@ class IdleDialog(QWidget):
         row.addWidget(self._label)
         row.addWidget(self._edit)
         layout.addLayout(row)
+        self._hibernate = QCheckBox("Hibernate", self)
+        self._hibernate.setToolTip("Sure bitince bilgisayar hazirda beklemeye gecer")
+        layout.addWidget(self._hibernate)
         ok = QPushButton("Tamam", self)
         ok.clicked.connect(self._accept)
         layout.addWidget(ok)
 
-    def show_for(self, remaining_minutes: int) -> None:
+    def show_for(self, remaining_minutes: int, hibernate: bool = False) -> None:
         self._minutes = max(0, int(remaining_minutes))
+        self._hibernate.setChecked(hibernate)
         self._edit.blockSignals(True)
         self._edit.clear()
         self._edit.blockSignals(False)
@@ -45,6 +62,9 @@ class IdleDialog(QWidget):
         self.raise_()
         self.activateWindow()
         self._edit.setFocus()
+
+    def wants_hibernate(self) -> bool:
+        return self._hibernate.isChecked()
 
     def _on_typed(self, text: str) -> None:
         raw = text.strip()

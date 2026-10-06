@@ -52,6 +52,8 @@ VK_NAMES[0xAF] = "Volume_Up"
 VK_NAMES[0xB0] = "Media_Next"
 VK_NAMES[0xB1] = "Media_Prev"
 VK_NAMES[0xB3] = "Media_Play_Pause"
+VK_NAMES[0xA6] = "Browser_Back"
+VK_NAMES[0xA7] = "Browser_Forward"
 
 MODIFIER_VKS = frozenset({0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C})
 

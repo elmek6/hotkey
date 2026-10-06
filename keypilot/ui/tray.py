@@ -53,6 +53,8 @@ BAR = QColor("#ffffff")
 #: hata / uyari) ve mor onlarin yerine gecseydi gelistirme modu hata
 #: isaretini ORTERDI. Halka ayri bir kanal -- ikisi ayni anda gorunur.
 DEV_RING = QColor("#a371f7")
+#: Uyanik tutma sayaci calisirken simgenin cercevesi (bkz. set_awake).
+AWAKE_RING = QColor("#3fb950")
 
 
 class TrayAction(StrEnum):
@@ -159,6 +161,7 @@ def make_icon(
     error: bool = False,
     warn: bool = False,
     dev: bool = False,
+    awake: bool = False,
 ) -> QIcon:
     """Kaskadi anlatan basit simge: saga dogru inen uc cubuk.
 
@@ -203,15 +206,19 @@ def make_icon(
     # Gelistirme modu: mor halka. Simge tepside 16 px'e inecegi icin
     # cizgi kalinligi oranli veriliyor ve dikdortgen yarim kalinlik iceri
     # cekiliyor -- yoksa halkanin disi kirpiliyor.
-    if dev:
-        stroke = size * 0.09
-        pen = QPen(DEV_RING)
+    # Uyanik sayaci: yesil halka. Gelistirme halkasiyla birlikteyse icte kalir.
+    stroke = size * 0.09
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    rings = ((awake, AWAKE_RING, stroke if dev else 0.0), (dev, DEV_RING, 0.0))
+    for active, color, offset in rings:
+        if not active:
+            continue
+        pen = QPen(color)
         pen.setWidthF(stroke)
         painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        inset = stroke / 2.0
+        inset = stroke / 2.0 + offset
         painter.drawRoundedRect(
-            QRectF(inset, inset, size - stroke, size - stroke),
+            QRectF(inset, inset, size - 2 * inset, size - 2 * inset),
             size * 0.20,
             size * 0.20,
         )
@@ -247,6 +254,8 @@ class Tray(QSystemTrayIcon):
         #: Gelistirme modu acik mi -- simgede mor halka, ipucunda etiket.
         #: Ayardan da gelebilir bayraktan da; tepsi ayrimi bilmiyor.
         self.dev = False
+        #: Uyanik sayaci satiri ("00:40 (hibernate)"); None = sayac yok.
+        self.awake: str | None = None
         self.error_count = 0
         #: Bunlarin kaci ERROR+ -- simgeyi KIRMIZI yapan sayi budur.
         self.severe_count = 0
@@ -364,6 +373,13 @@ class Tray(QSystemTrayIcon):
         self.dev_off_action.setVisible(active)
         self._refresh()
 
+    def set_awake(self, text: str | None) -> None:
+        """Sayac calisirken yesil halka + ipucunda kalan sure satiri."""
+        if text == self.awake:
+            return
+        self.awake = text
+        self._refresh()
+
     def set_error_count(self, count: int, severe: int = 0) -> None:
         """Kayit sayisi: menude sayi gorunur, simge renk degistirir.
 
@@ -385,6 +401,7 @@ class Tray(QSystemTrayIcon):
                 error=bool(self.severe_count),
                 warn=bool(self.error_count),
                 dev=self.dev,
+                awake=self.awake is not None,
             )
         )
         self.setToolTip(self._tooltip())
@@ -419,6 +436,8 @@ class Tray(QSystemTrayIcon):
         double = DOUBLE_CLICK.get()
         parts.append(f"dbClick = {log_label if marked else DOUBLE_CLICK.label_for(double)}")
 
+        if self.awake is not None:
+            parts.append(f"Awake = {self.awake}")
         if self.dev:
             parts.append("GELISTIRME")
         if self.paused:

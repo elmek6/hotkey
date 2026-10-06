@@ -20,7 +20,8 @@ Cikis kodlari -- gozetmen (hotkey.vbs) bunlara gore davraniyor:
     0                    normal cikis
     2  ALREADY_RUNNING   bu oturumda zaten bir KeyPilot var (cokme DEGIL)
     3  RESTART           yerimize bir cocuk baslatildi (cokme DEGIL)
-    digeri               gercek cokme: uv sync + bir kez daha denenir
+    digeri               gercek cokme: geri getirilir (--recovered=<kod>);
+                         son 1 saatte ikincisiyse hata kutusu
 """
 
 from __future__ import annotations

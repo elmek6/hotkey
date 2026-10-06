@@ -29,7 +29,7 @@ katmanin kendisi olurdu.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal, SignalInstance
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer, Signal, SignalInstance
 from PySide6.QtGui import QColor, QCursor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -50,6 +50,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from keypilot.core.axis_lock import Axis, AxisLock
 from keypilot.ui.preview import shorten
 from keypilot.ui.quick_panel import QuickItem
 from keypilot.win32.menu import COLUMN, Icon, Mark, destroy_icon, force_foreground, icon_handle
@@ -88,6 +89,10 @@ LABEL_CHARS = 50  # satirda gosterilen en fazla karakter (liste tam en)
 FONT_PT = 10
 LEAVE_POLL_MS = 120  # acik menude imlec yoklama araligi (fare cikti mi)
 TOOLTIP_CHARS = 600  # ipucunda gosterilen en fazla karakter
+GESTURE_HEIGHT = 26  # jest satirinin boyu, piksel
+CLOSE_LINE_PX = 5  # en alttaki kirmizi kapanis cizgisi
+PANEL_BG_SOLID = "#1a1b26"  # etkin jest hucresindeki yazi
+GESTURE_BG = QColor(41, 46, 66, 245)  # = BUTTON_BG; QColor CSS rgba() okumuyor
 #: Pano gecmisi binlerce oge olabilir; katman bakip secmek icin, en
 #: yenilerin bu kadari yeter.
 MAX_CLIPS = 30
@@ -475,6 +480,115 @@ class _CloseButton(QToolButton):
         super().enterEvent(event)
 
 
+class _CloseLine(QFrame):
+    """Kartin en altindaki kirmizi cizgi: ✕ gibi, ustune GELINCE kapatir.
+    Jest satirindan asagi kacan fare buraya duser."""
+
+    def __init__(self, target: QWidget) -> None:
+        super().__init__()
+        self._target = target
+        self.setFixedHeight(CLOSE_LINE_PX)
+        self.setToolTip("Kapat")
+        self.setStyleSheet(f"background: {CLOSE_BG}; border: none; border-radius: 2px;")
+
+    def enterEvent(self, event) -> None:
+        self._target.close()
+        super().enterEvent(event)
+
+
+class _GestureBar(QWidget):
+    """Jest satiri (keymap.OVERVIEW_GESTURES): esit hucreler, tiklama yok.
+
+    Hucreye girince imlec YATAYDA kilitlenir (core/axis_lock.py): her
+    harekette `anchor` x'ine geri tasinir, yatay hareket adima cevrilir --
+    sola adim `left`, saga adim `right` eylemi (`step` sinyali). Dikey
+    serbest: yukari cikinca ya da asagi (kirmizi cizgi) inince kilit biter.
+    Baska hucreye gecmek icin satirdan cikip yeniden girilir.
+
+    `engaged(True/False)`: kilit basladi / bitti. Panel bu arada odagi
+    alttaki pencereye verir -- tuslar oraya gitsin.
+    """
+
+    step = Signal(str)
+    engaged = Signal(bool)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setMouseTracking(True)
+        self.setFixedHeight(GESTURE_HEIGHT)
+        self.setCursor(Qt.CursorShape.SizeHorCursor)
+        self._items: tuple[tuple, ...] = ()
+        self._cell = -1
+        self._lock: AxisLock | None = None
+
+    def set_items(self, items: tuple[tuple, ...]) -> None:
+        self._release()
+        self._items = items
+        self.setVisible(bool(items))
+        self.update()
+
+    @property
+    def locked(self) -> bool:
+        return self._lock is not None
+
+    # ---- olaylar ----
+
+    def mouseMoveEvent(self, event) -> None:
+        self.track(event.position().x(), event.position().y())
+
+    def leaveEvent(self, event) -> None:
+        self._release()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event) -> None:
+        self._release()
+        super().hideEvent(event)
+
+    def track(self, x: float, y: float) -> None:
+        """Satira gore imlec konumu: kilit baslat ya da adim say."""
+        if not self._items:
+            return
+        if self._lock is None:
+            self._cell = min(len(self._items) - 1, max(0, int(x * len(self._items) / self.width())))
+            self._lock = AxisLock(Axis.HORIZONTAL, x)
+            self.setToolTip(self._items[self._cell][3])
+            self.engaged.emit(True)
+            self.update()
+            return
+        steps = self._lock.feed(x)
+        target = self.mapToGlobal(QPoint(round(self._lock.anchor), round(y)))
+        if QCursor.pos() != target:
+            QCursor.setPos(target)
+        _label, left, right, *_hint = self._items[self._cell]
+        for _ in range(abs(steps)):
+            self.step.emit(left if steps > 0 else right)
+
+    def _release(self) -> None:
+        if self._lock is None:
+            return
+        self._lock = None
+        self._cell = -1
+        self.engaged.emit(False)
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        if not self._items:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        count = len(self._items)
+        width = self.width() / count
+        for index, (label, *_rest) in enumerate(self._items):
+            cell = QRectF(index * width + 1, 1, width - 2, self.height() - 2)
+            active = index == self._cell
+            painter.setPen(QColor(TITLE_COLOR if active else PANEL_BORDER))
+            painter.setBrush(QColor(TITLE_COLOR) if active else GESTURE_BG)
+            painter.drawRoundedRect(cell, 5, 5)
+            painter.setPen(QColor(PANEL_BG_SOLID if active else TEXT))
+            painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, f"‹ {label} ›")
+        painter.end()
+
+
 def _box() -> tuple[QFrame, QVBoxLayout]:
     """Ust ve alt parcanin cercevesi -- `_Section` ile ayni gorunum."""
     frame = QFrame()
@@ -532,9 +646,14 @@ class OverviewPanel(QWidget):
         | secili sekmenin listesi                            |
         +----------------------------------------------------+
         +-- ALT: [dugme] [dugme] [dugme] ... ----------------+
+        |  ‹ Arrow › ‹ Back Del › ...   (jest satiri)        |
+        +====================================================+ kirmizi: kapatir
     """
 
     chosen = Signal(str)
+    #: Jest satirindan gelen adim eylemi -- `chosen`dan farki katmani
+    #: KAPATMAMASI (bkz. `_GestureBar`).
+    stepped = Signal(str)
 
     def __init__(self) -> None:
         # Tool + "odak gidince kapan": array_filter.py ile ayni yol (bkz.
@@ -627,6 +746,17 @@ class OverviewPanel(QWidget):
         foot, foot_layout = _box()
         self._windows = _row()
         foot_layout.addLayout(self._windows)
+        # Altinda jest satiri ve en altta kirmizi kapanis cizgisi.
+        self.gestures = _GestureBar()
+        self.gestures.step.connect(self.stepped.emit)
+        self.gestures.engaged.connect(self._on_gesture)
+        foot_layout.addWidget(self.gestures)
+        self.close_line = _CloseLine(self)
+        foot_layout.addWidget(self.close_line)
+        #: Katman acilmadan onceki on plan penceresi: jest tuslari oraya.
+        self._target = 0
+        #: Jest kilidi suruyor: odak `_target`ta, odak kaybi kapatmaz.
+        self._gesturing = False
 
         #: Klavyeyle gezilen listeler, Tab sirasi. Ok tuslari ETKIN listede.
         self._sections = (self.shorts, self.clips, self.slots)
@@ -657,6 +787,8 @@ class OverviewPanel(QWidget):
         clip_alts: tuple[tuple, ...] = (),
         filter_action: str = "",
         filter_tip: str = "",
+        gestures: tuple = (),
+        target: int = 0,
     ) -> None:
         """Listeleri doldurur, imlecin yaninda acar.
 
@@ -669,7 +801,12 @@ class OverviewPanel(QWidget):
         `clip_alts`: pano satirlarinin hover dugmeleri, ayni sirada; satir
         basina (etiket, eylem, ipucu [, renk]) dizisi.
         `filter_action`: arama kutusundaki 🔍 (arama penceresi).
+        `gestures`: (etiket, sol eylem, sag eylem, ipucu) -- jest satiri.
+        `target`: katmandan onceki on plan penceresi (hwnd); jest tuslari
+        ona gider.
         """
+        self._target = target
+        self.gestures.set_items(gestures)
         # ✕ kalici; _clear dugmelerle birlikte onu da silerdi.
         self._header.removeWidget(self.close_button)
         _clear(self._header)
@@ -711,8 +848,8 @@ class OverviewPanel(QWidget):
         self._dodge_cursor(QCursor.pos())
 
     def _dodge_cursor(self, pos: QPoint) -> None:
-        """Katman acildiginda imlec ✕'in USTUNDEYSE, ✕ alt siradaki ⚙️
-        dugmesinin yanina tasinir -- yoksa katman acilir acilmaz kapanirdi."""
+        """Katman acildiginda imlec ✕'in USTUNDEYSE, ✕ alt siranin
+        SONUNA tasinir -- yoksa katman acilir acilmaz kapanirdi."""
         button = self.close_button
         if not button.rect().contains(button.mapFromGlobal(pos)):
             return
@@ -948,8 +1085,19 @@ class OverviewPanel(QWidget):
     def _close_if_inactive(self) -> None:
         """Etkin degilse kapat. Ust seritin menusu acikken DEGIL -- menu odagi
         aliyor; kapaninca `aboutToHide` buraya bir daha getirir."""
-        if not self.isVisible() or self.isActiveWindow():
+        if not self.isVisible() or self.isActiveWindow() or self._gesturing:
             return
         if isinstance(QApplication.activePopupWidget(), QMenu):
             return
         self.close()
+
+    def _on_gesture(self, active: bool) -> None:
+        """Jest kilidi: basinca odak alttaki pencereye (tuslar oraya gitsin,
+        katman ustte gorunur kalir), bitince katmana geri."""
+        self._gesturing = active
+        if active:
+            if self._target:
+                force_foreground(self._target)
+        elif self.isVisible():
+            force_foreground(int(self.winId()))
+            self.activateWindow()

@@ -286,6 +286,22 @@ SPECIAL_KEYS_MENU = (
 #: gecmisi. (Eski tus satiri -- Enter, Del, ^A ^C ... -- kaldirildi.)
 OVERVIEW_HISTORY = ("Win+V", Cmd.send_key("#v"), "Clipboard history win")
 
+#: Genel bakis katmaninin en alt satiri: JEST alanlari (ui/overview.py
+#: `_GestureBar`). Ustune gelince imlec yatayda kilitlenir; sola kaydirmak
+#: ilk eylemi, saga kaydirmak ikincisini her adimda bir kez gonderir. Tuslar
+#: katmanin altindaki pencereye gider. (etiket, sol, sag, ipucu)
+OVERVIEW_GESTURES = (
+    ("Arrow", Cmd.send_key("Left"), Cmd.send_key("Right"), "← Left  Right →"),
+    ("Back Del", Cmd.send_key("Backspace"), Cmd.send_key("Delete"), "← Backspace  Delete →"),
+    ("Undo Redo", Cmd.send_key("^z"), Cmd.send_key("^y"), "← Ctrl+Z  Ctrl+Y →"),
+    (
+        "Back Forward",
+        Cmd.send_key("Browser_Back"),
+        Cmd.send_key("Browser_Forward"),
+        "← Browser back  forward →",
+    ),
+)
+
 
 def screen_menu() -> tuple:
     """F14 menusundeki "Area" alt menusu -- monitorun TAMAMINI secer.
@@ -394,7 +410,7 @@ def build_cascades() -> dict[int, CascadeDef]:
     defs: list[CascadeDef] = [
         # handleF13 jestleri -- tek kayit yeri.
         KeyBuilder("F13", short=SHORT_MS)
-        .gesture(Direction.UP, "Zoom+", Cmd.send_key("#NumpadAdd"))
+        .gesture(Direction.UP, "Zoom+", Cmd.send_key("#NumpadAdd"), limit=1)
         .gesture(Direction.DOWN, "Zoom-", Cmd.send_key("#NumpadSub"))
         .gesture(Direction.RIGHT, "Vol +", Cmd.send_key("Volume_Up"))
         .gesture(Direction.LEFT, "Vol -", Cmd.send_key("Volume_Down"))
@@ -773,6 +789,7 @@ def _harvest_gestures(tracker: HotVectors, definition: CascadeDef) -> None:
             spec.action,
             spec.label,
             every=spec.every,
+            limit=spec.limit,
         )
     center = definition.overlay_center
     if center:

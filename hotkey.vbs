@@ -31,10 +31,18 @@
 ' KENDI KENDINI TAMIR, sirasiyla:
 '
 '     .venv yok            -> `uv sync` denenir, sonra tekrar bakilir
-'     hizli cokme          -> `uv sync` (yeni surum yeni paket istiyordur)
-'                             + BIR kez daha calistirilir
-'     uzun calisip cokme   -> paket sorunu degildir: sync YAPILMAZ,
-'                             program yalnizca bir kez geri getirilir
+'     cokme                -> kanit saklanir (hata-*.log), program KIMSEYI
+'                             BEKLEMEDEN geri getirilir; tepsi kirmizi
+'                             yanar (RECOVERED_FLAG bayragi, bkz. app.py)
+'     hizli cokme          -> ustune `uv sync` (yeni surum yeni paket
+'                             istiyordur)
+'     son 1 saatte IKINCI  -> dongu sayilir: geri getirilmez, hata kutusu
+'     cokme                   acilir
+'
+' Eskiden geri getirme hakki OTURUMDA bir kezdi ve ikinci cokmede kutu
+' kullaniciyi bekliyordu: dunku bir cokme hakki yemis, ertesi gunku cokmede
+' program saatlerce kutunun arkasinda yoktu (ne tuslar ne zamanlayici --
+' Windows'un kendi uykusu devreye girdi). Pencere artik zamana bagli.
 '
 ' HATA AYIKLAMA DA BURADA. Ayri bir .cmd yok: cokme kutusundan "Evet"
 ' denince ayni komut GORUNUR konsolda yeniden calisir. Sebebi, ayri
@@ -66,8 +74,13 @@ Const SUPERVISED = "--supervised"   ' uygulamaya "bekci kapida" demek
 ' yeniden baslatma insan eli degildir, dongudur.
 Const RESTART_FLOOD = 5
 Const MAX_RESTARTS = 4
+' Iki cokme bu kadar saniyeden yakinsa geri getirmekten vazgecilir.
+Const CRASH_WINDOW = 3600
+' Cokmeden sonra geri getirilen ornege "onceki coktu" demek; arkasina
+' cikis kodu eklenir (--recovered=1). Uygulama tepsiyi kirmiziya boyar.
+Const RECOVERED_FLAG = "--recovered"
 
-Dim sh, fso, base, q, py, logf, extra, i, rc, saved, lastRun
+Dim sh, fso, base, q, py, logf, extra, i, rc, saved, lastRun, lastCrash, recovered
 Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
@@ -107,21 +120,28 @@ End If
 
 logf = PickLog()
 
-' --- calistir; gerekirse BIR kez tamir edip tekrar dene ------------------
-rc = RunUntilDone()
-If Not CleanExit(rc) Then
+' --- calistir; cokerse kanit saklanip geri getirilir ----------------------
+recovered = ""
+saved = ""
+Do
+    rc = RunUntilDone()
+    If CleanExit(rc) Then Exit Do
+    ' Kanit ONCE saklanir: bir sonraki calisma son-konsol.log'un uzerine
+    ' yaziyor.
+    saved = KeepCrashLog()
+    If Not IsEmpty(lastCrash) Then
+        If DateDiff("s", lastCrash, Now) < CRASH_WINDOW Then Exit Do
+    End If
+    lastCrash = Now
     ' Hemen olduyse en sik sebep yeni surumun istedigi yeni bir paket.
     ' Saatlerce calisip coktuyse paketle ilgisi yok; sync bosuna beklerdi.
     If lastRun < FAST_CRASH Then Sync()
-    rc = RunUntilDone()
-End If
+    recovered = " " & q & RECOVERED_FLAG & "=" & rc & q
+Loop
 
 If CleanExit(rc) Then
     Discard logf   ' konsol kopyasi ortada kalmasin
 Else
-    ' Kanit ONCE saklanir, sonra sorulur: kutuya bakarken baslatilan yeni
-    ' bir ornek son-konsol.log'un uzerine yaziyor.
-    saved = KeepCrashLog()
     Discard logf
     If MsgBox("KeyPilot hata ile kapandi (cikis kodu " & rc & "):" & vbCrLf & vbCrLf & _
               Tail(saved) & vbCrLf & _
@@ -130,15 +150,21 @@ Else
               "Hayir dersen gunluk Not Defteri'nde acilir.", _
               vbCritical + vbYesNo, "KeyPilot") = vbYes Then
         RunConsole()
-    ElseIf saved <> "" Then
-        On Error Resume Next
-        sh.Run "notepad.exe " & q & saved & q, 1, False
-        On Error GoTo 0
+    Else
+        OpenLog saved
     End If
     WScript.Quit rc
 End If
 
 ' --- yardimcilar ---------------------------------------------------------
+
+Sub OpenLog(path)
+    If path = "" Then Exit Sub
+    On Error Resume Next
+    sh.Run "notepad.exe " & q & path & q, 1, False
+    Err.Clear
+    On Error GoTo 0
+End Sub
 
 ' Cokme SAYILMAYAN cikislar. Bkz. dosya basindaki liste.
 ' EXIT_RESTART buraya normalde HIC gelmez (RunUntilDone onu yiyor); dongu
@@ -160,6 +186,9 @@ Function RunUntilDone()
         t0 = Timer
         code = RunApp()
         lastRun = Elapsed(t0)
+        ' Bayrak yalniz cokmeden SONRAKI ilk calismaya: kullanicinin
+        ' "yeniden baslat"i tepsiyi tekrar kirmiziya boyamasin.
+        recovered = ""
         If code <> EXIT_RESTART Then
             RunUntilDone = code
             Exit Function
@@ -315,7 +344,7 @@ Function RunApp()
     ' buradan aliyor ve yeniden baslatmayi bize birakiyor. RunConsole'da
     ' YOK -- orada `cmd /k` bizi beklemiyor, uygulama cocugunu kendisi
     ' acmali, yoksa hata ayiklarken "yeniden baslat" cikis olurdu.
-    c = "cmd /c " & q & q & py & q & " " & q & base & "\main.py" & q & extra & _
+    c = "cmd /c " & q & q & py & q & " " & q & base & "\main.py" & q & extra & recovered & _
         " " & q & SUPERVISED & q & " 2> " & q & logf & q & q
     On Error Resume Next
     Err.Clear

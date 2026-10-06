@@ -56,7 +56,10 @@ from keypilot.core.cascade import (
 from keypilot.core.keynames import key_name, vk_from_name
 from keypilot.dispatch import Dispatcher
 from keypilot.idle import (
+    HIBERNATE_WARN_S,
     IDLE_INTERVAL_MS,
+    clock_drifted,
+    clock_hhmm,
     minutes_for,
     should_open_outlook,
     startup_minutes,
@@ -71,6 +74,7 @@ from keypilot.store import SlotStore, slot_display
 from keypilot.ui import key_capture
 from keypilot.ui.array_filter import ArrayFilter
 from keypilot.ui.gesture_overlay import GestureOverlay
+from keypilot.ui.hibernate_countdown import HibernateCountdown
 from keypilot.ui.idle import IdleDialog
 from keypilot.ui.incognito_badge import IncognitoBadge
 from keypilot.ui.key_map_view import KeyMapView
@@ -134,6 +138,12 @@ EXIT_RESTART = 3
 #: olmali. Bayrak yoksa (VSCode F5 / dogrudan python) eski yol gecerli:
 #: cocugu kendimiz baslatiyoruz, yoksa "yeniden baslat" cikis olurdu.
 SUPERVISED_FLAG = "--supervised"
+
+#: Gozetmen cokmeden sonra geri getirdigi ornege bunu geciyor:
+#: `--recovered=<onceki cikis kodu>`. Gorulunce ERROR yaziliyor -- tepsi
+#: kirmizi yanar, "Copy last error" sebebi ve hata gunlugunun yolunu verir.
+#: Sessiz bir geri donus "dun gece coktu mu?" sorusunu cevapsiz birakirdi.
+RECOVERED_FLAG = "--recovered"
 
 #: Nobetci turlari arasinda bu kadar sure gectiyse SUREC durmus demektir
 #: (uyku, hibernate, uzun bir askida kalma). Zamanlayici 2 sn'de bir
@@ -345,6 +355,11 @@ class KeyPilot:
         self._idle_budget = 0
         #: Fare kimildatma bir kez engellendi mi (bkz. _idle_tick).
         self._idle_blocked = False
+        #: Zamanlayicidaki "Hibernate" kutusu: sure bitince hazirda beklet.
+        self._hibernate = False
+        self._hibernate_seconds = 0
+        #: Hibernate'in DUVAR SAATI (time.time) ile beklenen ani; 0 = yok.
+        self._hibernate_due = 0.0
         #: Nobetcinin son turu -- iki tur arasi acilirsa surec donmustur
         #: ve olcum kanit degildir (bkz. _watchdog_tick).
         self._last_watchdog_tick = time.perf_counter()
@@ -511,6 +526,13 @@ class KeyPilot:
         # ayni satir yaziliyordu.
         self.pause_dialog.exit_app.connect(lambda: self.quit(source="Pause menusu"))
         self._idle_dialog: IdleDialog | None = None
+        self._hibernate_countdown = HibernateCountdown()
+        self._hibernate_countdown.expired.connect(self._hibernate_now)
+        self._hibernate_countdown.cancelled.connect(self._hibernate_cancelled)
+        #: Hibernate'e 5 dakika kala geri sayimi acar (tek atimlik).
+        self._hibernate_warn = QTimer(app)
+        self._hibernate_warn.setSingleShot(True)
+        self._hibernate_warn.timeout.connect(self._start_hibernate_countdown)
 
         # AHK turkish_layout_addon.ahk -- ScrollLock. Hangi VK hangi harf,
         # duzene sorularak bulunuyor; kararlari dispatch veriyor.
@@ -575,6 +597,11 @@ class KeyPilot:
         # kuruluyor.
         self._idle_timer = QTimer(app)
         self._idle_timer.timeout.connect(self._idle_tick)
+        #: Tepsi ipucundaki "Awake" kalan suresi bu aralikla tazelenir.
+        self._awake_timer = QTimer(app)
+        self._awake_timer.setInterval(20_000)
+        self._awake_timer.timeout.connect(self._refresh_awake)
+        self._awake_timer.start()
 
         # `@command` ile isaretli metotlar -- kimlik metodun ustunde duruyor,
         # kayit tek satirda burada. Kurulum bittikten sonra cagriliyor.
@@ -1517,6 +1544,7 @@ class KeyPilot:
             self._overview.close()
         self._overview = OverviewPanel()
         self._overview.chosen.connect(self.runner.run)
+        self._overview.stepped.connect(self.runner.run)
         clips = self._clip_items()[:OVERVIEW_CLIPS]
         self._overview.open(
             title,
@@ -1541,6 +1569,8 @@ class KeyPilot:
             ),
             filter_action=Cmd.Clip.FILTER,
             filter_tip="Search on history (array filter)",
+            gestures=keymap.OVERVIEW_GESTURES,
+            target=hwnd,
         )
 
     def _overview_menus(self) -> tuple:
@@ -1561,7 +1591,8 @@ class KeyPilot:
             ("images", Cmd.Clip.IMAGES, Icon.res(109), "Clipboard images"),
             ("📚 Repository", Cmd.Repository.OPEN),
             self._incognito_menu_item(),
-            ("⚙️", Cmd.App.SETTINGS, "Ayarlar"),
+            # Ikon-yalniz: F14 "Window screenshot" (Alt+PrintScreen) ile ayni ikon.
+            ("", Cmd.send_key("!PrintScreen"), Icon.shell(196), "Window screenshot"),
         )
 
     @command(Cmd.Qr.SHOW)
@@ -1922,21 +1953,109 @@ class KeyPilot:
     def show_idle_dialog(self, _argument: str = "") -> None:
         if self._idle_dialog is None:
             self._idle_dialog = IdleDialog()
-            self._idle_dialog.accepted_minutes.connect(self.set_idle_minutes)
+            self._idle_dialog.accepted_minutes.connect(self._on_idle_accepted)
         remaining = minutes_for(self._idle_count) if self._idle_timer.isActive() else 0
-        self._idle_dialog.show_for(remaining)
+        self._idle_dialog.show_for(remaining, self._hibernate)
+
+    def _on_idle_accepted(self, minutes: int) -> None:
+        assert self._idle_dialog is not None
+        self._hibernate = self._idle_dialog.wants_hibernate()
+        self.set_idle_minutes(minutes)
 
     def set_idle_minutes(self, minutes: int) -> None:
         ticks = ticks_for(minutes)
         self._idle_budget = ticks
         self._idle_count = ticks
+        self._arm_hibernate(minutes)
         if ticks <= 0:
             self._idle_timer.stop()
+            self._refresh_awake()
             log.info("ekran koruyucu engelleyici kapali")
             return
         self.dispatcher.last_physical = time.perf_counter()
         self._idle_timer.start(IDLE_INTERVAL_MS)
-        log.info("ekran koruyucu engelleyici: %d dakika (%d tur)", minutes_for(ticks), ticks)
+        log.info(
+            "ekran koruyucu engelleyici: %d dakika (%d tur)%s",
+            minutes_for(ticks),
+            ticks,
+            ", sonunda hibernate" if self._hibernate else "",
+        )
+        self._refresh_awake()
+
+    def _refresh_awake(self) -> None:
+        """Tepsiye sayac durumunu yazar: hibernate varsa duvar saatine gore
+        kalan sure, yoksa engelleyicinin kalan turlari."""
+        text: str | None = None
+        if self._hibernate and self._hibernate_due:
+            left = max(0.0, self._hibernate_due - time.time())
+            text = f"{clock_hhmm(int((left + 59) // 60))} (hibernate)"
+        elif self._idle_timer.isActive():
+            text = clock_hhmm(minutes_for(self._idle_count))
+        self.tray.set_awake(text)
+
+    def _arm_hibernate(self, minutes: int) -> None:
+        """Hibernate saati DUVAR SAATINE gore: girilen dakika dolunca olur.
+
+        Engelleyicinin tur sayaci fiziksel harekette basa donuyor; hibernate
+        ona bagli DEGIL -- kullanici calisiyor olsa da sure isler. Son
+        `HIBERNATE_WARN_S` saniyede geri sayim penceresi acilir.
+        """
+        self._hibernate_warn.stop()
+        self._hibernate_countdown.stop()
+        self._hibernate_due = 0.0
+        if minutes <= 0:
+            self._hibernate = False
+        if not self._hibernate:
+            return
+        total = minutes * 60
+        self._hibernate_due = time.time() + total
+        self._hibernate_seconds = min(total, HIBERNATE_WARN_S)
+        if total <= HIBERNATE_WARN_S:
+            self._start_hibernate_countdown()
+        else:
+            self._hibernate_warn.start((total - HIBERNATE_WARN_S) * 1000)
+
+    def _hibernate_clock_ok(self, expected: float, what: str) -> bool:
+        """Duvar saati kontrolu: bilgisayar uyuduysa Qt zamanlayicisi geriden
+        gelir ve hibernate'i yanlis anda tetikler. Dakika farki varsa sayim
+        DUSER (hibernate iptal)."""
+        now = time.time()
+        if not clock_drifted(expected, now):
+            return True
+        log.warning(
+            "hibernate iptal: saat %s beklenenden %.0f sn sapti (uyku?)",
+            what,
+            now - expected,
+        )
+        self._hibernate = False
+        self._hibernate_due = 0.0
+        self._hibernate_countdown.stop()
+        self._refresh_awake()
+        return False
+
+    def _start_hibernate_countdown(self) -> None:
+        if self._hibernate_due and not self._hibernate_clock_ok(
+            self._hibernate_due - self._hibernate_seconds, "(geri sayim baslangici)"
+        ):
+            return
+        self._hibernate_countdown.start(self._hibernate_seconds)
+        log.info("hibernate geri sayimi: %d sn", self._hibernate_seconds)
+
+    def _hibernate_now(self) -> None:
+        """Tek seferlik: donuste kutu kapali. Engelleyiciye dokunulmaz."""
+        if self._hibernate_due and not self._hibernate_clock_ok(self._hibernate_due, "(bitis)"):
+            return
+        self._hibernate = False
+        self._hibernate_due = 0.0
+        self._refresh_awake()
+        logs.lifecycle("zamanlayici: hibernate")
+        shell.hibernate()
+
+    def _hibernate_cancelled(self) -> None:
+        self._hibernate = False
+        self._hibernate_due = 0.0
+        self._refresh_awake()
+        log.info("hibernate iptal edildi")
 
     @command(Cmd.App.PAUSE_DIALOG)
     def show_pause_dialog(self, critical: str = "") -> None:
@@ -1960,6 +2079,7 @@ class KeyPilot:
     def on_start(self) -> None:
         """AHK: LoadSettings() -- OnExit'in karsiti."""
         logs.lifecycle("KeyPilot %s basladi", full_version())
+        self._note_recovery()
         for problem in dev.problems():
             # Bayragi yanlis yazmak ETKISIZ kalir ama sessiz kalmaz:
             # "bayragi verdim, hicbir sey olmadi" en can sikici hata turu.
@@ -2004,6 +2124,19 @@ class KeyPilot:
             card += f"<br>{dim('ustte sabitli')} {stray} pencere &nbsp;·&nbsp; F13 > Hep ustte"
         self.tip.show_html(card, 4000)
 
+    def _note_recovery(self) -> None:
+        """Gozetmen bizi cokmeden sonra geri getirdiyse (RECOVERED_FLAG)."""
+        prefix = RECOVERED_FLAG + "="
+        code = next((arg[len(prefix) :] for arg in sys.argv if arg.startswith(prefix)), None)
+        if code is None:
+            return
+        crash_logs = sorted(paths.FILES.glob("hata-*.log"))
+        log.error(
+            "onceki KeyPilot coktu (cikis kodu %s); gozetmen yeniden baslatti. Gunluk: %s",
+            code,
+            crash_logs[-1] if crash_logs else "yok",
+        )
+
     def _idle_tick(self) -> None:
         """AHK IdleModule.tick(): 5 dakikada bir, kullanici 1 dakikadir
         FIZIKSEL olarak dokunmadiysa fareyi 1 piksel oynatir.
@@ -2023,6 +2156,7 @@ class KeyPilot:
         self._idle_count -= 1
         if self._idle_count <= 0:
             self._idle_timer.stop()
+            self._refresh_awake()
             log.info("ekran koruyucu engelleyici durdu (%d tur doldu)", self._idle_budget)
             return
         # GIT-GEL: tek yonlu -1,-1 imleci her turda bir piksel sol uste
@@ -2275,6 +2409,10 @@ class KeyPilot:
         self._tick_timer.stop()
         self._watchdog_timer.stop()
         self._idle_timer.stop()
+        self._awake_timer.stop()
+        self._hibernate_warn.stop()
+        self._hibernate_countdown.stop()
+        self._hibernate_countdown.close()
         self.clip.close()
         self.filter_window.close()
         self.snip.close()

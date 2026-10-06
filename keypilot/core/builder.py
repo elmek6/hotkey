@@ -87,6 +87,7 @@ class GestureSpec:
     label: str
     action: str
     every: int = 1
+    limit: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,10 +192,14 @@ class KeyBuilder:
         action: str,
         *,
         every: int = 1,
+        limit: int = 0,
     ) -> KeyBuilder:
-        """Fare jesti. `every=5` = her 5 adimda bir tetikle."""
+        """Fare jesti. `every=5` = her 5 adimda bir tetikle; `limit=1` = bir
+        jestte en fazla bir kez."""
         self._gestures.append(
-            GestureSpec(direction, label, action, every=max(1, int(every)))
+            GestureSpec(
+                direction, label, action, every=max(1, int(every)), limit=max(0, int(limit))
+            )
         )
         return self
 

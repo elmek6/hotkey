@@ -297,8 +297,10 @@ def test_genel_bakisin_butun_maddeleri_kayitli_ve_calisiyor(rig, caplog):
     leaves += _leaves(rig.pilot._pin_menu_items())
     leaves.append(str(app_module.keymap.OVERVIEW_HISTORY[1]))
     leaves.append(Cmd.Clip.FILTER)
+    for _label, left, right, _hint in app_module.keymap.OVERVIEW_GESTURES:
+        leaves += [left, right]
     # Dugmeler de sayildi mi: iki baslik menusu, sekmeler, Win+V, alt satir.
-    buttons = [b for b in panel.findChildren(QPushButton) if b.text()]
+    buttons = [b for b in panel.findChildren(QPushButton) if b.text() or not b.icon().isNull()]
     assert len(buttons) >= 5 + len(rig.pilot._overview_buttons())
 
     missing = [action for action in leaves if not _registered(rig, action)]
@@ -342,6 +344,90 @@ def test_imlec_kapat_dugmesinin_ustundeyse_dugme_ayarlarin_yanina_kacar(rig):
         "imlec ustundeyken dugme ayarlarin yanina gecmedi"
     )
     assert panel.isVisible()
+
+
+# ---- genel bakis: jest satiri ve kirmizi cizgi ------------------------------
+
+
+@pytest.fixture
+def jest(rig, monkeypatch):
+    """Acik katman; imlec gercekten TASINMAZ, odak devri kaydedilir."""
+    from PySide6.QtGui import QCursor
+
+    monkeypatch.setattr(QCursor, "setPos", staticmethod(lambda *a: None))
+    focus: list[int] = []
+    monkeypatch.setattr(overview_module, "force_foreground", focus.append)
+    _short_f13(rig)
+    panel = rig.pilot._overview
+    bar = panel.gestures
+    assert bar.isVisible() and bar.width() > 0
+    focus.clear()  # acilisin kendi one alma cagrisi
+    return panel, bar, focus
+
+
+def _cell_x(bar, index: int) -> float:
+    count = len(app_module.keymap.OVERVIEW_GESTURES)
+    return (index + 0.5) * bar.width() / count
+
+
+def test_jest_arrow_sola_sol_saga_sag_tusu_gonderir(rig, jest):
+    from keypilot.core.axis_lock import STEP_PX
+
+    panel, bar, focus = jest
+    x = _cell_x(bar, 0)  # Arrow
+    bar.track(x, 5)
+    assert bar.locked
+    assert focus == [4242], "kilitte odak alttaki pencereye gecmedi"
+    bar.track(x - 2 * STEP_PX, 5)  # sola iki adim
+    bar.track(x + STEP_PX, 5)  # saga bir adim (imlec x'e geri alinmisti)
+    taps = [entry[1] for entry in rig.sent if entry[0] == "tap"]
+    assert taps == [vk_from_name("Left")] * 2 + [vk_from_name("Right")]
+    # Odak gitti ama katman kapanmadi.
+    panel._close_if_inactive()
+    assert panel.isVisible()
+
+
+def test_jest_back_del_sola_backspace_saga_delete(rig, jest):
+    from keypilot.core.axis_lock import STEP_PX
+
+    _panel, bar, _focus = jest
+    x = _cell_x(bar, 1)  # Back Del
+    bar.track(x, 5)
+    bar.track(x - STEP_PX, 5)
+    bar.track(x + STEP_PX, 5)
+    taps = [entry[1] for entry in rig.sent if entry[0] == "tap"]
+    assert taps == [vk_from_name("Backspace"), vk_from_name("Delete")]
+
+
+def test_jest_satirindan_cikinca_kilit_biter_odak_katmana_doner(rig, jest):
+    from PySide6.QtCore import QEvent
+
+    panel, bar, focus = jest
+    bar.track(_cell_x(bar, 2), 5)
+    assert panel._gesturing
+    bar.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert not bar.locked and not panel._gesturing
+    assert focus == [4242, int(panel.winId())]
+    assert panel.isVisible()
+
+
+def test_kirmizi_cizgi_ustune_gelince_kapatir(rig, jest):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QEnterEvent
+
+    panel, _bar, _focus = jest
+    point = QPointF(1, 1)
+    panel.close_line.enterEvent(QEnterEvent(point, point, point))
+    assert not panel.isVisible()
+    rig.assert_idle()
+
+
+def test_jest_tuslari_taniniyor():
+    for _label, left, right, _hint in app_module.keymap.OVERVIEW_GESTURES:
+        for action in (left, right):
+            stroke = action.split(":", 1)[1]
+            key = stroke.lstrip("^!+#")
+            assert vk_from_name(key) is not None, action
 
 
 # ---- basili F13: pano menusu -----------------------------------------------
@@ -408,7 +494,9 @@ def test_f13_jesti_eylemi_calistirir_birakinca_menu_acmaz(rig, caplog, dx, dy, k
     rig.pump(t + 1.0)
     vk = vk_from_name(key)
     taps = [item for item in rig.sent if item[0] == "tap" and item[1] == vk]
-    assert len(taps) == 40 // 14, f"{key}: adim sayisi kadar tetiklenmeli"
+    # Zoom+ (yukari) jestte EN FAZLA bir kez; digerleri adim sayisi kadar.
+    expected = 1 if key == "NumpadAdd" else 40 // 14
+    assert len(taps) == expected, f"{key}: beklenen tetik sayisi"
     assert rig.pilot._overview is None, "jestten sonra kisa basim eylemi calisti"
     assert rig.menus == [], "jestten sonra pano menusu acildi"
     assert not rig.pilot.gesture_overlay.isVisible()

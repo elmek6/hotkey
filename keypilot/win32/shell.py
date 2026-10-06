@@ -123,6 +123,34 @@ def refresh_shell() -> None:
     shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
 
 
+def hibernate() -> bool:
+    """Bilgisayari hazirda bekletmeye (hibernate) alir. Basarisizsa False.
+
+    Neden `shutdown /h`, neden powrprof `SetSuspendState` degil: o cagri
+    SE_SHUTDOWN_NAME ayricaligini once token'da ACMAYI istiyor
+    (AdjustTokenPrivileges); shutdown.exe bunu kendisi yapiyor. Hibernate
+    sistemde kapaliysa (`powercfg /h off`) shutdown sifirdan farkli doner.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["shutdown.exe", "/h"],
+            check=False,
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        log.warning("hibernate baslatilamadi", exc_info=True)
+        return False
+    if result.returncode != 0:
+        log.warning(
+            "hibernate reddedildi (kod %s): %s",
+            result.returncode,
+            result.stderr.decode(errors="replace").strip(),
+        )
+        return False
+    return True
+
+
 def open_in_paint(png_path) -> bool:
     """Verilen PNG'yi Paint'te acar. Basarisizsa False.
 

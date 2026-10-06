@@ -140,6 +140,9 @@ class VectorDef:
     desc: str = ""
     #: Her N adimda bir tetikle (1 = her adim).
     every: int = 1
+    #: Bir jestte EN FAZLA bu kadar tetikle (0 = sinirsiz). Zoom gibi
+    #: kademesi tehlikeli eylemler tek itmeyle bir kez calissin.
+    limit: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +215,8 @@ class _Active:
     fired: bool = False
     total: float = 0.0
     steps: int = 0
+    #: Yon basina bu jestte kac kez tetiklendi (`VectorDef.limit` icin).
+    fires: dict[Direction, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -252,9 +257,10 @@ class HotVectors:
         desc: str = "",
         *,
         every: int = 1,
+        limit: int = 0,
     ) -> HotVectors:
         self.defs[(prefix, direction)] = VectorDef(
-            prefix, direction, action, desc, every=max(1, int(every))
+            prefix, direction, action, desc, every=max(1, int(every)), limit=max(0, int(limit))
         )
         self._prefixes.add(prefix)
         return self
@@ -375,6 +381,12 @@ class HotVectors:
             fire = (state.steps // every) - (prev_steps // every)
             if fire <= 0:
                 continue
+            if definition.limit:
+                done = state.fires.get(direction, 0)
+                fire = min(fire, definition.limit - done)
+                if fire <= 0:
+                    continue
+                state.fires[direction] = done + fire
 
             events.append(
                 VectorEvent(
