@@ -23,6 +23,14 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QW
 #: Kenar ile tepsi arasindaki bosluk (piksel).
 MARGIN = 8
 
+#: Dikkat cekmek icin her dakika basi pencere zemini beyaz/siyah degisir.
+FLASH_STEP_MS = 400
+FLASH_STEPS = 10
+FLASH_STYLES = (
+    "background-color: #ffffff; color: #000000;",
+    "background-color: #000000; color: #ffffff;",
+)
+
 
 class HibernateCountdown(QWidget):
     expired = Signal()
@@ -40,6 +48,7 @@ class HibernateCountdown(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setWindowTitle("Hibernate")
         self._deadline = 0.0
+        self._last_minute = 0
 
         title = QLabel("Hibernate countdown", self)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -58,6 +67,11 @@ class HibernateCountdown(QWidget):
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._tick)
 
+        self._flash_left = 0
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setInterval(FLASH_STEP_MS)
+        self._flash_timer.timeout.connect(self._flash_step)
+
     @property
     def running(self) -> bool:
         return self._timer.isActive()
@@ -69,10 +83,26 @@ class HibernateCountdown(QWidget):
         self.showNormal()
         self._place()
         self._timer.start()
+        self._last_minute = self._remaining() // 60
+        self._start_flash()
 
     def stop(self) -> None:
         self._timer.stop()
+        self._flash_timer.stop()
+        self.setStyleSheet("")
         self.hide()
+
+    def _start_flash(self) -> None:
+        self._flash_left = FLASH_STEPS
+        self._flash_timer.start()
+
+    def _flash_step(self) -> None:
+        self._flash_left -= 1
+        if self._flash_left <= 0:
+            self._flash_timer.stop()
+            self.setStyleSheet("")
+            return
+        self.setStyleSheet(FLASH_STYLES[self._flash_left % 2])
 
     def _remaining(self) -> int:
         return max(0, round(self._deadline - time.monotonic()))
@@ -92,6 +122,10 @@ class HibernateCountdown(QWidget):
             self.expired.emit()
             return
         self._refresh()
+        minute = self._remaining() // 60
+        if minute != self._last_minute:
+            self._last_minute = minute
+            self._start_flash()
 
     def _cancel(self) -> None:
         self.stop()

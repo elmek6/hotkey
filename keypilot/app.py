@@ -1991,7 +1991,7 @@ class KeyPilot:
             text = f"{clock_hhmm(int((left + 59) // 60))} (hibernate)"
         elif self._idle_timer.isActive():
             text = clock_hhmm(minutes_for(self._idle_count))
-        self.tray.set_awake(text)
+        self.tray.set_awake(text, hibernate=bool(self._hibernate and self._hibernate_due))
 
     def _arm_hibernate(self, minutes: int) -> None:
         """Hibernate saati DUVAR SAATINE gore: girilen dakika dolunca olur.

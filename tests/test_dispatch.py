@@ -1011,4 +1011,4 @@ def test_orta_tus_basiliyken_tekerlek_zoom():
     assert box.mouse_filter(event(WM_MOUSEWHEEL, 0.10, -120)) is True
     assert box.mouse_filter(event(WM_MBUTTONUP, 0.15)) is False
     acts = [a.action for a in _drain(box.actions)]
-    assert acts == ["send_key:^NumpadAdd", "send_key:^NumpadSub"]
+    assert acts == ["send_key_every:3:^NumpadAdd", "send_key_every:3:^NumpadSub"]

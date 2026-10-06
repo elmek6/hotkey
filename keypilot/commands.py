@@ -45,6 +45,11 @@ class Cmd:
         return Cmd.Run.SEND_KEY(stroke)
 
     @staticmethod
+    def send_key_every(nth: int, stroke: str) -> str:
+        """Tekerlek gibi cok hizli gelen tetikte her `nth` basimda bir gonder."""
+        return Cmd.Run.SEND_KEY_EVERY(f"{nth}:{stroke}")
+
+    @staticmethod
     def send_keys(*strokes: str) -> str:
         return Cmd.Run.SEND_KEYS(" ".join(strokes))
 
@@ -218,6 +223,7 @@ class Cmd:
         MOD_UP = auto()
         SEND_KEY = auto()
         SEND_KEYS = auto()
+        SEND_KEY_EVERY = auto()
         SEND_TEXT = auto()
         BEEP = auto()
 

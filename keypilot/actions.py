@@ -67,13 +67,19 @@ def _safe_beep(freq: int, ms: int) -> None:
         winsound.Beep(freq, ms)
 
 
+#: `send_key_every` sayaci: bu kadar saniye tetik gelmezse bastan sayilir.
+EVERY_RESET_S = 0.4
+
+
 class ActionRunner:
     """Eylem kimligi -> gercek is."""
 
     def __init__(self) -> None:
         self._commands: dict[str, Callable[[str], None]] = {}
+        self._every: dict[str, tuple[float, int]] = {}
         self.register(Cmd.Run.SEND_KEY, self._send_key)
         self.register(Cmd.Run.SEND_KEYS, self._send_keys)
+        self.register(Cmd.Run.SEND_KEY_EVERY, self._send_key_every)
         self.register(Cmd.Run.SEND_TEXT, send.type_text)
         self.register(Cmd.Run.BEEP, lambda _: beep(800, 60))
         # AHK AutoHotkey.ahk: `#a/#s/#d/#w -> MouseMove(...,"R")`,
@@ -118,6 +124,24 @@ class ActionRunner:
             handler(argument)
         except Exception:
             log.exception("eylem hatasi: %s", action)
+
+    def _send_key_every(self, argument: str) -> None:
+        """send_key_every:3:^NumpadAdd -- her 3. tetikte bir tus gonderir.
+
+        Tekerlek bir centikte tek tetik uretiyor; sayfa zoom'u icin fazla
+        hassas. Ilk tetik hemen gider, sonrakiler `nth`'de bir. Sayac
+        tekerlek durdugunda (`EVERY_RESET_S`) sifirlanir: tek centik her
+        zaman karsilik bulur.
+        """
+        count, _, stroke = argument.partition(":")
+        nth = max(1, int(count))
+        now = time.monotonic()
+        last, seen = self._every.get(stroke, (0.0, 0))
+        if now - last > EVERY_RESET_S:
+            seen = 0
+        self._every[stroke] = (now, seen + 1)
+        if seen % nth == 0:
+            self._send_key(stroke)
 
     def _send_keys(self, argument: str) -> None:
         """send_keys:^a ^c Enter -- bosluklarla ayrilmis dizi.

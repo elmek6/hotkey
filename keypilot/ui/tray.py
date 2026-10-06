@@ -47,6 +47,8 @@ BACKGROUND = QColor("#1f6feb")
 PAUSED_BACKGROUND = QColor("#6e7681")
 ERROR_BACKGROUND = QColor("#da3633")
 WARN_BACKGROUND = QColor("#bb8009")
+#: Zamanlayici + hibernate birlikte secili: yesil halka yerine beyaz halka.
+HIBERNATE_RING = QColor("#ffffff")
 BAR = QColor("#ffffff")
 #: Gelistirme modu (keypilot/dev.py) acikken simgenin cevresine cizilen
 #: halka. ZEMIN DEGIL cerceve: zemin renkleri zaten dolu (duraklatildi /
@@ -162,6 +164,7 @@ def make_icon(
     warn: bool = False,
     dev: bool = False,
     awake: bool = False,
+    hibernate: bool = False,
 ) -> QIcon:
     """Kaskadi anlatan basit simge: saga dogru inen uc cubuk.
 
@@ -209,7 +212,8 @@ def make_icon(
     # Uyanik sayaci: yesil halka. Gelistirme halkasiyla birlikteyse icte kalir.
     stroke = size * 0.09
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    rings = ((awake, AWAKE_RING, stroke if dev else 0.0), (dev, DEV_RING, 0.0))
+    awake_ring = HIBERNATE_RING if hibernate else AWAKE_RING
+    rings = ((awake, awake_ring, stroke if dev else 0.0), (dev, DEV_RING, 0.0))
     for active, color, offset in rings:
         if not active:
             continue
@@ -256,6 +260,8 @@ class Tray(QSystemTrayIcon):
         self.dev = False
         #: Uyanik sayaci satiri ("00:40 (hibernate)"); None = sayac yok.
         self.awake: str | None = None
+        #: Zamanlayici hibernate ile kurulu -- simgenin cercevesi beyaz.
+        self.hibernate = False
         self.error_count = 0
         #: Bunlarin kaci ERROR+ -- simgeyi KIRMIZI yapan sayi budur.
         self.severe_count = 0
@@ -373,11 +379,13 @@ class Tray(QSystemTrayIcon):
         self.dev_off_action.setVisible(active)
         self._refresh()
 
-    def set_awake(self, text: str | None) -> None:
-        """Sayac calisirken yesil halka + ipucunda kalan sure satiri."""
-        if text == self.awake:
+    def set_awake(self, text: str | None, hibernate: bool = False) -> None:
+        """Sayac calisirken yesil halka + ipucunda kalan sure satiri;
+        hibernate de kuruluysa halka beyaz olur."""
+        if text == self.awake and hibernate == self.hibernate:
             return
         self.awake = text
+        self.hibernate = hibernate
         self._refresh()
 
     def set_error_count(self, count: int, severe: int = 0) -> None:
@@ -402,6 +410,7 @@ class Tray(QSystemTrayIcon):
                 warn=bool(self.error_count),
                 dev=self.dev,
                 awake=self.awake is not None,
+                hibernate=self.hibernate,
             )
         )
         self.setToolTip(self._tooltip())

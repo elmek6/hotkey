@@ -582,8 +582,9 @@ def build_hotkeys() -> HotkeyTable:
     # orta tus kaydirma/yeni sekme icin uygulamaya gitmeli (asagidaki
     # `~MButton` satirlari da oyle). Tekerlek yutulur, sayfa kaymaz; basili
     # tutma yapistirmasi da iptal olur (dispatch._cancel_mouse_hold_for_wheel).
-    table.add("~MButton & WheelUp", Cmd.send_key("^NumpadAdd"), "zoom +")
-    table.add("~MButton & WheelDown", Cmd.send_key("^NumpadSub"), "zoom -")
+    # Her 3 centikte bir adim: tekerlek zoom icin fazla hassastı.
+    table.add("~MButton & WheelUp", Cmd.send_key_every(3, "^NumpadAdd"), "zoom +")
+    table.add("~MButton & WheelDown", Cmd.send_key_every(3, "^NumpadSub"), "zoom -")
 
     # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
     # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---
