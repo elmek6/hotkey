@@ -68,6 +68,7 @@ class TrayAction(StrEnum):
     RESTART = "restart"
     RESTART_DEV_OFF = "restart_dev_off"
     PAUSE_DIALOG = "pause_dialog"
+    SYSTEM_MENU = "system_menu"
     SETTINGS = "settings"
     MONITOR = "monitor"
     COPY_ERROR = "copy_error"
@@ -79,6 +80,7 @@ DOUBLE_CLICK_LABELS = {
     TrayAction.PAUSE: "Pause/Play",
     TrayAction.RESTART: "Reload",
     TrayAction.PAUSE_DIALOG: "Pause menu",
+    TrayAction.SYSTEM_MENU: "Command menu",
     TrayAction.SETTINGS: "Settings",
     TrayAction.MONITOR: "Event monitor",
     TrayAction.COPY_ERROR: "Copy last error",
@@ -246,6 +248,7 @@ class Tray(QSystemTrayIcon):
         on_show_errors: Callable[[], None] = lambda: None,
         computer: str = "",
         parent=None,
+        on_show_sys_menu: Callable[[], None] = lambda: None,
     ) -> None:
         super().__init__(make_icon(), parent)
         self.version = version
@@ -271,6 +274,7 @@ class Tray(QSystemTrayIcon):
             TrayAction.RESTART: on_restart,
             TrayAction.RESTART_DEV_OFF: on_restart_dev_off,
             TrayAction.PAUSE_DIALOG: on_pause_dialog,
+            TrayAction.SYSTEM_MENU: on_show_sys_menu,
             TrayAction.SETTINGS: on_settings,
             TrayAction.MONITOR: on_monitor,
             TrayAction.COPY_ERROR: on_copy_error,

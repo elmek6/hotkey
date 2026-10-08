@@ -552,6 +552,7 @@ class KeyPilot:
             on_restart_dev_off=self.restart_dev_off,
             on_exit=lambda: self.quit(source="tepsi menusu"),
             on_pause_dialog=self.show_pause_dialog,
+            on_show_sys_menu=self.show_sys_menu,
             on_toggle_pause=self.toggle_pause,
             on_settings=self.show_settings,
             on_copy_error=self.copy_last_error,

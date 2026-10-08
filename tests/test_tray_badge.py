@@ -97,6 +97,7 @@ def test_tek_tiklama_varsayilanda_hicbir_sey_yapmaz(qapp):
         lambda: None,
         on_toggle_pause=lambda: calls.append("pause"),
         on_settings=lambda: calls.append("settings"),
+        on_show_sys_menu=lambda: calls.append("system_menu"),
     )
     t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
     assert calls == []
@@ -110,6 +111,31 @@ def test_tek_tiklama_varsayilanda_hicbir_sey_yapmaz(qapp):
         assert calls == ["settings", "pause"]
     finally:
         tray.SINGLE_CLICK.reset()
+
+
+def test_tek_ve_cift_tiklama_sistem_menusunu_acabilir(qapp):
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    calls = []
+    t = tray.Tray(
+        "test",
+        lambda: None,
+        lambda: None,
+        lambda: None,
+        on_show_sys_menu=lambda: calls.append("system_menu"),
+    )
+    assert tray.DOUBLE_CLICK_LABELS[tray.TrayAction.SYSTEM_MENU] == "Command menu"
+    assert tray.SINGLE_CLICK_LABELS[tray.TrayAction.SYSTEM_MENU] == "Command menu"
+
+    tray.SINGLE_CLICK.set(tray.TrayAction.SYSTEM_MENU)
+    tray.DOUBLE_CLICK.set(tray.TrayAction.SYSTEM_MENU)
+    try:
+        t._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
+        t._on_activated(QSystemTrayIcon.ActivationReason.DoubleClick)
+        assert calls == ["system_menu", "system_menu"]
+    finally:
+        tray.SINGLE_CLICK.reset()
+        tray.DOUBLE_CLICK.reset()
 
 
 def test_isaretli_simgede_tek_tik_da_hatalari_acar(qapp):
