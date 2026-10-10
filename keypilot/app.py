@@ -2028,10 +2028,7 @@ class KeyPilot:
             what,
             now - expected,
         )
-        self._hibernate = False
-        self._hibernate_due = 0.0
-        self._hibernate_countdown.stop()
-        self._refresh_awake()
+        self.set_idle_minutes(0)  # hibernate bitti -> Awake suresi de bitti
         return False
 
     def _start_hibernate_countdown(self) -> None:
@@ -2043,19 +2040,15 @@ class KeyPilot:
         log.info("hibernate geri sayimi: %d sn", self._hibernate_seconds)
 
     def _hibernate_now(self) -> None:
-        """Tek seferlik: donuste kutu kapali. Engelleyiciye dokunulmaz."""
+        """Tek seferlik: donuste kutu kapali, Awake suresi de 0 (is bitti)."""
         if self._hibernate_due and not self._hibernate_clock_ok(self._hibernate_due, "(bitis)"):
             return
-        self._hibernate = False
-        self._hibernate_due = 0.0
-        self._refresh_awake()
+        self.set_idle_minutes(0)
         logs.lifecycle("zamanlayici: hibernate")
         shell.hibernate()
 
     def _hibernate_cancelled(self) -> None:
-        self._hibernate = False
-        self._hibernate_due = 0.0
-        self._refresh_awake()
+        self.set_idle_minutes(0)  # hibernate bitti -> Awake suresi de bitti
         log.info("hibernate iptal edildi")
 
     @command(Cmd.App.PAUSE_DIALOG)
