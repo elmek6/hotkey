@@ -44,7 +44,16 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap, QRegion
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QFont,
+    QImage,
+    QPainter,
+    QPen,
+    QPixmap,
+    QRegion,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -114,6 +123,13 @@ GRID_PREVIEW = QColor(255, 255, 255, 230)
 ICON_PX = 10  # ikon dairesinin yaricapi
 ICON_GAP = 26  # ikonlar arasi mesafe
 ICON_OFFSET = GRIP_PX + ICON_PX + 6  # cizgiyle ikon kumesi arasi mesafe
+ARROW_PX = 7  # sayac okunun (▲/▼) yarim kenari
+#: Kumenin kendi ekseninde kapladigi yarim yukseklik: sayac sutunu
+#: (ok + sayi + ok) ikon dairesinden uzun, sigma hesabi buna bakmali.
+CLUSTER_REACH = ICON_PX + 2 * ARROW_PX
+#: Tek hamlede basilabilecek en fazla cizgi. Ustu pratikte okunmuyor,
+#: sayi da kutuya sigmiyor.
+MAX_GRID_COUNT = 12
 ICON_BG = QColor(0x1F, 0x23, 0x28, 235)
 ICON_BG_HOVER = QColor(0x44, 0x4C, 0x56, 235)
 ICON_FG = QColor(0xE6, 0xED, 0xF3)
@@ -288,6 +304,10 @@ class SnipOverlay(QWidget):
         self._line_hover: tuple[str, int] | None = None
         self._line_hover_pos = QPoint()  # son hover konumu: ikon/yerel kesme yeri
         self._icon_hover: str = ""  # hover'daki ikonun kimligi ("" = hicbiri)
+        #: Yon ikonunun TEK HAMLEDE basacagi cizgi sayisi (ikon kumesindeki
+        #: sayac). Bir ALET AYARI: cizgiden cizgiye tasinir, her hover'da
+        #: sifirlanmaz -- ayni bolmeyi pes pese uygulamak icin.
+        self._grid_count = 1
         self._anchor = QPoint()  # surukleme baslangici
         self._rect_at_press = QRect()
         self._picking = False  # ilk secim suruklemesi mi
@@ -937,6 +957,7 @@ class SnipOverlay(QWidget):
         self._ruler_hover = None
         self._line_hover = None
         self._icon_hover = ""
+        self._grid_count = 1
         self._picking = False
         self._panel.hide()
         self.clearMask()
@@ -1439,11 +1460,13 @@ class SnipOverlay(QWidget):
 
     def _line_icon_specs(
         self, kind: str, index: int, cursor: QPoint
-    ) -> list[tuple[str, QPoint]]:
-        """Hover'daki cizginin aksiyon ikonlari: (kimlik, merkez) listesi.
+    ) -> list[tuple[str, QPoint, int]]:
+        """Hover'daki cizginin aksiyon ikonlari: (kimlik, merkez, yarim kenar).
 
-        TAM cizgiler uc ikon alir (sil + iki yon); yerel kesmeler yalniz
-        silinebilir -- ustune bir kisa cizgi daha eklemek kapsam disi.
+        TAM cizgiler alti parca alir: sil, iki yon ve SAYAC sutunu
+        (▲ / sayi / ▼). Sayac yon ikonunun kac cizgi basacagini soyler.
+        Yerel kesmeler yalniz silinebilir -- ustune bir kisa cizgi daha
+        eklemek kapsam disi.
 
         Ikon kumesi cizginin HER ZAMAN varsayilan tarafinda (ustunde/
         saginda) belirir; kenara cok yakinsa SIGMAYAN tarafa DONER --
@@ -1451,49 +1474,89 @@ class SnipOverlay(QWidget):
         """
         rect = self._rect.normalized()
         if kind == "row":
+            # Yatay dizilim: [sil][yukari][asagi] + sayac sutunu.
             y = round(rect.top() + self._grid_rows[index] * rect.height())
-            cx = min(max(cursor.x(), rect.left() + ICON_GAP), rect.right() - ICON_GAP)
-            above_fits = y - ICON_OFFSET - ICON_PX >= rect.top()
+            cx = min(
+                max(cursor.x(), rect.left() + ICON_GAP + ICON_PX),
+                rect.right() - 2 * ICON_GAP - ICON_PX,
+            )
+            above_fits = y - ICON_OFFSET - CLUSTER_REACH >= rect.top()
             iy = y - ICON_OFFSET if above_fits else y + ICON_OFFSET
+            sx = cx + 2 * ICON_GAP
             return [
-                ("delete", QPoint(cx - ICON_GAP, iy)),
-                ("up", QPoint(cx, iy)),
-                ("down", QPoint(cx + ICON_GAP, iy)),
+                ("delete", QPoint(cx - ICON_GAP, iy), ICON_PX),
+                ("up", QPoint(cx, iy), ICON_PX),
+                ("down", QPoint(cx + ICON_GAP, iy), ICON_PX),
+                *self._counter_specs(QPoint(sx, iy)),
             ]
         if kind == "col":
+            # Dikey dizilim: [sil][sol][sag]; sayac sutunu YANINA kaciyor,
+            # cunku ▲/▼ her zaman dikey durmali (yon anlami kaybolmasin).
             x = round(rect.left() + self._grid_cols[index] * rect.width())
-            cy = min(max(cursor.y(), rect.top() + ICON_GAP), rect.bottom() - ICON_GAP)
-            right_fits = x + ICON_OFFSET + ICON_PX <= rect.right()
-            ix = x + ICON_OFFSET if right_fits else x - ICON_OFFSET
+            cy = min(
+                max(cursor.y(), rect.top() + ICON_GAP + CLUSTER_REACH),
+                rect.bottom() - ICON_GAP - CLUSTER_REACH,
+            )
+            right_fits = x + ICON_OFFSET + ICON_GAP + ICON_PX <= rect.right()
+            side = 1 if right_fits else -1
+            ix = x + side * ICON_OFFSET
             return [
-                ("delete", QPoint(ix, cy - ICON_GAP)),
-                ("left", QPoint(ix, cy)),
-                ("right", QPoint(ix, cy + ICON_GAP)),
+                ("delete", QPoint(ix, cy - ICON_GAP), ICON_PX),
+                ("left", QPoint(ix, cy), ICON_PX),
+                ("right", QPoint(ix, cy + ICON_GAP), ICON_PX),
+                *self._counter_specs(QPoint(ix + side * ICON_GAP, cy)),
             ]
         split = self._local_splits[index]
         p0, p1 = self._split_endpoints(rect, split)
         mid = QPoint((p0.x() + p1.x()) // 2, (p0.y() + p1.y()) // 2)
         if split.axis == "v":
             dx = ICON_OFFSET if mid.x() + ICON_OFFSET + ICON_PX <= rect.right() else -ICON_OFFSET
-            return [("delete", QPoint(mid.x() + dx, mid.y()))]
+            return [("delete", QPoint(mid.x() + dx, mid.y()), ICON_PX)]
         above_fits = mid.y() - ICON_OFFSET - ICON_PX >= rect.top()
         dy = -ICON_OFFSET if above_fits else ICON_OFFSET
-        return [("delete", QPoint(mid.x(), mid.y() + dy))]
+        return [("delete", QPoint(mid.x(), mid.y() + dy), ICON_PX)]
+
+    @staticmethod
+    def _counter_specs(center: QPoint) -> list[tuple[str, QPoint, int]]:
+        """Sayac sutunu: ▲ ustte, sayi ortada, ▼ altta (klasik spinbox)."""
+        step = ICON_PX + ARROW_PX
+        return [
+            ("inc", QPoint(center.x(), center.y() - step), ARROW_PX),
+            ("count", center, ICON_PX),
+            ("dec", QPoint(center.x(), center.y() + step), ARROW_PX),
+        ]
 
     def _icon_at(self, pos: QPoint) -> str:
         """Hover'daki cizginin ikonlarindan hangisinin uzerindeyiz ("" = hicbiri)."""
         if self._line_hover is None:
             return ""
         kind, index = self._line_hover
-        for icon_id, center in self._line_icon_specs(kind, index, self._line_hover_pos):
-            if abs(pos.x() - center.x()) <= ICON_PX and abs(pos.y() - center.y()) <= ICON_PX:
+        for icon_id, center, half in self._line_icon_specs(kind, index, self._line_hover_pos):
+            if abs(pos.x() - center.x()) <= half and abs(pos.y() - center.y()) <= half:
                 return icon_id
         return ""
 
+    def _even_cuts(self, low: float, high: float) -> list[float]:
+        """`low`..`high` araligini N+1 ESIT parcaya bolen N nokta.
+
+        Fusion 360'in "repeat" mantigi: sayac KAC CIZGI oldugunu soyler,
+        kac parca oldugunu degil. 100 birimlik bir hucrede 1 -> 50,
+        2 -> 33/66, 3 -> 25/50/75.
+        """
+        step = (high - low) / (self._grid_count + 1)
+        return [low + step * (i + 1) for i in range(self._grid_count)]
+
     def _handle_icon_click(self, icon: str) -> None:
-        """Ikona tiklandi: cizgiyi siler ya da ondan yerel bir kisa cizgi dogurur."""
+        """Ikona tiklandi: sayaci oynatir, cizgiyi siler ya da yerel kesme basar."""
         if self._line_hover is None:
             return
+        if icon in ("inc", "dec"):
+            step = 1 if icon == "inc" else -1
+            self._grid_count = min(MAX_GRID_COUNT, max(1, self._grid_count + step))
+            self.update()  # kume ACIK kalir: pes pese basilabilsin
+            return
+        if icon == "count":
+            return  # sayi gostergesi: tiklanabilir degil, yalnizca kumeyi tutar
         kind, index = self._line_hover
         rect = self._rect.normalized()
         if icon == "delete":
@@ -1504,17 +1567,21 @@ class SnipOverlay(QWidget):
             else:
                 del self._local_splits[index]
         elif kind == "row":
+            # Dikey kisa cizgiler: uzunlugu komsu SATIR bandi, konumlari
+            # imlecin icinde durdugu hucreyi esit bolen noktalar.
             y_frac = self._grid_rows[index]
             above, below = self._row_band_bounds(y_frac)
-            x_frac = min(max((self._line_hover_pos.x() - rect.left()) / rect.width(), 0.0), 1.0)
             start, end = (above, y_frac) if icon == "up" else (y_frac, below)
-            self._local_splits.append(LocalSplit("v", x_frac, start, end))
+            x_frac = min(max((self._line_hover_pos.x() - rect.left()) / rect.width(), 0.0), 1.0)
+            for cut in self._even_cuts(*self._col_band_bounds(x_frac)):
+                self._local_splits.append(LocalSplit("v", cut, start, end))
         elif kind == "col":
             x_frac = self._grid_cols[index]
             left, right = self._col_band_bounds(x_frac)
-            y_frac = min(max((self._line_hover_pos.y() - rect.top()) / rect.height(), 0.0), 1.0)
             start, end = (left, x_frac) if icon == "left" else (x_frac, right)
-            self._local_splits.append(LocalSplit("h", y_frac, start, end))
+            y_frac = min(max((self._line_hover_pos.y() - rect.top()) / rect.height(), 0.0), 1.0)
+            for cut in self._even_cuts(*self._row_band_bounds(y_frac)):
+                self._local_splits.append(LocalSplit("h", cut, start, end))
         self._line_hover = None
         self._icon_hover = ""
         self.update()
@@ -1895,20 +1962,40 @@ class SnipOverlay(QWidget):
             return
         kind, index = self._line_hover
         painter.save()
-        for icon_id, center in self._line_icon_specs(kind, index, self._line_hover_pos):
+        for icon_id, center, half in self._line_icon_specs(kind, index, self._line_hover_pos):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(ICON_BG_HOVER if icon_id == self._icon_hover else ICON_BG)
-            painter.drawEllipse(center, ICON_PX, ICON_PX)
+            painter.drawEllipse(center, half, half)
+            if icon_id == "count":
+                self._draw_count(painter, center, half)
+                continue
             painter.setPen(QPen(ICON_FG, 2))
-            self._draw_icon_glyph(painter, icon_id, center)
+            self._draw_icon_glyph(painter, icon_id, center, half)
         painter.restore()
 
+    def _draw_count(self, painter: QPainter, center: QPoint, half: int) -> None:
+        """Sayac rakami. Yon ikonunun basacagi cizgi sayisi."""
+        font = QFont(painter.font())
+        font.setPointSize(9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(ICON_FG, 1))
+        box = QRect(center.x() - half, center.y() - half, half * 2, half * 2)
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, str(self._grid_count))
+
     @staticmethod
-    def _draw_icon_glyph(painter: QPainter, icon_id: str, c: QPoint) -> None:
-        r = ICON_PX - 4
+    def _draw_icon_glyph(painter: QPainter, icon_id: str, c: QPoint, half: int) -> None:
+        r = half - 4 if half > 6 else half - 2
         if icon_id == "delete":
             painter.drawLine(c.x() - r, c.y() - r, c.x() + r, c.y() + r)
             painter.drawLine(c.x() - r, c.y() + r, c.x() + r, c.y() - r)
+            return
+        if icon_id in ("inc", "dec"):
+            # Sayac oku: govdesiz CENTIK (▲/▼) -- yon ikonlarinin tam
+            # oklarindan ayrilsin, "tasir" degil "arttirir" desin.
+            sign = -1 if icon_id == "inc" else 1
+            painter.drawLine(c.x() - r, c.y() - sign * r // 2, c.x(), c.y() + sign * r // 2)
+            painter.drawLine(c.x(), c.y() + sign * r // 2, c.x() + r, c.y() - sign * r // 2)
             return
         dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[icon_id]
         tip = QPoint(c.x() + dx * r, c.y() + dy * r)

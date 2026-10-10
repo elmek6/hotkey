@@ -6,6 +6,7 @@ gercek masaustunu aliyor, Qt'nin gorunur pencereye ihtiyaci yok.
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
@@ -173,3 +174,93 @@ def test_eylem_kimligi_bicimi():
     """app.py `_on_snip_done` dil secili OCR'yi `partition(":")` ile ayiriyor."""
     assert SnipAction.COPY == "copy"
     assert SnipAction.OCR("de") == "ocr:de"
+
+
+# ---- OCR+ izgarasi (ui/snip.py: cetvel, cizgi ikonlari, sayac) --------------
+
+
+def _grid_session(qapp):
+    """Ayar fazindaki orutu: cerceve kurulu, OCR+ oturumu acik."""
+    snip = _open_bar(qapp)
+    snip._session = True
+    snip._update_mask()
+    return snip
+
+
+def _move(widget, pos: QPoint) -> None:
+    point = QPointF(pos)
+    QApplication.sendEvent(
+        widget,
+        QMouseEvent(
+            QEvent.Type.MouseMove,
+            point,
+            point,
+            point,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+
+
+def test_sayac_bandi_esit_boler(qapp):
+    """Fusion 360 "repeat": sayi KAC CIZGI oldugunu soyler, kac parca degil."""
+    snip = _grid_session(qapp)
+    snip._grid_count = 1
+    assert snip._even_cuts(0.0, 1.0) == pytest.approx([0.5])
+    snip._grid_count = 2
+    assert snip._even_cuts(0.0, 1.0) == pytest.approx([1 / 3, 2 / 3])
+    snip._grid_count = 3
+    assert snip._even_cuts(0.0, 1.0) == pytest.approx([0.25, 0.5, 0.75])
+    snip.close()
+
+
+def test_kenara_oturan_cizgi_resize_tutamacini_calmaz(qapp):
+    """Cizgi tam kenara denk gelirse o kenardan boyutlandirma olmeli degil:
+    tutamac her zaman izgara hover'indan once gelir."""
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.0]  # ust kenarin uzerinde duran cizgi
+    rect = snip._rect.normalized()
+    _move(snip, QPoint(rect.center().x(), rect.top()))
+    assert snip._hover_grip == Grip.TOP
+    assert snip._line_hover is None
+    snip.close()
+
+
+def test_ikon_kumesi_kenara_yakin_cizgide_secimin_icinde_kalir(qapp):
+    """Kume rect'i tasarsa maske onu kirpiyor (silik/kesik gorunum)."""
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.0]
+    rect = snip._rect.normalized()
+    for _icon, center, half in snip._line_icon_specs("row", 0, rect.center()):
+        assert rect.left() <= center.x() - half and center.x() + half <= rect.right()
+        assert rect.top() <= center.y() - half and center.y() + half <= rect.bottom()
+    snip.close()
+
+
+def test_sayac_oklari_kumeyi_kapatmaz_ve_bire_kadar_iner(qapp):
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.5]
+    snip._line_hover = ("row", 0)
+    snip._handle_icon_click("inc")
+    assert snip._grid_count == 2
+    assert snip._line_hover == ("row", 0)  # pes pese basilabilsin diye acik kalir
+    snip._handle_icon_click("dec")
+    snip._handle_icon_click("dec")
+    assert snip._grid_count == 1
+    assert not snip._local_splits  # sayac cizgi basmaz, yalnizca sayiyi tutar
+    snip.close()
+
+
+def test_yon_ikonu_sayac_kadar_yerel_kesme_basar(qapp):
+    """3 -> hucreyi dortte bir noktalarindan kesen 3 kisa dikey cizgi."""
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.5]
+    snip._line_hover = ("row", 0)
+    snip._line_hover_pos = snip._rect.normalized().center()
+    snip._grid_count = 3
+    snip._handle_icon_click("up")
+    assert [split.pos for split in snip._local_splits] == pytest.approx([0.25, 0.5, 0.75])
+    # Uzunluk komsu SATIR bandi: ust kenardan hover'daki cizgiye kadar.
+    assert {(s.axis, s.start, s.end) for s in snip._local_splits} == {("v", 0.0, 0.5)}
+    snip.close()
