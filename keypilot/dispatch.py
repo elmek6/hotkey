@@ -25,6 +25,7 @@ import logging
 import queue
 from collections.abc import Callable
 
+from keypilot import dev
 from keypilot.commands import Cmd
 from keypilot.core.cascade import (
     CascadeMachine,
@@ -564,11 +565,12 @@ class Dispatcher:
             phantoms.append((vk, started))
         self._suspects = suspects
         for vk, started in phantoms:
-            log.warning(
-                "hayalet tus dusuruldu: %s (%.1f sn basili gorunuyordu)",
-                key_name(vk),
-                now - started if started is not None else 0.0,
-            )
+            if dev.log_phantom_drops():
+                log.warning(
+                    "hayalet tus dusuruldu: %s (%.1f sn basili gorunuyordu)",
+                    key_name(vk),
+                    now - started if started is not None else 0.0,
+                )
             self._forget(vk, now)
         self.phantom_drops += len(phantoms)
         return [vk for vk, _started in phantoms]

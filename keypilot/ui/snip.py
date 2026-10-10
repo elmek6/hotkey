@@ -40,6 +40,7 @@ from __future__ import annotations
 import ctypes
 from collections.abc import Callable
 from ctypes import wintypes
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
@@ -85,6 +86,7 @@ GRIP_PX = 8  # tutamaca "isabet etti" sayilan mesafe (AHK: GRAB_TOL)
 MIN_SIZE = 8  # bundan kucuk secim "yanlislikla tikladim" sayilir (AHK: MIN_SIZE)
 GRIP_MIN = 44  # bu boyutun altinda tutamaclar ust uste biner: yalniz cerceve
 SETTLE_MS = 70  # cerceve gizlendikten sonra DWM'in temiz kareyi cizme suresi
+RULER_PX = 18  # izgara cetveli seridi genisligi (OCR+ fazinda, GRIP_PX'in disinda)
 
 VEIL = QColor(0, 0, 0, 90)  # AHK: DIM_ALPHA 90
 # AHK'nin secim cercevesi KIRMIZIYDI (screen_ocr.ahk'deki "kirmizi cerceve"
@@ -97,6 +99,24 @@ HANDLE_ACTIVE = QColor(255, 255, 255)  # secili tutamac: yon tusu kipi
 # (WA_TranslucentBackground) oldugu icin tamamen saydam piksel fareyi alta
 # geciriyor; alfa 0 birakilirsa cercevenin ICINDEN tutup tasima calismaz.
 SESSION_FILL = QColor(0, 0, 0, 1)
+
+# Izgara cetvelleri (OCR+ fazi): UST serit dikey cizgi ekler (cetvelden x
+# secilir), SOL serit yatay cizgi ekler (y secilir) -- grafik araclarindaki
+# "cetvelden surukle" kuraliyla ayni.
+RULER_V = QColor(0, 200, 90, 70)  # ust serit: dikey cizgi
+RULER_H = QColor(255, 210, 0, 70)  # sol serit: yatay cizgi
+GRID_LINE = QColor(255, 255, 255, 210)
+GRID_HOVER = QColor(70, 150, 255)  # hover'daki cizgi: mavi, kalin
+GRID_PREVIEW = QColor(255, 255, 255, 230)
+
+#: Cizgi uzerindeki aksiyon ikonlari (sil + yon). Rengi cubuktaki
+#: dugmelerle ayni aile (#1f2328 / #444c56 / #e6edf3).
+ICON_PX = 10  # ikon dairesinin yaricapi
+ICON_GAP = 26  # ikonlar arasi mesafe
+ICON_OFFSET = GRIP_PX + ICON_PX + 6  # cizgiyle ikon kumesi arasi mesafe
+ICON_BG = QColor(0x1F, 0x23, 0x28, 235)
+ICON_BG_HOVER = QColor(0x44, 0x4C, 0x56, 235)
+ICON_FG = QColor(0xE6, 0xED, 0xF3)
 
 HWND_TOPMOST = -1
 SWP_SHOWWINDOW = 0x0040
@@ -127,6 +147,28 @@ _ARROW_DELTA = {
 }
 _HORIZONTAL = frozenset({Grip.LEFT, Grip.RIGHT})
 _VERTICAL = frozenset({Grip.TOP, Grip.BOTTOM})
+
+
+@dataclass(frozen=True, slots=True)
+class LocalSplit:
+    """TAM bir izgara cizgisinin uzerinden baslayip yalniz KOMSU bolgeye
+    uzanan kisa cizgi -- duzensiz/ic ice tablo hucreleri icin (ornek: bir
+    satirin yalniz bir sutununda ekstra bolme). Hover'daki tam cizginin
+    "yukari/asagi" (yatay cizgi icin) ya da "sol/sag" (dikey cizgi icin)
+    ikonuyla eklenir.
+
+        axis    "v" = dikey kisa cizgi (yatay TAM cizgiyi keser)
+                "h" = yatay kisa cizgi (dikey TAM cizgiyi keser)
+        pos     cizginin durdugu KARSIT eksendeki oran (0..1)
+        start   baslangic orani kendi ekseninde (0..1)
+        end     bitis orani kendi ekseninde (0..1)
+    """
+
+    axis: str
+    pos: float
+    start: float
+    end: float
+
 
 _CURSORS = {
     Grip.TOP_LEFT: Qt.CursorShape.SizeFDiagCursor,
@@ -233,6 +275,19 @@ class SnipOverlay(QWidget):
         self._grip = Grip.NONE  # su an suruklenen tutamac
         self._selected_grip = Grip.NONE  # son tiklanan/cekilen (yon tuslari)
         self._hover_grip = Grip.NONE  # imlecin uzerinde oldugu tutamac
+        #: Izgara cizgileri -- rect'e GORE ORANLA (0..1) saklanir, boylece
+        #: cerceve tutamacla yeniden boyutlanirsa cizgiler oranli kayar.
+        self._grid_cols: list[float] = []  # dikey cizgiler (x orani)
+        self._grid_rows: list[float] = []  # yatay cizgiler (y orani)
+        self._local_splits: list[LocalSplit] = []  # kisa/yerel cizgiler
+        #: Cetvel seridinde gezinirken canli onizleme: ("v", x) ya da ("h", y)
+        #: widget piksel koordinatinda; hicbiri uzerinde degilken None.
+        self._ruler_hover: tuple[str, int] | None = None
+        #: Hover'daki TAM/kisa cizgi: ("row"|"col"|"split", index). Uzerinde
+        #: aksiyon ikonlari (sil + yon) gosterilir.
+        self._line_hover: tuple[str, int] | None = None
+        self._line_hover_pos = QPoint()  # son hover konumu: ikon/yerel kesme yeri
+        self._icon_hover: str = ""  # hover'daki ikonun kimligi ("" = hicbiri)
         self._anchor = QPoint()  # surukleme baslangici
         self._rect_at_press = QRect()
         self._picking = False  # ilk secim suruklemesi mi
@@ -876,6 +931,12 @@ class SnipOverlay(QWidget):
         self._grip = Grip.NONE
         self._selected_grip = Grip.NONE
         self._hover_grip = Grip.NONE
+        self._grid_cols = []
+        self._grid_rows = []
+        self._local_splits = []
+        self._ruler_hover = None
+        self._line_hover = None
+        self._icon_hover = ""
         self._picking = False
         self._panel.hide()
         self.clearMask()
@@ -1266,6 +1327,198 @@ class SnipOverlay(QWidget):
             return Grip.MOVE
         return Grip.NONE
 
+    # ---- izgara cetvelleri (OCR+ fazi) ----
+    #
+    # Grafik araclarindaki "cetvelden surukle" kurali: UST cetvel x
+    # konumunu secer ve DIKEY cizgi birakir, SOL cetvel y konumunu secer
+    # ve YATAY cizgi birakir. Serit, tutamaclarin (GRIP_PX) hemen disinda --
+    # ikisi cakismaz.
+
+    @staticmethod
+    def _top_ruler_rect(rect: QRect) -> QRect:
+        return QRect(
+            rect.left(), rect.top() - GRIP_PX - RULER_PX, rect.width(), RULER_PX
+        )
+
+    @staticmethod
+    def _left_ruler_rect(rect: QRect) -> QRect:
+        return QRect(
+            rect.left() - GRIP_PX - RULER_PX, rect.top(), RULER_PX, rect.height()
+        )
+
+    def _ruler_zone_at(self, pos: QPoint) -> str:
+        """"top" / "left" / "" -- yalniz OCR+ fazinda (`_session`) anlamli."""
+        rect = self._rect.normalized()
+        if rect.isEmpty():
+            return ""
+        if self._top_ruler_rect(rect).contains(pos):
+            return "top"
+        if self._left_ruler_rect(rect).contains(pos):
+            return "left"
+        return ""
+
+    def _set_ruler_hover(self, zone: str, pos: QPoint) -> None:
+        """Cetvel seridinde gezinme: canli onizleme cizgisini gunceller."""
+        rect = self._rect.normalized()
+        if zone == "top":
+            x = min(max(pos.x(), rect.left()), rect.right())
+            hover: tuple[str, int] = ("v", x)
+            self.setCursor(Qt.CursorShape.SplitHCursor)
+        else:
+            y = min(max(pos.y(), rect.top()), rect.bottom())
+            hover = ("h", y)
+            self.setCursor(Qt.CursorShape.SplitVCursor)
+        if hover != self._ruler_hover:
+            self._ruler_hover = hover
+            self.update()
+
+    def _commit_grid_line(self, zone: str, pos: QPoint) -> None:
+        """Cetvele tiklandi: onizlenen cizgiyi kalici izgaraya ekler."""
+        rect = self._rect.normalized()
+        if zone == "top":
+            x = min(max(pos.x(), rect.left()), rect.right())
+            self._grid_cols.append((x - rect.left()) / rect.width())
+        else:
+            y = min(max(pos.y(), rect.top()), rect.bottom())
+            self._grid_rows.append((y - rect.top()) / rect.height())
+        self.update()
+
+    # ---- izgara cizgileri: hover, ikonlar, yerel kesme (OCR+ fazi) ----
+
+    def _line_at(self, pos: QPoint) -> tuple[str, int] | None:
+        """En yakin TAM ya da yerel izgara cizgisi (GRIP_PX toleransla)."""
+        rect = self._rect.normalized()
+        if rect.isEmpty():
+            return None
+        for index, frac in enumerate(self._grid_rows):
+            y = round(rect.top() + frac * rect.height())
+            if abs(pos.y() - y) <= GRIP_PX and rect.left() <= pos.x() <= rect.right():
+                return ("row", index)
+        for index, frac in enumerate(self._grid_cols):
+            x = round(rect.left() + frac * rect.width())
+            if abs(pos.x() - x) <= GRIP_PX and rect.top() <= pos.y() <= rect.bottom():
+                return ("col", index)
+        for index, split in enumerate(self._local_splits):
+            p0, p1 = self._split_endpoints(rect, split)
+            if split.axis == "v":
+                if abs(pos.x() - p0.x()) <= GRIP_PX and min(p0.y(), p1.y()) <= pos.y() <= max(
+                    p0.y(), p1.y()
+                ):
+                    return ("split", index)
+            elif abs(pos.y() - p0.y()) <= GRIP_PX and min(p0.x(), p1.x()) <= pos.x() <= max(
+                p0.x(), p1.x()
+            ):
+                return ("split", index)
+        return None
+
+    @staticmethod
+    def _split_endpoints(rect: QRect, split: LocalSplit) -> tuple[QPoint, QPoint]:
+        if split.axis == "v":
+            x = round(rect.left() + split.pos * rect.width())
+            return (
+                QPoint(x, round(rect.top() + split.start * rect.height())),
+                QPoint(x, round(rect.top() + split.end * rect.height())),
+            )
+        y = round(rect.top() + split.pos * rect.height())
+        return (
+            QPoint(round(rect.left() + split.start * rect.width()), y),
+            QPoint(round(rect.left() + split.end * rect.width()), y),
+        )
+
+    def _row_band_bounds(self, y_frac: float) -> tuple[float, float]:
+        """`y_frac`teki yatay cizginin UST/ALT komsu siniri (kenar = 0/1)."""
+        above = max([0.0] + [f for f in self._grid_rows if f < y_frac])
+        below = min([1.0] + [f for f in self._grid_rows if f > y_frac])
+        return above, below
+
+    def _col_band_bounds(self, x_frac: float) -> tuple[float, float]:
+        """`x_frac`teki dikey cizginin SOL/SAG komsu siniri (kenar = 0/1)."""
+        left = max([0.0] + [f for f in self._grid_cols if f < x_frac])
+        right = min([1.0] + [f for f in self._grid_cols if f > x_frac])
+        return left, right
+
+    def _line_icon_specs(
+        self, kind: str, index: int, cursor: QPoint
+    ) -> list[tuple[str, QPoint]]:
+        """Hover'daki cizginin aksiyon ikonlari: (kimlik, merkez) listesi.
+
+        TAM cizgiler uc ikon alir (sil + iki yon); yerel kesmeler yalniz
+        silinebilir -- ustune bir kisa cizgi daha eklemek kapsam disi.
+
+        Ikon kumesi cizginin HER ZAMAN varsayilan tarafinda (ustunde/
+        saginda) belirir; kenara cok yakinsa SIGMAYAN tarafa DONER --
+        kume rect'in disina tasip maskede kirpilmesin (silik/kesik gorunum).
+        """
+        rect = self._rect.normalized()
+        if kind == "row":
+            y = round(rect.top() + self._grid_rows[index] * rect.height())
+            cx = min(max(cursor.x(), rect.left() + ICON_GAP), rect.right() - ICON_GAP)
+            above_fits = y - ICON_OFFSET - ICON_PX >= rect.top()
+            iy = y - ICON_OFFSET if above_fits else y + ICON_OFFSET
+            return [
+                ("delete", QPoint(cx - ICON_GAP, iy)),
+                ("up", QPoint(cx, iy)),
+                ("down", QPoint(cx + ICON_GAP, iy)),
+            ]
+        if kind == "col":
+            x = round(rect.left() + self._grid_cols[index] * rect.width())
+            cy = min(max(cursor.y(), rect.top() + ICON_GAP), rect.bottom() - ICON_GAP)
+            right_fits = x + ICON_OFFSET + ICON_PX <= rect.right()
+            ix = x + ICON_OFFSET if right_fits else x - ICON_OFFSET
+            return [
+                ("delete", QPoint(ix, cy - ICON_GAP)),
+                ("left", QPoint(ix, cy)),
+                ("right", QPoint(ix, cy + ICON_GAP)),
+            ]
+        split = self._local_splits[index]
+        p0, p1 = self._split_endpoints(rect, split)
+        mid = QPoint((p0.x() + p1.x()) // 2, (p0.y() + p1.y()) // 2)
+        if split.axis == "v":
+            dx = ICON_OFFSET if mid.x() + ICON_OFFSET + ICON_PX <= rect.right() else -ICON_OFFSET
+            return [("delete", QPoint(mid.x() + dx, mid.y()))]
+        above_fits = mid.y() - ICON_OFFSET - ICON_PX >= rect.top()
+        dy = -ICON_OFFSET if above_fits else ICON_OFFSET
+        return [("delete", QPoint(mid.x(), mid.y() + dy))]
+
+    def _icon_at(self, pos: QPoint) -> str:
+        """Hover'daki cizginin ikonlarindan hangisinin uzerindeyiz ("" = hicbiri)."""
+        if self._line_hover is None:
+            return ""
+        kind, index = self._line_hover
+        for icon_id, center in self._line_icon_specs(kind, index, self._line_hover_pos):
+            if abs(pos.x() - center.x()) <= ICON_PX and abs(pos.y() - center.y()) <= ICON_PX:
+                return icon_id
+        return ""
+
+    def _handle_icon_click(self, icon: str) -> None:
+        """Ikona tiklandi: cizgiyi siler ya da ondan yerel bir kisa cizgi dogurur."""
+        if self._line_hover is None:
+            return
+        kind, index = self._line_hover
+        rect = self._rect.normalized()
+        if icon == "delete":
+            if kind == "row":
+                del self._grid_rows[index]
+            elif kind == "col":
+                del self._grid_cols[index]
+            else:
+                del self._local_splits[index]
+        elif kind == "row":
+            y_frac = self._grid_rows[index]
+            above, below = self._row_band_bounds(y_frac)
+            x_frac = min(max((self._line_hover_pos.x() - rect.left()) / rect.width(), 0.0), 1.0)
+            start, end = (above, y_frac) if icon == "up" else (y_frac, below)
+            self._local_splits.append(LocalSplit("v", x_frac, start, end))
+        elif kind == "col":
+            x_frac = self._grid_cols[index]
+            left, right = self._col_band_bounds(x_frac)
+            y_frac = min(max((self._line_hover_pos.y() - rect.top()) / rect.height(), 0.0), 1.0)
+            start, end = (left, x_frac) if icon == "left" else (x_frac, right)
+            self._local_splits.append(LocalSplit("h", y_frac, start, end))
+        self._line_hover = None
+        self._icon_hover = ""
+        self.update()
+
     def _apply_grip(self, pos: QPoint) -> None:
         delta = pos - self._anchor
         rect = QRect(self._rect_at_press)
@@ -1352,6 +1605,10 @@ class SnipOverlay(QWidget):
             return
         rect = self._rect.normalized()
         region = QRegion(rect.adjusted(-GRIP_PX, -GRIP_PX, GRIP_PX, GRIP_PX))
+        # Cetvel seritleri tutamac payinin DISINDA durur: maskeye ayrica
+        # eklenmezlerse o bolgedeki tiklama/hover bize hic ulasmaz.
+        region = region.united(QRegion(self._top_ruler_rect(rect)))
+        region = region.united(QRegion(self._left_ruler_rect(rect)))
         if self._panel.isVisible():
             region = region.united(QRegion(self._panel.geometry()))
         self.setMask(region)
@@ -1367,8 +1624,21 @@ class SnipOverlay(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         pos = event.position().toPoint()
+        grip = self._grip_at(pos)
+        # Tutamaca (kenar/kose) yakinsa izgara UGRAMAZ -- bir cizgi tam
+        # kenara denk gelirse bile resize her zaman kazanir. Yoksa cizgiyi
+        # kenara yakin eklemis kullanici bir daha o kenardan boyutlandiramaz.
+        if self._session and grip in (Grip.NONE, Grip.MOVE):
+            zone = self._ruler_zone_at(pos)
+            if zone:
+                self._commit_grid_line(zone, pos)
+                return
+            icon = self._icon_at(pos)
+            if icon:
+                self._handle_icon_click(icon)
+                return
         self._anchor = pos
-        self._grip = self._grip_at(pos)
+        self._grip = grip
         if self._grip == Grip.NONE:
             if self._session:
                 return  # ayar fazinda maske disi zaten bize gelmez
@@ -1398,8 +1668,44 @@ class SnipOverlay(QWidget):
             self._update_mask()
             self.update()
             return
-        # Surukleme yok: imlec sekli tutamaca gore; hover aktif kipi gosterir.
         grip = self._grip_at(pos)
+        if self._session:
+            zone = self._ruler_zone_at(pos)
+            if zone:
+                self._set_ruler_hover(zone, pos)
+                return
+            if self._ruler_hover is not None:
+                self._ruler_hover = None
+                self.update()
+            # Tutamaca (kenar/kose) yakinken izgara hover'i devreye girmez:
+            # resize imleci/kursoru kazansin, cizgi/ikon onda gizlensin.
+            if grip in (Grip.NONE, Grip.MOVE):
+                icon = self._icon_at(pos)
+                if icon:
+                    if icon != self._icon_hover:
+                        self._icon_hover = icon
+                        self.update()
+                    self.setCursor(Qt.CursorShape.PointingHandCursor)
+                    return
+                if self._icon_hover:
+                    self._icon_hover = ""
+                    self.update()
+                hit = self._line_at(pos)
+                if hit is not None:
+                    if hit != self._line_hover:
+                        self._line_hover = hit
+                        self.update()
+                    self._line_hover_pos = pos
+                    self.setCursor(Qt.CursorShape.ArrowCursor)
+                    return
+                if self._line_hover is not None:
+                    self._line_hover = None
+                    self.update()
+            elif self._icon_hover or self._line_hover is not None:
+                self._icon_hover = ""
+                self._line_hover = None
+                self.update()
+        # Surukleme yok: imlec sekli tutamaca gore; hover aktif kipi gosterir.
         if grip != self._hover_grip:
             self._hover_grip = grip
             self.update()
@@ -1457,6 +1763,13 @@ class SnipOverlay(QWidget):
         if self._grip == Grip.NONE and self._hover_grip != Grip.NONE:
             self._hover_grip = Grip.NONE
             self.update()
+        if self._ruler_hover is not None:
+            self._ruler_hover = None
+            self.update()
+        if self._line_hover is not None or self._icon_hover:
+            self._line_hover = None
+            self._icon_hover = ""
+            self.update()
         super().leaveEvent(event)
 
     def paintEvent(self, _event) -> None:
@@ -1499,6 +1812,7 @@ class SnipOverlay(QWidget):
             # SESSION_FILL). Boyanmazsa katmanli pencerede tiklama alta
             # gecer ve "ortasindan tutup tasima" calismaz.
             painter.fillRect(rect, SESSION_FILL)
+            self._paint_grid(painter, rect)
 
         painter.setPen(QPen(BORDER, 1))
         painter.drawRect(rect)
@@ -1524,6 +1838,90 @@ class SnipOverlay(QWidget):
                 f"{round(rect.width() * sx)} x {round(rect.height() * sy)}",
             )
         painter.end()
+
+    def _paint_grid(self, painter: QPainter, rect: QRect) -> None:
+        """Izgara cetvelleri + kaydedilmis cizgiler + canli onizleme.
+
+        Seritler HER ZAMAN boyali (hover'siz de soluk gorunup "buraya
+        tiklanir" bilgisini verir); onizleme yalniz cetvelde gezinirken.
+        """
+        painter.fillRect(self._top_ruler_rect(rect), RULER_V)
+        painter.fillRect(self._left_ruler_rect(rect), RULER_H)
+
+        hover_kind, hover_index = self._line_hover or ("", -1)
+        for index, frac in enumerate(self._grid_cols):
+            x = round(rect.left() + frac * rect.width())
+            self._draw_grid_line(
+                painter, hover_kind == "col" and index == hover_index,
+                QPoint(x, rect.top()), QPoint(x, rect.bottom()),
+            )
+        for index, frac in enumerate(self._grid_rows):
+            y = round(rect.top() + frac * rect.height())
+            self._draw_grid_line(
+                painter, hover_kind == "row" and index == hover_index,
+                QPoint(rect.left(), y), QPoint(rect.right(), y),
+            )
+        for index, split in enumerate(self._local_splits):
+            p0, p1 = self._split_endpoints(rect, split)
+            self._draw_grid_line(painter, hover_kind == "split" and index == hover_index, p0, p1)
+
+        if self._ruler_hover is not None:
+            axis, value = self._ruler_hover
+            painter.setPen(QPen(GRID_PREVIEW, 1, Qt.PenStyle.DashLine))
+            if axis == "v":
+                painter.drawLine(value, rect.top(), value, rect.bottom())
+            else:
+                painter.drawLine(rect.left(), value, rect.right(), value)
+
+        if self._line_hover is not None:
+            self._paint_line_icons(painter)
+
+    @staticmethod
+    def _draw_grid_line(painter: QPainter, hovered: bool, p0: QPoint, p1: QPoint) -> None:
+        painter.setPen(QPen(GRID_HOVER if hovered else GRID_LINE, 2 if hovered else 1))
+        painter.drawLine(p0, p1)
+
+    def _paint_line_icons(self, painter: QPainter) -> None:
+        """Ikon kumesi. Kalem/FIRCA save-restore ile geri aliniyor.
+
+        Firca birakilirsa cagiran taraftaki `drawRect(rect)` -- cerceve
+        cizgisi -- o fircayla secimin ICINI DOLDURUYOR: ikonlar gorundugu
+        anda butun secim koyu renge boyaniyor ve ikonlar dolgunun altinda
+        kalip silik gorunuyordu. `drawRect` kalemle cizer AMA fircayla
+        doldurur; tutamaclar bundan etkilenmiyor cunku onlar cerceveden
+        SONRA ciziliyor.
+        """
+        if self._line_hover is None:
+            return
+        kind, index = self._line_hover
+        painter.save()
+        for icon_id, center in self._line_icon_specs(kind, index, self._line_hover_pos):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(ICON_BG_HOVER if icon_id == self._icon_hover else ICON_BG)
+            painter.drawEllipse(center, ICON_PX, ICON_PX)
+            painter.setPen(QPen(ICON_FG, 2))
+            self._draw_icon_glyph(painter, icon_id, center)
+        painter.restore()
+
+    @staticmethod
+    def _draw_icon_glyph(painter: QPainter, icon_id: str, c: QPoint) -> None:
+        r = ICON_PX - 4
+        if icon_id == "delete":
+            painter.drawLine(c.x() - r, c.y() - r, c.x() + r, c.y() + r)
+            painter.drawLine(c.x() - r, c.y() + r, c.x() + r, c.y() - r)
+            return
+        dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[icon_id]
+        tip = QPoint(c.x() + dx * r, c.y() + dy * r)
+        tail = QPoint(c.x() - dx * r, c.y() - dy * r)
+        painter.drawLine(tail, tip)
+        perp_x, perp_y = -dy, dx
+        wing = max(2, r // 2)
+        painter.drawLine(
+            tip, QPoint(tip.x() - dx * wing + perp_x * wing, tip.y() - dy * wing + perp_y * wing)
+        )
+        painter.drawLine(
+            tip, QPoint(tip.x() - dx * wing - perp_x * wing, tip.y() - dy * wing - perp_y * wing)
+        )
 
     @staticmethod
     def _grip_handles(rect: QRect) -> tuple[tuple[Grip, QPoint], ...]:

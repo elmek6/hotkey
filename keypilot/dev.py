@@ -96,6 +96,20 @@ HOOK_WATCHDOG_MS = setting(
     ),
 )
 
+LOG_PHANTOM_DROPS = setting(
+    "dev.logPhantomDrops",
+    "Hayalet tus dusurulunce gunluge yaz",
+    default=False,
+    category=Category.DEVELOPMENT,
+    tags="hayalet phantom tus log gunluk ayrinti",
+    desc=(
+        "Hayalet tus temizleyicisi (dispatch.Dispatcher._reconcile) dusurdugu "
+        "her tus icin bir UYARI satiri yaziyor -- yogun kullanimda gunlugu "
+        "bogabiliyor. Kapaliyken sayac (phantom_drops, durum penceresinde "
+        "gorunur) yine artiyor, yalniz tek tek satirlar yazilmiyor."
+    ),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Override:
@@ -285,6 +299,11 @@ def hook_watchdog_ms() -> int:
     if OVERRIDE.hook_ms is not None:
         return OVERRIDE.hook_ms
     return HOOK_WATCHDOG_MS.get()
+
+
+def log_phantom_drops() -> bool:
+    """Hayalet tus dusurulunce ayrintili UYARI satiri yazilsin mi."""
+    return enabled() and LOG_PHANTOM_DROPS.get()
 
 
 def file_info() -> bool:
