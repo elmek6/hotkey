@@ -180,8 +180,16 @@ def test_eylem_kimligi_bicimi():
 
 
 def _grid_session(qapp):
-    """Ayar fazindaki orutu: cerceve kurulu, OCR+ oturumu acik."""
-    snip = _open_bar(qapp)
+    """Ayar fazindaki orutu: OCR+ oturumu acik, GERCEKCI boyutta cerceve.
+
+    Izgara kumesi (ikonlar + sayac sutunu) ~50 px yer istiyor; `_open_bar`in
+    kucuk dikdortgeninde kenara kirpilip resize tutamacinin bolgesine
+    dusuyor ve oradaki oncelik kurali onu hakli olarak bloke ediyor.
+    """
+    snip = SnipOverlay()
+    snip.start()
+    snip._rect = QRect(QPoint(100, 100), QPoint(600, 500))
+    snip._settle_pick()
     snip._session = True
     snip._update_mask()
     return snip
@@ -235,6 +243,27 @@ def test_ikon_kumesi_kenara_yakin_cizgide_secimin_icinde_kalir(qapp):
     for _icon, center, half in snip._line_icon_specs("row", 0, rect.center()):
         assert rect.left() <= center.x() - half and center.x() + half <= rect.right()
         assert rect.top() <= center.y() - half and center.y() + half <= rect.bottom()
+    snip.close()
+
+
+def test_imlec_cizgiden_ikonlara_giderken_kume_kapanmaz(qapp):
+    """Cizgiyle ikonlar arasindaki olu bant kumeyi dusuruyor, ikonlar
+    tiklanamadan kayboluyordu."""
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.5]
+    rect = snip._rect.normalized()
+    x = rect.center().x()
+    y = round(rect.top() + 0.5 * rect.height())
+    _move(snip, QPoint(x, y))
+    assert snip._line_hover == ("row", 0)
+
+    # Cizgiden ikona DIK yuruyus -- imlecin gercekte izledigi yol.
+    target = next(c for i, c, _h in snip._line_icon_specs("row", 0, QPoint(x, y)) if i == "up")
+    step = -1 if target.y() < y else 1
+    for cursor_y in range(y, target.y() + step, step):
+        _move(snip, QPoint(x, cursor_y))
+        assert snip._line_hover == ("row", 0), f"y={cursor_y} kumeyi dusurdu"
+    assert snip._icon_hover == "up"
     snip.close()
 
 

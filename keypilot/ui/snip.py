@@ -127,6 +127,8 @@ ARROW_PX = 7  # sayac okunun (▲/▼) yarim kenari
 #: Kumenin kendi ekseninde kapladigi yarim yukseklik: sayac sutunu
 #: (ok + sayi + ok) ikon dairesinden uzun, sigma hesabi buna bakmali.
 CLUSTER_REACH = ICON_PX + 2 * ARROW_PX
+#: Kumenin DIZILIM ekseninde ortadan kapladigi yarim uzunluk (uc daire).
+CLUSTER_SPAN = ICON_GAP + ICON_PX
 #: Tek hamlede basilabilecek en fazla cizgi. Ustu pratikte okunmuyor,
 #: sayi da kutuya sigmiyor.
 MAX_GRID_COUNT = 12
@@ -1477,11 +1479,13 @@ class SnipOverlay(QWidget):
             # Yatay dizilim: [sil][yukari][asagi] + sayac sutunu.
             y = round(rect.top() + self._grid_rows[index] * rect.height())
             cx = min(
-                max(cursor.x(), rect.left() + ICON_GAP + ICON_PX),
+                max(cursor.x(), rect.left() + CLUSTER_SPAN),
                 rect.right() - 2 * ICON_GAP - ICON_PX,
             )
             above_fits = y - ICON_OFFSET - CLUSTER_REACH >= rect.top()
             iy = y - ICON_OFFSET if above_fits else y + ICON_OFFSET
+            # Ters taraf da dar olabilir (kisa secim): son care ice kirp.
+            iy = min(max(iy, rect.top() + CLUSTER_REACH), rect.bottom() - CLUSTER_REACH)
             sx = cx + 2 * ICON_GAP
             return [
                 ("delete", QPoint(cx - ICON_GAP, iy), ICON_PX),
@@ -1494,12 +1498,13 @@ class SnipOverlay(QWidget):
             # cunku ▲/▼ her zaman dikey durmali (yon anlami kaybolmasin).
             x = round(rect.left() + self._grid_cols[index] * rect.width())
             cy = min(
-                max(cursor.y(), rect.top() + ICON_GAP + CLUSTER_REACH),
-                rect.bottom() - ICON_GAP - CLUSTER_REACH,
+                max(cursor.y(), rect.top() + CLUSTER_SPAN),
+                rect.bottom() - CLUSTER_SPAN,
             )
-            right_fits = x + ICON_OFFSET + ICON_GAP + ICON_PX <= rect.right()
+            right_fits = x + ICON_OFFSET + CLUSTER_SPAN <= rect.right()
             side = 1 if right_fits else -1
             ix = x + side * ICON_OFFSET
+            ix = min(max(ix, rect.left() + CLUSTER_SPAN), rect.right() - CLUSTER_SPAN)
             return [
                 ("delete", QPoint(ix, cy - ICON_GAP), ICON_PX),
                 ("left", QPoint(ix, cy), ICON_PX),
@@ -1525,6 +1530,24 @@ class SnipOverlay(QWidget):
             ("count", center, ICON_PX),
             ("dec", QPoint(center.x(), center.y() + step), ARROW_PX),
         ]
+
+    def _cluster_zone(self) -> QRect:
+        """Acik kumenin "canli" bolgesi: cizgi + ikonlar + ARALARI.
+
+        Ikonlar cizgiden ICON_OFFSET kadar oteye ciziliyor; cizginin hover
+        bandiyla ikonun kenari arasinda birkac piksellik OLU BANT kaliyor.
+        Imlec oraya dusunce ne cizgi ne ikon bulunuyordu, kume de imlec
+        ikona varamadan kapaniyordu -- ikonlar tiklanamaz gorunuyordu.
+        `united` sinir dikdortgeni verdigi icin aradaki bosluk kendiliginden
+        bolgenin icinde kaliyor.
+        """
+        if self._line_hover is None:
+            return QRect()
+        kind, index = self._line_hover
+        zone = QRect(self._line_hover_pos, self._line_hover_pos)
+        for _icon, center, half in self._line_icon_specs(kind, index, self._line_hover_pos):
+            zone = zone.united(QRect(center.x() - half, center.y() - half, half * 2, half * 2))
+        return zone.adjusted(-GRIP_PX, -GRIP_PX, GRIP_PX, GRIP_PX)
 
     def _icon_at(self, pos: QPoint) -> str:
         """Hover'daki cizginin ikonlarindan hangisinin uzerindeyiz ("" = hicbiri)."""
@@ -1704,6 +1727,8 @@ class SnipOverlay(QWidget):
             if icon:
                 self._handle_icon_click(icon)
                 return
+            if self._line_hover is not None and self._cluster_zone().contains(pos):
+                return  # kumenin bosluguna isabet: secimi tasimaya baslamasin
         self._anchor = pos
         self._grip = grip
         if self._grip == Grip.NONE:
@@ -1766,6 +1791,10 @@ class SnipOverlay(QWidget):
                     self.setCursor(Qt.CursorShape.ArrowCursor)
                     return
                 if self._line_hover is not None:
+                    if self._cluster_zone().contains(pos):
+                        # Cizgiyle ikonlar arasi: kume ACIK kalsin.
+                        self.setCursor(Qt.CursorShape.ArrowCursor)
+                        return
                     self._line_hover = None
                     self.update()
             elif self._icon_hover or self._line_hover is not None:
