@@ -182,9 +182,9 @@ def test_eylem_kimligi_bicimi():
 def _grid_session(qapp):
     """Ayar fazindaki orutu: OCR+ oturumu acik, GERCEKCI boyutta cerceve.
 
-    Izgara kumesi (ikonlar + sayac sutunu) ~50 px yer istiyor; `_open_bar`in
-    kucuk dikdortgeninde kenara kirpilip resize tutamacinin bolgesine
-    dusuyor ve oradaki oncelik kurali onu hakli olarak bloke ediyor.
+    `_open_bar`in kucuk dikdortgeninde cetvel seridi ve resize tutamaclari
+    ic ice giriyor; izgara kurallari ancak gercek bir secim boyutunda
+    anlamli olculuyor.
     """
     snip = SnipOverlay()
     snip.start()
@@ -211,15 +211,117 @@ def _move(widget, pos: QPoint) -> None:
     )
 
 
-def test_sayac_bandi_esit_boler(qapp):
-    """Fusion 360 "repeat": sayi KAC CIZGI oldugunu soyler, kac parca degil."""
+def _drag(widget, start: QPoint, end: QPoint) -> None:
+    """Bas, surukle, birak -- sol tus basili hareketle."""
+    _click_press(widget, start)
+    point = QPointF(end)
+    QApplication.sendEvent(
+        widget,
+        QMouseEvent(
+            QEvent.Type.MouseMove,
+            point,
+            point,
+            point,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+    _click_release(widget, end)
+
+
+def _click_press(widget, pos: QPoint) -> None:
+    point = QPointF(pos)
+    QApplication.sendEvent(
+        widget,
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            point,
+            point,
+            point,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+
+
+def _click_release(widget, pos: QPoint) -> None:
+    point = QPointF(pos)
+    QApplication.sendEvent(
+        widget,
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            point,
+            point,
+            point,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+
+
+def test_cetvele_tiklamak_cizgi_ekler(qapp):
+    """Ust serit dikey, sol serit yatay cizgi birakir (cetvel kurali)."""
     snip = _grid_session(qapp)
-    snip._grid_count = 1
-    assert snip._even_cuts(0.0, 1.0) == pytest.approx([0.5])
-    snip._grid_count = 2
-    assert snip._even_cuts(0.0, 1.0) == pytest.approx([1 / 3, 2 / 3])
-    snip._grid_count = 3
-    assert snip._even_cuts(0.0, 1.0) == pytest.approx([0.25, 0.5, 0.75])
+    rect = snip._rect.normalized()
+    top = snip._top_ruler_rect(rect)
+    _move(snip, QPoint(rect.center().x(), top.center().y()))
+    _click(snip, QPoint(rect.center().x(), top.center().y()))
+    assert snip._grid_cols == pytest.approx([0.5], abs=0.01)
+    assert not snip._grid_rows
+
+    left = snip._left_ruler_rect(rect)
+    _move(snip, QPoint(left.center().x(), rect.center().y()))
+    _click(snip, QPoint(left.center().x(), rect.center().y()))
+    assert snip._grid_rows == pytest.approx([0.5], abs=0.01)
+    snip.close()
+
+
+def test_cetveldeki_x_cizgiyi_siler(qapp):
+    """Tutamac cizginin HIZASINDA cikar; uzerindeyken ekleme onizlemesi
+    gosterilmez -- tiklama silme olur, ekleme degil."""
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.25, 0.75]
+    rect = snip._rect.normalized()
+    left = snip._left_ruler_rect(rect)
+    on_handle = QPoint(left.center().x(), snip._line_pos(rect, "row", 0))
+
+    _move(snip, on_handle)
+    assert snip._del_hover == ("row", 0)
+
+    _click(snip, on_handle)
+    assert snip._grid_rows == pytest.approx([0.75])  # digeri yerinde kaldi
+    snip.close()
+
+
+def test_cetvelde_bos_yere_tiklamak_silmez_ekler(qapp):
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.25]
+    rect = snip._rect.normalized()
+    left = snip._left_ruler_rect(rect)
+    empty = QPoint(left.center().x(), snip._line_pos(rect, "row", 0) + 40)
+
+    _move(snip, empty)
+    assert snip._del_hover is None
+    _click(snip, empty)
+    assert len(snip._grid_rows) == 2
+    snip.close()
+
+
+def test_cizgi_tutulup_suruklenir_secim_oynamaz(qapp):
+    snip = _grid_session(qapp)
+    snip._grid_rows = [0.25]
+    rect = QRect(snip._rect.normalized())
+    y = snip._line_pos(rect, "row", 0)
+    _move(snip, QPoint(rect.center().x(), y))
+    assert snip._line_hover == ("row", 0)
+
+    _drag(snip, QPoint(rect.center().x(), y), QPoint(rect.center().x(), y + 80))
+    assert snip._grid_rows[0] == pytest.approx(0.25 + 80 / rect.height(), abs=0.01)
+    assert snip._rect.normalized() == rect  # cerceve kendisi kimildamadi
+    assert snip._line_drag is None
     snip.close()
 
 
@@ -235,61 +337,17 @@ def test_kenara_oturan_cizgi_resize_tutamacini_calmaz(qapp):
     snip.close()
 
 
-def test_ikon_kumesi_kenara_yakin_cizgide_secimin_icinde_kalir(qapp):
-    """Kume rect'i tasarsa maske onu kirpiyor (silik/kesik gorunum)."""
+def test_silme_tutamaclari_kendi_seridinde_durur(qapp):
+    """Yatay cizgininki sol seritte, dikeyinki ust seritte."""
     snip = _grid_session(qapp)
-    snip._grid_rows = [0.0]
+    snip._grid_rows = [0.4]
+    snip._grid_cols = [0.6]
     rect = snip._rect.normalized()
-    for _icon, center, half in snip._line_icon_specs("row", 0, rect.center()):
-        assert rect.left() <= center.x() - half and center.x() + half <= rect.right()
-        assert rect.top() <= center.y() - half and center.y() + half <= rect.bottom()
+    for band, strip in (("h", snip._left_ruler_rect(rect)), ("v", snip._top_ruler_rect(rect))):
+        handles = snip._delete_handles(rect, band)
+        assert len(handles) == 1
+        _kind, _index, center = handles[0]
+        assert strip.contains(center)
     snip.close()
 
 
-def test_imlec_cizgiden_ikonlara_giderken_kume_kapanmaz(qapp):
-    """Cizgiyle ikonlar arasindaki olu bant kumeyi dusuruyor, ikonlar
-    tiklanamadan kayboluyordu."""
-    snip = _grid_session(qapp)
-    snip._grid_rows = [0.5]
-    rect = snip._rect.normalized()
-    x = rect.center().x()
-    y = round(rect.top() + 0.5 * rect.height())
-    _move(snip, QPoint(x, y))
-    assert snip._line_hover == ("row", 0)
-
-    # Cizgiden ikona DIK yuruyus -- imlecin gercekte izledigi yol.
-    target = next(c for i, c, _h in snip._line_icon_specs("row", 0, QPoint(x, y)) if i == "up")
-    step = -1 if target.y() < y else 1
-    for cursor_y in range(y, target.y() + step, step):
-        _move(snip, QPoint(x, cursor_y))
-        assert snip._line_hover == ("row", 0), f"y={cursor_y} kumeyi dusurdu"
-    assert snip._icon_hover == "up"
-    snip.close()
-
-
-def test_sayac_oklari_kumeyi_kapatmaz_ve_bire_kadar_iner(qapp):
-    snip = _grid_session(qapp)
-    snip._grid_rows = [0.5]
-    snip._line_hover = ("row", 0)
-    snip._handle_icon_click("inc")
-    assert snip._grid_count == 2
-    assert snip._line_hover == ("row", 0)  # pes pese basilabilsin diye acik kalir
-    snip._handle_icon_click("dec")
-    snip._handle_icon_click("dec")
-    assert snip._grid_count == 1
-    assert not snip._local_splits  # sayac cizgi basmaz, yalnizca sayiyi tutar
-    snip.close()
-
-
-def test_yon_ikonu_sayac_kadar_yerel_kesme_basar(qapp):
-    """3 -> hucreyi dortte bir noktalarindan kesen 3 kisa dikey cizgi."""
-    snip = _grid_session(qapp)
-    snip._grid_rows = [0.5]
-    snip._line_hover = ("row", 0)
-    snip._line_hover_pos = snip._rect.normalized().center()
-    snip._grid_count = 3
-    snip._handle_icon_click("up")
-    assert [split.pos for split in snip._local_splits] == pytest.approx([0.25, 0.5, 0.75])
-    # Uzunluk komsu SATIR bandi: ust kenardan hover'daki cizgiye kadar.
-    assert {(s.axis, s.start, s.end) for s in snip._local_splits} == {("v", 0.0, 0.5)}
-    snip.close()
