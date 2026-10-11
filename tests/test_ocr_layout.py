@@ -180,3 +180,37 @@ def test_izgara_cizilmemisse_duz_metne_doner():
     result = layout(words, ["a"], LayoutMode.GRID, "\t", 0, Grid())
     assert result.text == "a"
     assert "izgara cizilmedi" in result.info
+
+
+def test_izgara_cizilmeyen_ekseni_otomatik_bulur():
+    """Tek dikey cizgi cekmek yetmeli: satirlar motorun kumelemesinden
+    gelir. Onceden satir cizilmeyince HER SEY tek satira dusuyordu --
+    Calc'a yapistirinca yan yana iki hucre cikiyordu."""
+    words = [
+        w("Eylem", 10, 10), w("Davranis", 210, 10),
+        w("Yatay", 10, 50), w("Secim", 210, 50),
+        w("Dikey", 10, 90), w("Aynisi", 210, 90),
+    ]
+    grid = Grid(cols=(0.5,), width=400, height=160)  # YALNIZ dikey cizgi
+
+    assert grid_text(words, grid, "\t").splitlines() == [
+        "Eylem\tDavranis",
+        "Yatay\tSecim",
+        "Dikey\tAynisi",
+    ]
+
+
+def test_izgara_yalniz_yatay_cizilince_kolonu_otomatik_bulur():
+    words = [w("a", 10, 10), w("b", 210, 10), w("c", 10, 90), w("d", 210, 90)]
+    grid = Grid(rows=(0.5,), width=400, height=160)  # YALNIZ yatay cizgi
+
+    assert grid_text(words, grid, "\t").splitlines() == ["a\tb", "c\td"]
+
+
+def test_izgara_bilgi_satiri_hangi_eksen_cizili_soyler():
+    words = [w("a", 10, 10), w("b", 210, 10)]
+
+    info = layout(words, ["a b"], LayoutMode.GRID, "\t", 0, Grid(cols=(0.5,), width=400,
+                                                                 height=160)).info
+    assert "kolon (cizili)" in info
+    assert "satir (otomatik)" in info

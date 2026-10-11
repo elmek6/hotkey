@@ -51,6 +51,10 @@ class Grid:
     Cizgiler ORAN (0..1) olarak tutuluyor; `width`/`height` kirpilan
     goruntunun kelime kutulariyla AYNI pikselindeki boyutu. Oran olmasi
     sayesinde DPI/olcek degisse de cevrim dogru kaliyor.
+
+    Bir eksen BOS birakilabilir: o eksen otomatik bulunur (bkz.
+    `grid_cells`). Tek bir dikey cizgi cekip satirlari motora birakmak
+    tipik kullanim.
     """
 
     rows: tuple[float, ...] = ()
@@ -116,12 +120,17 @@ def layout(
     if mode is LayoutMode.GRID:
         if grid is None or not grid.drawn:
             return Layout(plain, "⚠ izgara cizilmedi (cetvelden cizgi ekle) -> duz metin")
-        columns, rows = len(grid.cols) + 1, len(grid.rows) + 1
+        cells = grid_cells(items, grid, gutter)
+        columns = len(cells[0]) if cells else 1
+        # Hangi eksenin cizili hangisinin tahmin oldugu BILGI SATIRINDA
+        # duruyor: "neden tek satir cikti" sorusunun cevabi orada gorunsun.
         return Layout(
-            grid_text(items, grid, separator),
-            f"izgara · {columns} kolon x {rows} satir · ayrac {separator_label(separator)}",
+            "\n".join(separator.join(row) for row in cells),
+            f"izgara · {columns} kolon ({'cizili' if grid.cols else 'otomatik'})"
+            f" x {len(cells)} satir ({'cizili' if grid.rows else 'otomatik'})"
+            f" · ayrac {separator_label(separator)}",
             columns,
-            rows,
+            len(cells),
         )
 
     median_h = _median([word.h for word in items])
@@ -143,34 +152,58 @@ def layout(
     return Layout(_columns_text(rows, splits, count), f"kolon · {suffix}", count, len(rows))
 
 
-def grid_text(words: list[Word], grid: Grid, separator: str = "\t") -> str:
-    """Kelimeleri CIZILMIS izgaranin hucrelerine dagitir.
+def grid_cells(words: list[Word], grid: Grid, gutter: int = 0) -> list[list[str]]:
+    """Kelimeleri izgaranin hucrelerine dagitir: satir satir hucre metni.
 
-    Kolon/satir tahmini YOK: her kelime `bisect` ile hangi araliga
-    dustuyse o hucreye girer. Bu kipin varlik sebebi tam olarak bu --
-    otomatik kipte iki satira sarmis bir hucre degeri ikinci bir TABLO
-    SATIRI uretiyor ve yanindaki hucrelerle hizasi kayiyordu; burada
-    satirin nerede bittigini metin degil CIZGI soyluyor, sarmis satirlar
-    tek hucre degerine katlaniyor.
+    CIZILEN EKSEN KAZANIR, CIZILMEYEN OTOMATIK BULUNUR. Tabloda kolon
+    ayraci cogu zaman tek bir yerde yanlis bulunuyor ama satirlar
+    duzgun cikiyor; o tek dikey cizgiyi cekip satirlari motora birakmak
+    isin buyuk kismini halletmeli. Iki ekseni birden cizmeye zorlamak
+    on satirlik bir tablo icin on bir tiklama demekti.
 
-    Bos satir/kolonlar ATILMAZ: kullanici o cizgiyi bilerek cekti, Excel'e
-    yapistirinca hizanin korunmasi icin karsiligi bos hucre olmali.
+    Cizili eksende tahmin YOK: her kelime `bisect` ile hangi araliga
+    dustuyse o hucreye girer. Bu kipin varlik sebebi de bu -- otomatik
+    satirlamada iki satira sarmis bir hucre degeri ikinci bir TABLO
+    SATIRI uretip yanindaki hucrelerin hizasini kaydiriyor; yatay cizgi
+    cekilen yerde satirin nerede bittigini metin degil CIZGI soyluyor ve
+    sarmis satirlar tek hucre degerine katlaniyor.
+
+    Bos satir/kolonlar ATILMAZ: kullanici o cizgiyi bilerek cekti,
+    Excel'e yapistirinca hizanin korunmasi icin karsiligi bos hucre olmali.
     """
-    row_cuts = sorted(frac * grid.height for frac in grid.rows)
-    col_cuts = sorted(frac * grid.width for frac in grid.cols)
-    cells: dict[tuple[int, int], list[Word]] = {}
+    col_cuts = _col_cuts(words, grid, gutter)
+    out: list[list[str]] = []
+    for row in _grid_rows(words, grid):
+        cells: list[list[Word]] = [[] for _ in range(len(col_cuts) + 1)]
+        for word in row:
+            cells[column_index(word.cx, col_cuts)].append(word)
+        out.append([_cell_text(cell) for cell in cells])
+    return out
+
+
+def grid_text(words: list[Word], grid: Grid, separator: str = "\t", gutter: int = 0) -> str:
+    return "\n".join(separator.join(row) for row in grid_cells(words, grid, gutter))
+
+
+def _col_cuts(words: list[Word], grid: Grid, gutter: int) -> list[float]:
+    """Kolon sinirlari: cizilmisse onlar, degilse bos seritlerden bulunur."""
+    if grid.cols:
+        return sorted(frac * grid.width for frac in grid.cols)
+    median_h = _median([word.h for word in words])
+    gutter_min = gutter if gutter > 0 else max(MIN_GUTTER, round(median_h * GUTTER_RATIO))
+    return column_splits(words, gutter_min)
+
+
+def _grid_rows(words: list[Word], grid: Grid) -> list[list[Word]]:
+    """Satirlar: cizilmisse CIZGILERDEN (bos satirlar dahil), degilse
+    y-merkezi kumelemesinden (`group_rows`)."""
+    if not grid.rows:
+        return group_rows(words, max(MIN_ROW_EPS, _median([w.h for w in words]) / 2))
+    cuts = sorted(frac * grid.height for frac in grid.rows)
+    buckets: list[list[Word]] = [[] for _ in range(len(cuts) + 1)]
     for word in words:
-        key = (
-            bisect.bisect_right(row_cuts, word.cy),
-            bisect.bisect_right(col_cuts, word.cx),
-        )
-        cells.setdefault(key, []).append(word)
-    return "\n".join(
-        separator.join(
-            _cell_text(cells.get((row, column), [])) for column in range(len(col_cuts) + 1)
-        )
-        for row in range(len(row_cuts) + 1)
-    )
+        buckets[bisect.bisect_right(cuts, word.cy)].append(word)
+    return buckets
 
 
 def _cell_text(words: list[Word]) -> str:
