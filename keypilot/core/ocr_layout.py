@@ -21,6 +21,7 @@ oldugu icin tamamen test edilebilir -- AHK'de bu mantik hic test edilemiyordu.
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -31,11 +32,35 @@ MIN_ROW_EPS = 4
 
 
 class LayoutMode(StrEnum):
-    """AHK: `mode` parametresi ("plain" / "columns" / "table")."""
+    """AHK: `mode` parametresi ("plain" / "columns" / "table").
+
+    `GRID` AHK'de YOK: kolonu tahmin etmek yerine kullanicinin OCR+
+    cercevesinde cizdigi cizgileri kullanir (ui/snip.py).
+    """
 
     PLAIN = "plain"
     COLUMNS = "columns"
     TABLE = "table"
+    GRID = "grid"
+
+
+@dataclass(frozen=True, slots=True)
+class Grid:
+    """Kullanicinin cizdigi izgara -- ui/snip.py'den gelir.
+
+    Cizgiler ORAN (0..1) olarak tutuluyor; `width`/`height` kirpilan
+    goruntunun kelime kutulariyla AYNI pikselindeki boyutu. Oran olmasi
+    sayesinde DPI/olcek degisse de cevrim dogru kaliyor.
+    """
+
+    rows: tuple[float, ...] = ()
+    cols: tuple[float, ...] = ()
+    width: float = 0.0
+    height: float = 0.0
+
+    @property
+    def drawn(self) -> bool:
+        return bool(self.rows or self.cols) and self.width > 0 and self.height > 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,10 +98,12 @@ def layout(
     mode: LayoutMode = LayoutMode.PLAIN,
     separator: str = "\t",
     gutter: int = 0,
+    grid: Grid | None = None,
 ) -> Layout:
     """AHK `_layout` birebir. `gutter` 0 ise esik otomatik hesaplanir.
 
     `lines` motorun kendi satirlari -- duz metin ve geri donus icin.
+    `grid` yalniz `GRID` kipinde kullanilir (cizilmemisse duz metne doner).
     """
     plain = "\n".join(lines)
     if mode is LayoutMode.PLAIN:
@@ -85,6 +112,17 @@ def layout(
     items = [word for word in words if word.text.strip()]
     if not items:
         return Layout(plain, "kelime yok")
+
+    if mode is LayoutMode.GRID:
+        if grid is None or not grid.drawn:
+            return Layout(plain, "⚠ izgara cizilmedi (cetvelden cizgi ekle) -> duz metin")
+        columns, rows = len(grid.cols) + 1, len(grid.rows) + 1
+        return Layout(
+            grid_text(items, grid, separator),
+            f"izgara · {columns} kolon x {rows} satir · ayrac {separator_label(separator)}",
+            columns,
+            rows,
+        )
 
     median_h = _median([word.h for word in items])
     gutter_min = gutter if gutter > 0 else max(MIN_GUTTER, round(median_h * GUTTER_RATIO))
@@ -103,6 +141,46 @@ def layout(
             len(rows),
         )
     return Layout(_columns_text(rows, splits, count), f"kolon · {suffix}", count, len(rows))
+
+
+def grid_text(words: list[Word], grid: Grid, separator: str = "\t") -> str:
+    """Kelimeleri CIZILMIS izgaranin hucrelerine dagitir.
+
+    Kolon/satir tahmini YOK: her kelime `bisect` ile hangi araliga
+    dustuyse o hucreye girer. Bu kipin varlik sebebi tam olarak bu --
+    otomatik kipte iki satira sarmis bir hucre degeri ikinci bir TABLO
+    SATIRI uretiyor ve yanindaki hucrelerle hizasi kayiyordu; burada
+    satirin nerede bittigini metin degil CIZGI soyluyor, sarmis satirlar
+    tek hucre degerine katlaniyor.
+
+    Bos satir/kolonlar ATILMAZ: kullanici o cizgiyi bilerek cekti, Excel'e
+    yapistirinca hizanin korunmasi icin karsiligi bos hucre olmali.
+    """
+    row_cuts = sorted(frac * grid.height for frac in grid.rows)
+    col_cuts = sorted(frac * grid.width for frac in grid.cols)
+    cells: dict[tuple[int, int], list[Word]] = {}
+    for word in words:
+        key = (
+            bisect.bisect_right(row_cuts, word.cy),
+            bisect.bisect_right(col_cuts, word.cx),
+        )
+        cells.setdefault(key, []).append(word)
+    return "\n".join(
+        separator.join(
+            _cell_text(cells.get((row, column), [])) for column in range(len(col_cuts) + 1)
+        )
+        for row in range(len(row_cuts) + 1)
+    )
+
+
+def _cell_text(words: list[Word]) -> str:
+    """Tek hucrenin metni; icindeki satirlar BOSLUKLA birlesir."""
+    if not words:
+        return ""
+    row_eps = max(MIN_ROW_EPS, _median([word.h for word in words]) / 2)
+    return " ".join(
+        " ".join(word.text for word in line) for line in group_rows(words, row_eps)
+    )
 
 
 def column_splits(words: list[Word], gutter_min: float) -> list[float]:

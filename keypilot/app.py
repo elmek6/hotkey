@@ -330,6 +330,9 @@ class KeyPilot:
         self.snip.rect_changed.connect(self._on_snip_rect_changed)
         self.snip.ocr_preview_requested.connect(self._on_snip_ocr_preview)
         self.snip.closed.connect(self._on_snip_closed)
+        # Cizgi eklenince/silinince/suruklenince panel yeniden dizilir --
+        # OCR tekrar KOSMAZ, eldeki kelime kutulari yeten her sey.
+        self.snip.grid_changed.connect(self._push_grid)
         self.ocr_view = OcrView()
         self.ocr_view.copy_text.connect(self.clip.copy_to_history)
         self.ocr_view.reocr_requested.connect(self._on_reocr)
@@ -956,6 +959,18 @@ class KeyPilot:
             return
         # OCR+: kelime kutulari panele gider, dizilim orada secilir.
         self.ocr_view.show_result(result.words, result.lines, result.ms)
+        self._push_grid()
+
+    def _push_grid(self) -> None:
+        """Cercevedeki izgarayi panele tasir.
+
+        Cizgiler ORAN olarak geliyor; panel onlari kirpimin pikseliyle
+        carpiyor, o yuzden kirpimin boyutu da gidiyor.
+        """
+        if self._ocr_image is None:
+            return
+        rows, cols = self.snip.grid()
+        self.ocr_view.set_grid(rows, cols, self._ocr_image.size())
 
     def _on_ocr_failed(self, mode: str, message: str) -> None:
         if mode == OcrMode.PREVIEW:

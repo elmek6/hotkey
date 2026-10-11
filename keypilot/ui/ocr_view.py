@@ -30,7 +30,7 @@ alan yeniden ayarlanabilir, panel kendini tazeler.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -47,12 +47,13 @@ from PySide6.QtWidgets import (
 from keypilot import theme
 from keypilot.core.ocr_layout import (
     SEPARATORS,
+    Grid,
     LayoutMode,
     Word,
     layout,
     separator_from_text,
 )
-from keypilot.win32.ocr import OCR_LANGUAGES
+from keypilot.win32.ocr import DEFAULT_SCALE, OCR_LANGUAGES
 
 #: AHK: GUTTERS -- kolon esigi icin hazir secenekler (duzenlenebilir kutu).
 GUTTERS = ("Otomatik", "20px", "40px", "80px", "150px")
@@ -61,7 +62,12 @@ MODES = (
     ("Duz metin", LayoutMode.PLAIN),
     ("Kolonlu", LayoutMode.COLUMNS),
     ("Tablo (ayracli)", LayoutMode.TABLE),
+    ("Izgara (cizdigim)", LayoutMode.GRID),
 )
+
+#: Dil dugmesinin uzerine gelince secilmesi icin beklenen sure. Sifir
+#: olursa dugmelerin uzerinden gecmek bile pes pese OCR tetikler.
+LANGUAGE_HOVER_MS = 220
 
 
 class OcrView(QWidget):
@@ -91,6 +97,15 @@ class OcrView(QWidget):
         self._lines: tuple[str, ...] = ()
         self._ms = 0.0
         self._loading = False  # denetimleri programla doldururken sinyal yutar
+        #: Secim cercevesinde cizilen izgara (ui/snip.py -> app.py -> burasi).
+        self._grid = Grid()
+        #: Uzerine gelinen dil dugmesi: hemen degil, kisa bir beklemeden
+        #: sonra secilir (bkz. LANGUAGE_HOVER_MS).
+        self._hover_language = ""
+        self._language_hover = QTimer(self)
+        self._language_hover.setSingleShot(True)
+        self._language_hover.setInterval(LANGUAGE_HOVER_MS)
+        self._language_hover.timeout.connect(self._on_language_hover)
 
         mono = QFont("Cascadia Mono")
         mono.setStyleHint(QFont.StyleHint.Monospace)
@@ -120,7 +135,9 @@ class OcrView(QWidget):
         self._scale = QComboBox()
         for value in (1, 2, 3, 4):
             self._scale.addItem(f"{value}x", value)
-        self._scale.setCurrentIndex(1)  # AHK varsayilani: 2
+        # Varsayilan motorun sabitinden geliyor: basit OCR ile OCR+ ayni
+        # buyutmeyi kullansin, biri degisince oteki geride kalmasin.
+        self._scale.setCurrentIndex(max(0, self._scale.findData(DEFAULT_SCALE)))
         self._scale.currentIndexChanged.connect(self._on_reocr_setting)
 
         self._gutter = QComboBox()
@@ -137,9 +154,13 @@ class OcrView(QWidget):
             button = QPushButton(label)
             button.setCheckable(True)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setToolTip(f"{label} -- uzerine gelmek secmeye yeter")
             button.clicked.connect(
                 lambda _checked=False, lang=language: self._on_language(lang)
             )
+            # Uzerine gelince SECILIR: tiklamak zorunda kalmadan dil
+            # denemek icin. Tiklama da calismaya devam eder (beklemesiz).
+            button.installEventFilter(self)
             self._lang_buttons[language] = button
             lang_row.addWidget(button)
         lang_row.addStretch(1)
@@ -163,13 +184,21 @@ class OcrView(QWidget):
         refresh_button.clicked.connect(self._on_refresh)
         copy_button = QPushButton("\U0001f4cb Kopyala")
         copy_button.setDefault(True)
+        copy_button.setToolTip("Kutuda NE GORUNUYORSA onu kopyalar")
         copy_button.clicked.connect(lambda: self.copy_text.emit(self._edit.toPlainText()))
+        excel_button = QPushButton("\U0001f4d7 Excel")
+        excel_button.setToolTip(
+            "Secili bicimden BAGIMSIZ olarak TAB ayracli tablo kopyalar -- "
+            "Excel'e sutun sutun yapisir"
+        )
+        excel_button.clicked.connect(lambda: self.copy_text.emit(self.excel_text()))
         close_button = QPushButton("Kapat")
         close_button.clicked.connect(self.close)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._info, 1)
         bottom.addWidget(refresh_button)
+        bottom.addWidget(excel_button)
         bottom.addWidget(copy_button)
         bottom.addWidget(close_button)
         bottom.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom)
@@ -192,12 +221,36 @@ class OcrView(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def set_grid(
+        self, rows: tuple[float, ...], cols: tuple[float, ...], size: QSize
+    ) -> None:
+        """Cercevede cizilen izgara degisti (ui/snip.py `grid_changed`).
+
+        OCR tekrar KOSMAZ: eldeki kelime kutulari yeni cizgilere gore
+        dagitiliyor, o yuzden yalniz yeniden dizim yapiliyor.
+        """
+        self._grid = Grid(rows, cols, float(size.width()), float(size.height()))
+        self._relayout()
+
+    def excel_text(self) -> str:
+        """TAB ayracli tablo -- ekranda hangi bicim secili olursa olsun.
+
+        "Kopyala" GORUNENI verir (duz metin de olabilir), bu dugme ise her
+        zaman sutunlu: izgara cizilmisse ona gore, cizilmemisse otomatik
+        kolon bulmayla. Boylece ayni pencere hem serbest metin hem de
+        Excel'e hazir tablo uretebiliyor.
+        """
+        mode = LayoutMode.GRID if self._grid.drawn else LayoutMode.TABLE
+        return layout(
+            list(self._words), list(self._lines), mode, "\t", self._gutter_px(), self._grid
+        ).text
+
     def busy(self, message: str = "okunuyor...") -> None:
         self._info.setText(message)
 
     @property
     def scale(self) -> int:
-        return int(self._scale.currentData() or 2)
+        return int(self._scale.currentData() or DEFAULT_SCALE)
 
     # ---- ic akis ----
 
@@ -207,9 +260,30 @@ class OcrView(QWidget):
             button.setChecked(tag == language)
 
     def _on_language(self, language: str) -> None:
+        self._language_hover.stop()  # tiklama bekleyen hover'i gecersiz kilar
         self.select_language(language)
         self.busy()
         self.language_requested.emit(language)
+
+    def eventFilter(self, watched, event) -> bool:
+        """Dil dugmesinin uzerine gelmek onu secer (kisa beklemeden sonra)."""
+        for language, button in self._lang_buttons.items():
+            if watched is not button:
+                continue
+            if event.type() == QEvent.Type.Enter:
+                self._hover_language = language
+                self._language_hover.start()
+            elif event.type() == QEvent.Type.Leave and self._hover_language == language:
+                self._hover_language = ""
+                self._language_hover.stop()
+            break
+        return super().eventFilter(watched, event)
+
+    def _on_language_hover(self) -> None:
+        """Bekleme doldu: hala ayni dugmenin uzerindeysek o dile gec."""
+        language = self._hover_language
+        if language and not self._lang_buttons[language].isChecked():
+            self._on_language(language)
 
     def _on_reocr_setting(self) -> None:
         """Olcek degisti: yeniden OCR gerekiyor."""
@@ -230,13 +304,15 @@ class OcrView(QWidget):
         mode = MODES[max(0, self._mode.currentIndex())][1]
         separator = separator_from_text(self._sep.currentText())
         result = layout(
-            list(self._words), list(self._lines), mode, separator, self._gutter_px()
+            list(self._words), list(self._lines), mode, separator, self._gutter_px(), self._grid
         )
         self._edit.setPlainText(result.text)
-        # Ayrac yalniz tablo biciminde is goruyor; digerlerinde kapatiliyor
+        # Ayrac hucreleri ayiran kiplerde is goruyor; digerlerinde kapatiliyor
         # ki kullanici bosuna oynamasin (AHK'de de pasifti).
-        self._sep.setEnabled(mode is LayoutMode.TABLE)
-        self._gutter.setEnabled(mode is not LayoutMode.PLAIN)
+        self._sep.setEnabled(mode in (LayoutMode.TABLE, LayoutMode.GRID))
+        # Kolon esigi kolonu TAHMIN eden kiplerin ayari: izgarada cizgiler
+        # zaten belli, esigin hicbir etkisi olmaz.
+        self._gutter.setEnabled(mode in (LayoutMode.COLUMNS, LayoutMode.TABLE))
         self._info.setText(
             f"{result.info}  ·  {len(result.text)} karakter  ·  {self._ms:.0f} ms"
         )

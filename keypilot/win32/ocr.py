@@ -47,7 +47,9 @@ try:
 except ImportError as exc:  # paket kurulmamis: menu ogesi uyari verir
     _IMPORT_ERROR = str(exc)
 
-DEFAULT_SCALE = 2
+#: 96 DPI'da 8-9 pt arayuz fontlari 2x'te motorun sinirinda kaliyordu;
+#: 3x belirgin daha iyi okuyor ve maliyeti hala birkac yuz milisaniye.
+DEFAULT_SCALE = 3
 MAX_SCALE = 4
 #: Secim cubugu / OCR+ dil dugmeleri. Windows'ta paket yoksa sessizce
 #: Ingilizceye (sonra kullanici profiline) dusulur.

@@ -4,11 +4,13 @@ kutulari oldugu icin motorsuz test edilebiliyor.
 """
 
 from keypilot.core.ocr_layout import (
+    Grid,
     LayoutMode,
     Word,
     column_index,
     column_splits,
     escape_separator,
+    grid_text,
     group_rows,
     layout,
     separator_from_text,
@@ -131,3 +133,50 @@ def test_ayrac_etiketi_ve_geri_cevrimi():
     # Listede olmayan ayrac: etiketten geri okunabilmeli
     label = separator_label(" ~ ")
     assert separator_from_text(label) == " ~ "
+
+
+# ---- cizilen izgaraya gore okuma (LayoutMode.GRID) --------------------------
+
+
+def test_izgara_cok_satirli_hucreyi_TEK_degere_katlar():
+    """Bu kipin varlik sebebi: otomatik kipte sarmis bir hucre degeri
+    ikinci bir TABLO SATIRI uretiyor ve yanindaki hucrelerin hizasi
+    kayiyordu. Cizgi varken satirin nerede bittigini metin soylemiyor."""
+    words = [
+        w("Ad", 10, 10), w("Aciklama", 210, 10),
+        w("Mete", 10, 50), w("iki", 210, 50), w("satir", 260, 50),
+        w("suren", 210, 75), w("deger", 260, 75),  # ayni hucrenin 2. satiri
+    ]
+    grid = Grid(rows=(0.25,), cols=(0.5,), width=400, height=160)
+
+    assert grid_text(words, grid, "\t").splitlines() == [
+        "Ad\tAciklama",
+        "Mete\tiki satir suren deger",
+    ]
+
+
+def test_izgara_bos_hucreyi_ve_bos_satiri_korur():
+    """Excel'e yapistirinca hiza bozulmasin diye bos hucre bos kalir."""
+    words = [w("tek", 10, 10)]
+    grid = Grid(rows=(0.5,), cols=(0.5,), width=400, height=160)
+
+    assert grid_text(words, grid, "\t").splitlines() == ["tek\t", "\t"]
+
+
+def test_izgara_kipi_layout_uzerinden_calisir():
+    words = [w("a", 10, 10), w("b", 210, 10)]
+    grid = Grid(cols=(0.5,), width=400, height=160)
+
+    result = layout(words, ["a b"], LayoutMode.GRID, "\t", 0, grid)
+    assert result.text == "a\tb"
+    assert (result.columns, result.rows) == (2, 1)
+
+
+def test_izgara_cizilmemisse_duz_metne_doner():
+    """Kip secili ama cizgi yoksa sessizce bos cikmak yerine uyarip
+    motorun kendi satirlarini verir."""
+    words = [w("a", 10, 10)]
+
+    result = layout(words, ["a"], LayoutMode.GRID, "\t", 0, Grid())
+    assert result.text == "a"
+    assert "izgara cizilmedi" in result.info

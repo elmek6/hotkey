@@ -212,6 +212,10 @@ class SnipOverlay(QWidget):
     done = Signal(str, QImage)
     #: OCR+ oturumu acikken alan degisti -- yeni kirpim
     rect_changed = Signal(QImage)
+    #: Izgara degisti (cizgi eklendi/silindi/suruklendi) -- panel yeniden
+    #: dizsin. OCR GEREKMEZ: eldeki kelime kutulari yeni cizgilere gore
+    #: dagitiliyor, o yuzden ekran da tekrar cekilmiyor.
+    grid_changed = Signal()
     #: Basit OCR dugmesine gelince secili alani sessizce oku.
     ocr_preview_requested = Signal(QImage)
     closed = Signal()
@@ -1378,6 +1382,7 @@ class SnipOverlay(QWidget):
             y = min(max(pos.y(), rect.top()), rect.bottom())
             self._grid_rows.append((y - rect.top()) / rect.height())
         self.update()
+        self.grid_changed.emit()
 
     # ---- izgara cizgileri: hover, ikonlar, yerel kesme (OCR+ fazi) ----
 
@@ -1457,6 +1462,15 @@ class SnipOverlay(QWidget):
         self._del_hover = None
         self._line_hover = None
         self.update()
+        self.grid_changed.emit()
+
+    def grid(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """Cizili izgara: (satir oranlari, kolon oranlari), kucukten buyuge.
+
+        Oran (0..1) olarak veriliyor -- okuyan taraf kirpimin kendi
+        pikseliyle carpiyor (core/ocr_layout.Grid).
+        """
+        return tuple(sorted(self._grid_rows)), tuple(sorted(self._grid_cols))
 
     def _apply_grip(self, pos: QPoint) -> None:
         delta = pos - self._anchor
@@ -1656,7 +1670,11 @@ class SnipOverlay(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         if self._line_drag is not None:
-            self._line_drag = None  # cizgi birakildi: secime hic dokunulmadi
+            # Cizgi birakildi: secime hic dokunulmadi. Panel SURUKLEME
+            # BITINCE tazeleniyor -- her ara konumda metni bastan yazmak
+            # kutudaki kaydirmayi/imleci sifirlardi.
+            self._line_drag = None
+            self.grid_changed.emit()
             return
         adjusted = self._grip != Grip.NONE
         self._settle_pick()
