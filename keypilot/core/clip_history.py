@@ -97,6 +97,20 @@ class ClipHistory:
         del self._items[self.max_items :]
         return entry
 
+    def touch(self, index: int, now: float) -> ClipEntry | None:
+        """1 tabanli `index`teki kaydi basa tasir (yapistirilan en uste).
+
+        `count` ARTMAZ: sayac kopyalama sayisi, yapistirma degil.
+        """
+        entry = self.get(index)
+        if entry is None:
+            return None
+        if index > 1:
+            del self._items[index - 1]
+            entry = replace(entry, last_ts=now)
+            self._items.insert(0, entry)
+        return entry
+
     def load(self, entries: list[ClipEntry] | tuple[ClipEntry, ...]) -> int:
         """Diskten okunan kayitlari yerlestirir (store.ClipStore cagirir).
 

@@ -120,6 +120,10 @@ class OcrView(QWidget):
         self._mode = QComboBox()
         for label, _mode in MODES:
             self._mode.addItem(label)
+        # OCR+ cerceveye cizgi cekmek icin acilir: varsayilan biçim izgara.
+        self._mode.setCurrentIndex(
+            next(i for i, (_label, mode) in enumerate(MODES) if mode is LayoutMode.GRID)
+        )
         self._mode.currentIndexChanged.connect(self._relayout)
 
         # Duzenlenebilir: listeden secilebilir ya da elle yazilabilir

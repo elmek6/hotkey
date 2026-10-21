@@ -215,6 +215,7 @@ class ClipController:
         # Sira numarasi YOK, yalniz icerik -- CapsLock & 3'e basan zaten
         # kacinci kaydi istedigini biliyor, gormek istedigi sey ne geldigi.
         self._tip(preview_html(entry.text), 1200)
+        self.history.touch(index, time.time())  # yapistirilan en uste
         self.paste_text(entry.text)
 
     def paste_history_plain(self, argument: str) -> None:
@@ -231,6 +232,7 @@ class ClipController:
         entry = self.history.get(int(argument)) if argument.isdigit() else None
         if entry is None or not entry.text:
             return
+        self.history.touch(int(argument), time.time())
         self.watcher.set_text(entry.text)
         QTimer.singleShot(60, lambda: self._send_key(Cmd.send_keys(*strokes)))
 
