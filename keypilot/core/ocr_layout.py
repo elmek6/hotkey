@@ -52,8 +52,9 @@ class Grid:
     goruntunun kelime kutulariyla AYNI pikselindeki boyutu. Oran olmasi
     sayesinde DPI/olcek degisse de cevrim dogru kaliyor.
 
-    Bir eksen BOS birakilabilir: o eksen otomatik bulunur (bkz.
-    `grid_cells`). Tek bir dikey cizgi cekip satirlari motora birakmak
+    Yalnizca TAM BOY yatay (`rows`) ve dikey (`cols`) cizgiler var; hucreler
+    bunlarin kesisimi. Bir eksen BOS birakilabilir: o eksen otomatik bulunur
+    (bkz. `grid_cells`). Tek bir dikey cizgi cekip satirlari motora birakmak
     tipik kullanim.
     """
 
@@ -61,6 +62,14 @@ class Grid:
     cols: tuple[float, ...] = ()
     width: float = 0.0
     height: float = 0.0
+
+    @property
+    def rows_drawn(self) -> bool:
+        return bool(self.rows)
+
+    @property
+    def cols_drawn(self) -> bool:
+        return bool(self.cols)
 
     @property
     def drawn(self) -> bool:
@@ -125,9 +134,9 @@ def layout(
         # Hangi eksenin cizili hangisinin tahmin oldugu BILGI SATIRINDA
         # duruyor: "neden tek satir cikti" sorusunun cevabi orada gorunsun.
         return Layout(
-            "\n".join(separator.join(row) for row in cells),
-            f"izgara · {columns} kolon ({'cizili' if grid.cols else 'otomatik'})"
-            f" x {len(cells)} satir ({'cizili' if grid.rows else 'otomatik'})"
+            join_rows(cells, separator),
+            f"izgara · {columns} kolon ({'cizili' if grid.cols_drawn else 'otomatik'})"
+            f" x {len(cells)} satir ({'cizili' if grid.rows_drawn else 'otomatik'})"
             f" · ayrac {separator_label(separator)}",
             columns,
             len(cells),
@@ -158,35 +167,49 @@ def grid_cells(words: list[Word], grid: Grid, gutter: int = 0) -> list[list[str]
     CIZILEN EKSEN KAZANIR, CIZILMEYEN OTOMATIK BULUNUR. Tabloda kolon
     ayraci cogu zaman tek bir yerde yanlis bulunuyor ama satirlar
     duzgun cikiyor; o tek dikey cizgiyi cekip satirlari motora birakmak
-    isin buyuk kismini halletmeli. Iki ekseni birden cizmeye zorlamak
-    on satirlik bir tablo icin on bir tiklama demekti.
+    isin buyuk kismini halletmeli.
 
-    Cizili eksende tahmin YOK: her kelime `bisect` ile hangi araliga
-    dustuyse o hucreye girer. Bu kipin varlik sebebi de bu -- otomatik
-    satirlamada iki satira sarmis bir hucre degeri ikinci bir TABLO
-    SATIRI uretip yanindaki hucrelerin hizasini kaydiriyor; yatay cizgi
-    cekilen yerde satirin nerede bittigini metin degil CIZGI soyluyor ve
-    sarmis satirlar tek hucre degerine katlaniyor.
+    HUCRE ICI SATIRLAR AYRI SATIR: once her hucredeki kelimeler satirlara
+    ayrilir, sonra her izgara satiri, icindeki hucrelerin EN COK satirli
+    olani kadar alt satira acilir; kisa hucreler asagida bos kalir.
+    Ornek: A hucresinde 12, B hucresinde 5 satir varsa o izgara satiri 12
+    cikti satiridir, B'nin son 7 hucresi bos. Birlesik hucre yok -- cikti
+    her zaman duz bir matris, Excel'e yapisinca hizasi bozulmaz.
 
-    Bos satir/kolonlar ATILMAZ: kullanici o cizgiyi bilerek cekti,
-    Excel'e yapistirinca hizanin korunmasi icin karsiligi bos hucre olmali.
+    Cizili eksende tahmin YOK: kelime hangi araliga dustuyse o hucreye
+    girer (`bisect`). Bos satir/kolonlar ATILMAZ: kullanici o cizgiyi
+    bilerek cekti, hizanin korunmasi icin karsiligi bos hucre olmali.
     """
+    row_cuts = _row_cuts(words, grid)
     col_cuts = _col_cuts(words, grid, gutter)
+    bands: list[list[list[Word]]] = [
+        [[] for _ in range(len(col_cuts) + 1)] for _ in range(len(row_cuts) + 1)
+    ]
+    for word in words:
+        band = bisect.bisect_right(row_cuts, word.cy)
+        bands[band][column_index(word.cx, col_cuts)].append(word)
+
     out: list[list[str]] = []
-    for row in _grid_rows(words, grid):
-        cells: list[list[Word]] = [[] for _ in range(len(col_cuts) + 1)]
-        for word in row:
-            cells[column_index(word.cx, col_cuts)].append(word)
-        out.append([_cell_text(cell) for cell in cells])
+    for band_cells in bands:
+        lines = [_cell_lines(cell) for cell in band_cells]
+        for index in range(max(1, *(len(cell) for cell in lines))):
+            out.append([cell[index] if index < len(cell) else "" for cell in lines])
     return out
 
 
-def grid_text(words: list[Word], grid: Grid, separator: str = "\t", gutter: int = 0) -> str:
-    return "\n".join(separator.join(row) for row in grid_cells(words, grid, gutter))
+def grid_text(words: list[Word], grid: Grid, separator: str = "	", gutter: int = 0) -> str:
+    return join_rows(grid_cells(words, grid, gutter), separator)
+
+
+def _row_cuts(words: list[Word], grid: Grid) -> list[float]:
+    """Satir sinirlari (px): cizilmisse onlar, degilse satirlar arasi."""
+    if grid.rows:
+        return sorted(frac * grid.height for frac in grid.rows)
+    return _auto_row_cuts(words)
 
 
 def _col_cuts(words: list[Word], grid: Grid, gutter: int) -> list[float]:
-    """Kolon sinirlari: cizilmisse onlar, degilse bos seritlerden bulunur."""
+    """Kolon sinirlari (px): cizilmisse onlar, degilse bos seritlerden bulunur."""
     if grid.cols:
         return sorted(frac * grid.width for frac in grid.cols)
     median_h = _median([word.h for word in words])
@@ -194,26 +217,26 @@ def _col_cuts(words: list[Word], grid: Grid, gutter: int) -> list[float]:
     return column_splits(words, gutter_min)
 
 
-def _grid_rows(words: list[Word], grid: Grid) -> list[list[Word]]:
-    """Satirlar: cizilmisse CIZGILERDEN (bos satirlar dahil), degilse
-    y-merkezi kumelemesinden (`group_rows`)."""
-    if not grid.rows:
-        return group_rows(words, max(MIN_ROW_EPS, _median([w.h for w in words]) / 2))
-    cuts = sorted(frac * grid.height for frac in grid.rows)
-    buckets: list[list[Word]] = [[] for _ in range(len(cuts) + 1)]
-    for word in words:
-        buckets[bisect.bisect_right(cuts, word.cy)].append(word)
-    return buckets
-
-
-def _cell_text(words: list[Word]) -> str:
-    """Tek hucrenin metni; icindeki satirlar BOSLUKLA birlesir."""
+def _auto_row_cuts(words: list[Word]) -> list[float]:
+    """Otomatik satirlarin arasindaki sinirlar: komsu satirlarin en alt
+    ve en ust merkezinin ortasi. `group_rows` y-merkezine gore SIRALI
+    kumeledigi icin bir satirin en buyugu sonrakinin en kucugunden azdir,
+    yani hicbir kelime yanlis tarafa dusmez."""
     if not words:
-        return ""
+        return []
+    rows = group_rows(words, max(MIN_ROW_EPS, _median([w.h for w in words]) / 2))
+    return [
+        (max(w.cy for w in above) + min(w.cy for w in below)) / 2
+        for above, below in zip(rows, rows[1:], strict=False)
+    ]
+
+
+def _cell_lines(words: list[Word]) -> list[str]:
+    """Tek hucrenin satirlari (yukaridan asagi), her satir soldan saga."""
+    if not words:
+        return []
     row_eps = max(MIN_ROW_EPS, _median([word.h for word in words]) / 2)
-    return " ".join(
-        " ".join(word.text for word in line) for line in group_rows(words, row_eps)
-    )
+    return [" ".join(word.text for word in line) for line in group_rows(words, row_eps)]
 
 
 def column_splits(words: list[Word], gutter_min: float) -> list[float]:
@@ -273,16 +296,16 @@ def column_index(cx: float, splits: list[float]) -> int:
 
 def _table_text(rows: list[list[Word]], splits: list[float], count: int, sep: str) -> str:
     """AHK `_tableText`: satirlar hizali, hucreler ayracla birlesik."""
-    out: list[str] = []
+    table: list[list[str]] = []
     for row in rows:
         cells = [""] * count
         for word in row:
             index = column_index(word.cx, splits)
             cells[index] = f"{cells[index]} {word.text}".strip()
-        line = sep.join(cells)
-        if line.strip(" \t"):
-            out.append(line)
-    return "\n".join(out)
+        # Bos satir atilir; hizali ayracta ayrac metin olmadigindan hucrelere bakilir.
+        if any(cells) if is_aligned(sep) else sep.join(cells).strip(" \t"):
+            table.append(cells)
+    return join_rows(table, sep)
 
 
 def _columns_text(rows: list[list[Word]], splits: list[float], count: int) -> str:
@@ -314,8 +337,17 @@ def _median(values: list[float]) -> float:
 # AHK `_sepEscape` / `_sepUnescape`. TAB ve satir sonu bir metin kutusuna
 # dogrudan yazilamaz; `\t` ve `\n` ile yazilir, burada cozulur.
 
+#: Hizali bosluk isareti: gercek bir ayrac karakteri DEGIL. Hucreleri
+#: kolonun en genisine kadar bosluk doldurur: ALIGN = 1 bosluk, ALIGN + "3"
+#: = 3 bosluk. Gorunmez bir kontrol karakteri, metinde kendiliginden cikmaz.
+ALIGN = "\x01"
+
 #: (etiket, gercek metin) -- panelde hazir secenekler. AHK: `SEPS`.
 SEPARATORS: tuple[tuple[str, str], ...] = (
+    ("Hizali bosluk (otomatik)", ALIGN),
+    ("Hizali bosluk (2)", ALIGN + "2"),
+    ("Hizali bosluk (3)", ALIGN + "3"),
+    ("Hizali bosluk (4)", ALIGN + "4"),
     ("Tab", "\t"),
     (",  Virgul", ","),
     (".  Nokta", "."),
@@ -325,6 +357,25 @@ SEPARATORS: tuple[tuple[str, str], ...] = (
     ("-  Tire", " - "),
     ("Bosluk", " "),
 )
+
+
+def is_aligned(separator: str) -> bool:
+    return separator.startswith(ALIGN)
+
+
+def join_rows(rows: list[list[str]], separator: str) -> str:
+    """Satirlari ayracla birlestirir; `ALIGN` ise kolonlari hizalar."""
+    if not is_aligned(separator):
+        return "\n".join(separator.join(row) for row in rows)
+    gap_text = separator[len(ALIGN) :]
+    gap = int(gap_text) if gap_text.isdigit() and int(gap_text) > 0 else 1
+    count = max((len(row) for row in rows), default=0)
+    widths = [max((len(row[i]) for row in rows if i < len(row)), default=0) for i in range(count)]
+    lines = []
+    for row in rows:
+        padded = [cell.ljust(widths[i] + gap) for i, cell in enumerate(row)]
+        lines.append("".join(padded).rstrip())
+    return "\n".join(lines)
 
 
 def escape_separator(value: str) -> str:
@@ -348,6 +399,8 @@ def separator_label(value: str) -> str:
     for label, real in SEPARATORS:
         if real == value:
             return label
+    if is_aligned(value):
+        return f"Hizali bosluk ({value[len(ALIGN) :] or 'otomatik'})"
     return f"«{escape_separator(value)}»"
 
 
@@ -356,6 +409,9 @@ def separator_from_text(text: str) -> str:
     for label, real in SEPARATORS:
         if text == label:
             return real
+    word, _, count = text.strip().lower().partition(" ")
+    if word == "hizali" and (not count or count.isdigit()):
+        return ALIGN + count  # "hizali 5" / "hizali" (otomatik)
     if len(text) >= 2 and text.startswith("«") and text.endswith("»"):
         text = text[1:-1]
     return unescape_separator(text)

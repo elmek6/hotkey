@@ -4,14 +4,17 @@ kutulari oldugu icin motorsuz test edilebiliyor.
 """
 
 from keypilot.core.ocr_layout import (
+    ALIGN,
     Grid,
     LayoutMode,
     Word,
     column_index,
     column_splits,
     escape_separator,
+    grid_cells,
     grid_text,
     group_rows,
+    join_rows,
     layout,
     separator_from_text,
     separator_label,
@@ -138,10 +141,10 @@ def test_ayrac_etiketi_ve_geri_cevrimi():
 # ---- cizilen izgaraya gore okuma (LayoutMode.GRID) --------------------------
 
 
-def test_izgara_cok_satirli_hucreyi_TEK_degere_katlar():
-    """Bu kipin varlik sebebi: otomatik kipte sarmis bir hucre degeri
-    ikinci bir TABLO SATIRI uretiyor ve yanindaki hucrelerin hizasi
-    kayiyordu. Cizgi varken satirin nerede bittigini metin soylemiyor."""
+def test_izgara_cok_satirli_hucre_alt_satirlara_acilir():
+    """Hucre ici satirlar AYRI satir: izgara satiri, en cok satirli hucre
+    kadar yukselir, kisa hucreler asagida bos kalir (duz matris, birlesik
+    hucre yok)."""
     words = [
         w("Ad", 10, 10), w("Aciklama", 210, 10),
         w("Mete", 10, 50), w("iki", 210, 50), w("satir", 260, 50),
@@ -149,9 +152,10 @@ def test_izgara_cok_satirli_hucreyi_TEK_degere_katlar():
     ]
     grid = Grid(rows=(0.25,), cols=(0.5,), width=400, height=160)
 
-    assert grid_text(words, grid, "\t").splitlines() == [
-        "Ad\tAciklama",
-        "Mete\tiki satir suren deger",
+    assert grid_text(words, grid, "	").splitlines() == [
+        "Ad	Aciklama",
+        "Mete	iki satir",
+        "	suren deger",
     ]
 
 
@@ -214,3 +218,58 @@ def test_izgara_bilgi_satiri_hangi_eksen_cizili_soyler():
                                                                  height=160)).info
     assert "kolon (cizili)" in info
     assert "satir (otomatik)" in info
+
+
+# ---- hizali bosluk ayraci ----
+
+def test_hizali_bosluk_kolonlari_hizalar():
+    rows = [["A", "1"], ["Bb", "2"], ["Ccc", "3"]]
+    assert join_rows(rows, ALIGN) == "A   1\nBb  2\nCcc 3"
+
+
+def test_hizali_bosluk_sayisi_secilebilir_ve_satir_sonu_bosluksuz():
+    rows = [["A", "1", ""], ["Bb", "22", "x"]]
+    assert join_rows(rows, ALIGN + "3") == "A    1\nBb   22   x"
+
+
+def test_hizali_ayrac_yazilan_metinden_ve_etiketten_cozulur():
+    assert separator_from_text("hizali 5") == ALIGN + "5"
+    assert separator_from_text("Hizali") == ALIGN
+    assert separator_from_text("Hizali bosluk (3)") == ALIGN + "3"
+    assert "3" in separator_label(ALIGN + "3")
+
+
+def test_tablo_kipi_hizali_ayracla_calisir():
+    result = layout(TABLE_WORDS, TABLE_LINES, LayoutMode.TABLE, ALIGN)
+    assert result.text.splitlines()[0].startswith("Elma  12 adet")
+
+
+# ---- hucre ici satirlar: alt satirlara acilir ----
+
+def column_words(prefix: str, x: float, count: int) -> list[Word]:
+    """`count` satirlik tek kolonluk metin; kelimeler `prefix1`, `prefix2`..."""
+    return [w(f"{prefix}{i + 1}", x, 10 + i * 30) for i in range(count)]
+
+
+def test_hucre_ici_satirlar_ayri_satir_olur_kisa_hucre_bos_kalir():
+    # A kolonunda 4, B kolonunda 2 satir; yatay cizgi yok (satirlar otomatik).
+    words = column_words("a", 20, 4) + column_words("b", 220, 2)
+    grid = Grid(cols=(0.5,), width=400, height=140)
+    assert grid_cells(words, grid) == [["a1", "b1"], ["a2", "b2"], ["a3", ""], ["a4", ""]]
+
+
+def test_en_yuksek_hucre_satir_sayisini_belirler():
+    # 1, 2, 3 satirlik uc kolon -> 3 satir x 3 kolon.
+    words = column_words("a", 20, 1) + column_words("b", 150, 2) + column_words("c", 280, 3)
+    grid = Grid(cols=(0.33, 0.66), width=400, height=100)
+    cells = grid_cells(words, grid)
+    assert cells == [["a1", "b1", "c1"], ["", "b2", "c2"], ["", "", "c3"]]
+
+
+def test_her_izgara_satiri_kendi_yuksekligini_alir():
+    # Yatay cizgi: ust band 3, alt band 1 satir -> toplam 4 cikti satiri.
+    words = column_words("a", 20, 3) + [w("z", 20, 130)]
+    grid = Grid(rows=(0.5,), cols=(0.5,), width=400, height=160)
+    assert grid_cells(words, grid) == [
+        ["a1", ""], ["a2", ""], ["a3", ""], ["z", ""],
+    ]

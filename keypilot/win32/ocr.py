@@ -120,7 +120,11 @@ def recognize(
     factor = max(1, min(int(scale), MAX_SCALE))
     prepared = _prepare(image, factor, grayscale)
     raw, width, height = _to_bgra(prepared)
-    return asyncio.run(_recognize(raw, width, height, factor, language))
+    # GERCEK buyutme: `_prepare` motor siniri asilirsa olcegi kirpiyor, kutulari
+    # istenen `factor`e bolmek buyuk kirpimlarda tum kelimeleri sola/yukari
+    # kaydirirdi (izgara hucreleri tek kolona/satira yigilirdi).
+    applied = prepared.width() / image.width()
+    return asyncio.run(_recognize(raw, width, height, applied, language))
 
 
 def _prepare(image: QImage, scale: int, grayscale: bool) -> QImage:
@@ -154,7 +158,7 @@ def _to_bgra(image: QImage) -> tuple[bytes, int, int]:
 
 
 async def _recognize(
-    raw: bytes, width: int, height: int, scale: int, language: str
+    raw: bytes, width: int, height: int, scale: float, language: str
 ) -> Result:
     writer = DataWriter()
     writer.write_bytes(raw)

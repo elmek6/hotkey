@@ -31,8 +31,9 @@ alan yeniden ayarlanabilir, panel kendini tazeler.
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -40,6 +41,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizeGrip,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -50,6 +54,8 @@ from keypilot.core.ocr_layout import (
     Grid,
     LayoutMode,
     Word,
+    grid_cells,
+    join_rows,
     layout,
     separator_from_text,
 )
@@ -57,6 +63,19 @@ from keypilot.win32.ocr import DEFAULT_SCALE, OCR_LANGUAGES
 
 #: AHK: GUTTERS -- kolon esigi icin hazir secenekler (duzenlenebilir kutu).
 GUTTERS = ("Otomatik", "20px", "40px", "80px", "150px")
+
+
+#: Hucre tablosunun en cok kolonu: basliklar A..Z. Bundan genis izgara
+#: gercek bir kullanimda yok; gelirse duz metin gosterilir.
+MAX_TABLE_COLUMNS = 26
+
+
+def column_label(index: int) -> str:
+    """0 -> A, 25 -> Z. Z'den sonrasi ValueError (bkz. MAX_TABLE_COLUMNS)."""
+    if not 0 <= index < MAX_TABLE_COLUMNS:
+        raise ValueError(f"kolon basligi A..Z disinda: {index}")
+    return chr(ord("A") + index)
+
 
 MODES = (
     ("Duz metin", LayoutMode.PLAIN),
@@ -68,6 +87,18 @@ MODES = (
 #: Dil dugmesinin uzerine gelince secilmesi icin beklenen sure. Sifir
 #: olursa dugmelerin uzerinden gecmek bile pes pese OCR tetikler.
 LANGUAGE_HOVER_MS = 220
+
+
+class CellTable(QTableWidget):
+    """Hucre tablosu: Ctrl+C secili hucreleri kopyalar (Qt kendiliginden yapmaz)."""
+
+    copy_requested = Signal()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy_requested.emit()
+            return
+        super().keyPressEvent(event)
 
 
 class OcrView(QWidget):
@@ -113,6 +144,21 @@ class OcrView(QWidget):
         self._edit.setFont(mono)
         self._edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
 
+        # Izgara kipinde duz metin kutusu hucreleri gostermiyor (birlesik
+        # hucre, bos hucre, hizasi): onun yerine gercek bir hucre tablosu.
+        # Hucreler duzenlenebilir -- OCR hatasi kopyalamadan once duzeltilir.
+        self._table = CellTable()
+        self._table.setFont(mono)
+        self._table.setWordWrap(False)
+        # Serbest secim: surukleyerek dikdortgen, Ctrl ile tek tek, basliga
+        # tiklayarak satir/kolon, kose ile hepsi.
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self._table.copy_requested.connect(lambda: self.copy_text.emit(self._copy_text()))
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._edit)
+        self._stack.addWidget(self._table)
+
         self._info = QLabel("")
         theme.muted(self._info)
 
@@ -133,6 +179,8 @@ class OcrView(QWidget):
         self._sep.setEditable(True)
         for label, _real in SEPARATORS:
             self._sep.addItem(label)
+        # Hizali bosluk listenin basinda ama varsayilan eskisi gibi TAB kalir.
+        self._sep.setCurrentIndex(max(0, self._sep.findText("Tab")))
         self._sep.setToolTip("Kacislar:  \\t = TAB   \\n = satir sonu   \\s = bosluk")
         self._sep.currentTextChanged.connect(self._relayout)
 
@@ -188,8 +236,11 @@ class OcrView(QWidget):
         refresh_button.clicked.connect(self._on_refresh)
         copy_button = QPushButton("\U0001f4cb Kopyala")
         copy_button.setDefault(True)
-        copy_button.setToolTip("Kutuda NE GORUNUYORSA onu kopyalar")
-        copy_button.clicked.connect(lambda: self.copy_text.emit(self._edit.toPlainText()))
+        copy_button.setToolTip(
+            "Kutuda NE GORUNUYORSA onu kopyalar. Tabloda hucre secildiyse "
+            "YALNIZ secili hucreleri (Ctrl+C ile ayni)"
+        )
+        copy_button.clicked.connect(lambda: self.copy_text.emit(self._copy_text()))
         excel_button = QPushButton("\U0001f4d7 Excel")
         excel_button.setToolTip(
             "Secili bicimden BAGIMSIZ olarak TAB ayracli tablo kopyalar -- "
@@ -210,7 +261,7 @@ class OcrView(QWidget):
         root = QVBoxLayout(self)
         root.addLayout(lang_row)
         root.addLayout(grid)
-        root.addWidget(self._edit, 1)
+        root.addWidget(self._stack, 1)
         root.addLayout(bottom)
         self.setMinimumSize(420, 260)
         self.resize(620, 460)
@@ -226,7 +277,10 @@ class OcrView(QWidget):
         self.activateWindow()
 
     def set_grid(
-        self, rows: tuple[float, ...], cols: tuple[float, ...], size: QSize
+        self,
+        rows: tuple[float, ...],
+        cols: tuple[float, ...],
+        size: QSize,
     ) -> None:
         """Cercevede cizilen izgara degisti (ui/snip.py `grid_changed`).
 
@@ -244,10 +298,58 @@ class OcrView(QWidget):
         kolon bulmayla. Boylece ayni pencere hem serbest metin hem de
         Excel'e hazir tablo uretebiliyor.
         """
+        if self._table_shown():
+            return join_rows(self._table_cells(), "	")
         mode = LayoutMode.GRID if self._grid.drawn else LayoutMode.TABLE
         return layout(
             list(self._words), list(self._lines), mode, "\t", self._gutter_px(), self._grid
         ).text
+
+    def _table_shown(self) -> bool:
+        return self._stack.currentWidget() is self._table
+
+    def _table_cells(self) -> list[list[str]]:
+        """Tablodaki (duzenlenmis olabilecek) hucre metinleri."""
+        rows = []
+        for row in range(self._table.rowCount()):
+            cells = []
+            for column in range(self._table.columnCount()):
+                item = self._table.item(row, column)
+                cells.append(item.text() if item is not None else "")
+            rows.append(cells)
+        return rows
+
+    def _copy_text(self) -> str:
+        """Kutuda/tabloda NE GORUNUYORSA: tablo secili ayracla birlestirilir.
+
+        Tabloda hucre secildiyse yalniz onlar: secimin sinirlayici
+        dikdortgeni alinir, secilmemis hucreler bos kalir (hiza bozulmaz).
+        """
+        if not self._table_shown():
+            return self._edit.toPlainText()
+        cells = self._table_cells()
+        picked = {(index.row(), index.column()) for index in self._table.selectedIndexes()}
+        if picked:
+            rows = [row for row, _ in picked]
+            cols = [column for _, column in picked]
+            cells = [
+                [cells[r][c] if (r, c) in picked else "" for c in range(min(cols), max(cols) + 1)]
+                for r in range(min(rows), max(rows) + 1)
+            ]
+        return join_rows(cells, separator_from_text(self._sep.currentText()))
+
+    def _fill_table(self, cells: list[list[str]]) -> None:
+        """Izgara hucrelerini tabloya dok (sutunlar A, B, C...)."""
+        table = self._table
+        table.clear()
+        table.setRowCount(len(cells))
+        table.setColumnCount(len(cells[0]))
+        table.setHorizontalHeaderLabels([column_label(i) for i in range(len(cells[0]))])
+        for row, row_cells in enumerate(cells):
+            for column, text in enumerate(row_cells):
+                table.setItem(row, column, QTableWidgetItem(text))
+        table.resizeColumnsToContents()
+        table.resizeRowsToContents()
 
     def busy(self, message: str = "okunuyor...") -> None:
         self._info.setText(message)
@@ -310,7 +412,18 @@ class OcrView(QWidget):
         result = layout(
             list(self._words), list(self._lines), mode, separator, self._gutter_px(), self._grid
         )
-        self._edit.setPlainText(result.text)
+        items = [word for word in self._words if word.text.strip()]
+        cells = (
+            grid_cells(items, self._grid, self._gutter_px())
+            if mode is LayoutMode.GRID and self._grid.drawn and items
+            else []
+        )
+        if cells and len(cells[0]) <= MAX_TABLE_COLUMNS:
+            self._fill_table(cells)
+            self._stack.setCurrentWidget(self._table)
+        else:
+            self._edit.setPlainText(result.text)
+            self._stack.setCurrentWidget(self._edit)
         # Ayrac hucreleri ayiran kiplerde is goruyor; digerlerinde kapatiliyor
         # ki kullanici bosuna oynamasin (AHK'de de pasifti).
         self._sep.setEnabled(mode in (LayoutMode.TABLE, LayoutMode.GRID))
