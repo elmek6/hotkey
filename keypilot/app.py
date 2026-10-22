@@ -1587,6 +1587,8 @@ class KeyPilot:
             filter_tip="Search on history (array filter)",
             gestures=keymap.OVERVIEW_GESTURES,
             target=hwnd,
+            groups_label=self.slot_store.default_group,
+            groups=self.slots.side_menu_spec(),
         )
 
     def _overview_menus(self) -> tuple:

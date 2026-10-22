@@ -733,6 +733,9 @@ class OverviewPanel(QWidget):
         )
         for tab in self._tabs:
             tabs.addWidget(tab)
+        #: Slot sekmesinin yanindaki grup menusu (acilista kurulur).
+        self._tab_row = tabs
+        self._groups_button: _HoverButton | None = None
         tabs.addWidget(self.search, 1)
         tabs.addWidget(self._history)
         self._stack = QStackedWidget()
@@ -789,6 +792,8 @@ class OverviewPanel(QWidget):
         filter_tip: str = "",
         gestures: tuple = (),
         target: int = 0,
+        groups_label: str = "",
+        groups: tuple = (),
     ) -> None:
         """Listeleri doldurur, imlecin yaninda acar.
 
@@ -802,6 +807,8 @@ class OverviewPanel(QWidget):
         basina (etiket, eylem, ipucu [, renk]) dizisi.
         `filter_action`: arama kutusundaki 🔍 (arama penceresi).
         `gestures`: (etiket, sol eylem, sag eylem, ipucu) -- jest satiri.
+        `groups`: Slot sekmesinin yanindaki "▾" menusu (yan slot gruplari);
+        `groups_label` secili grubun adi, menu acilmadan gorunsun.
         `target`: katmandan onceki on plan penceresi (hwnd); jest tuslari
         ona gider.
         """
@@ -817,6 +824,16 @@ class OverviewPanel(QWidget):
         pinned = sum(1 for entry in pins if entry and Mark.CHECKED in entry[2:])
         self._add_menu(f"Hep ustte ({pinned})" if pinned else "Hep ustte", pins, PINS_COLOR)
         self._header.addWidget(self.close_button)
+
+        if self._groups_button is not None:
+            self._tab_row.removeWidget(self._groups_button)
+            self._groups_button.deleteLater()
+            self._groups_button = None
+        if groups:
+            button = _HoverButton(groups_label, groups, self.chosen, SLOTS_COLOR)
+            button.popup_menu.aboutToHide.connect(self._check_active_later)
+            self._tab_row.insertWidget(len(self._tabs), button)
+            self._groups_button = button
 
         self._filter_action = filter_action
         self._filter.setToolTip(filter_tip)
