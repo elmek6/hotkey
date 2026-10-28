@@ -450,7 +450,6 @@ def build_cascades() -> dict[int, CascadeDef]:
         .main_key(PressType.LONG, Cmd.send_key("Home"), "Home")
         .combo("F17", "panic (buyutec %100 + kucult)", Cmd.Magnifier.PANIC)
         .combo("LButton", "VSCode/Cursor: satiri sil", Cmd.send_key("^+k"))
-        .combo("MButton", "ipucu", Cmd.Run.TIP("RButton + MButton: Zoom in/out"))
         .gesture(Direction.LEFT, "Del", Cmd.send_key("Delete"))
         .gestureVisible(True)
         .show_menu(False)
@@ -582,9 +581,9 @@ def build_hotkeys() -> HotkeyTable:
     # orta tus kaydirma/yeni sekme icin uygulamaya gitmeli (asagidaki
     # `~MButton` satirlari da oyle). Tekerlek yutulur, sayfa kaymaz; basili
     # tutma yapistirmasi da iptal olur (dispatch._cancel_mouse_hold_for_wheel).
-    # Her 3 centikte bir adim: tekerlek zoom icin fazla hassastı.
-    table.add("~MButton & WheelUp", Cmd.send_key_every(3, "^NumpadAdd"), "zoom +")
-    table.add("~MButton & WheelDown", Cmd.send_key_every(3, "^NumpadSub"), "zoom -")
+    # Her 6 centikte bir adim: tekerlek zoom icin fazla hassastı.
+    table.add("~MButton & WheelUp", Cmd.send_key_every(6, "^NumpadAdd"), "zoom +")
+    table.add("~MButton & WheelDown", Cmd.send_key_every(6, "^NumpadSub"), "zoom -")
 
     # --- fare dugmesi onek olarak. `~` SART: LButton'i yutarsak hicbir
     # yere tiklayamayiz. AHK handleLButton ile ayni fikir. ---

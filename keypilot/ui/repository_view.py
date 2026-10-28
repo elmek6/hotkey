@@ -93,7 +93,7 @@ class RepositoryView(QWidget):
         # ---- ust: arama ----
         self.search = QLineEdit()
         self.search.setPlaceholderText(
-            "\U0001f50e ara -- baslik, kategori ve govde icinde"
+            "\U0001f50e ara -- tum alanlarda (baslik, kategori, etiket, govde)"
         )
         self.search.textChanged.connect(self._apply_filters)
 
@@ -309,14 +309,31 @@ class RepositoryView(QWidget):
             row.setData(Qt.ItemDataRole.UserRole, item.uuid)
             self.results.addItem(row)
         self.results.blockSignals(False)
-        self._select_uuid(keep)
+        # Eski secim yeni sonucta yoksa detay paneli ESKI kaydi gostermeye
+        # devam ediyordu: ilk sonuc secilir, sonuc yoksa panel bosalir.
+        if not self._select_uuid(keep):
+            if self.results.count():
+                self.results.setCurrentRow(0)
+            else:
+                self._clear_detail()
         self.status.setText(f"{len(self._shown)} / {len(self.repo.items)} kayit")
 
-    def _select_uuid(self, uuid: str) -> None:
+    def _select_uuid(self, uuid: str) -> bool:
+        """Kaydi secer; sonucta yoksa False doner."""
+        if not uuid:
+            return False
         for index in range(self.results.count()):
             if self.results.item(index).data(Qt.ItemDataRole.UserRole) == uuid:
                 self.results.setCurrentRow(index)
-                return
+                return True
+        return False
+
+    def _clear_detail(self) -> None:
+        self._current_uuid = ""
+        self.uuid_label.setText("(yeni)")
+        for widget in (self.title_edit, self.category_edit, self.tags_edit):
+            widget.clear()
+        self.text_edit.clear()
 
     # ---- detay paneli ----
 
@@ -337,11 +354,7 @@ class RepositoryView(QWidget):
     def new_item(self) -> None:
         """Detay panelini bosaltir. Kayit `Kaydet`e basilinca olusuyor --
         bos kayit listeye dusmesin."""
-        self._current_uuid = ""
-        self.uuid_label.setText("(yeni)")
-        for widget in (self.title_edit, self.category_edit, self.tags_edit):
-            widget.clear()
-        self.text_edit.clear()
+        self._clear_detail()
         self.results.setCurrentRow(-1)
         self.title_edit.setFocus()
 

@@ -124,6 +124,12 @@ def test_arama_harf_duyarsiz():
     assert len(_depo().search("DOORBELL")) == 1
 
 
+def test_arama_etiket_ve_uuid_icinde_de_bakar():
+    repo = _depo()
+    assert len(repo.search("tuya")) == 1
+    assert len(repo.search(repo.items[0].uuid)) == 1
+
+
 def test_bos_arama_hepsini_verir():
     assert len(_depo().search("")) == 2
 

@@ -78,19 +78,26 @@ class Item:
             self.uuid = new_uuid()
 
     def matches(self, query: str) -> bool:
-        """AHK `Search`: baslik, kategori ve GOVDE icinde arar (harf duyarsiz).
+        """Kayittaki HER alanda arar (harf duyarsiz): baslik, kategori, govde,
+        etiketler, UUID ve taninmayan baslik anahtarlari/degerleri.
 
-        Etiketler aramaya dahil degil -- AHK'de de degildi. Etiket suzgeci
-        ayri (`filter_tags`), cunku "etiketi olan" ile "metninde gecen"
-        farkli sorular.
+        AHK etiketleri disarida birakiyordu; arama kutusu "depoda ara"
+        demek, bu yuzden alan listesi kayittan geliyor -- yeni alan eklenirse
+        buraya da eklenmeli.
         """
         if not query:
             return True
         needle = query.casefold()
-        return any(
-            needle in value.casefold()
-            for value in (self.title, self.category, self.text)
-        )
+        values = [
+            self.title,
+            self.category,
+            self.text,
+            self.uuid,
+            *self.tags,
+            *self.extra.keys(),
+            *self.extra.values(),
+        ]
+        return any(needle in value.casefold() for value in values)
 
     def has_tag(self, query: str) -> bool:
         """AHK `HasTagMatch`: etiketin ICINDE gecmesi yeter, tam esitlik degil."""
